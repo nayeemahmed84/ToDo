@@ -1,7 +1,9 @@
-import { FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import { DragEvent as ReactDragEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { User } from 'firebase/auth';
 import { SmartListId, TodoGroup, TodoList, ViewSelection } from '../types/todo';
+import { EmojiPicker } from './EmojiPicker';
 import { AppSettings } from './SettingsModal';
+import { getContextSubmenuPosition, ContextSubmenuPosition } from '../lib/contextMenu';
 import {
   CalendarIcon,
   HomeIcon,
@@ -29,18 +31,27 @@ interface SidebarProps {
   onCreateList: (title: string) => Promise<void>;
   onCreateGroup: (title: string) => Promise<void>;
   onToggleGroup: (group: TodoGroup) => Promise<void>;
+  onUpdateGroupIcon: (groupId: string, icon: string | null) => Promise<void>;
   onDeleteList: (listId: string) => Promise<void>;
   onShareList?: (listId: string) => void;
   onDuplicateList?: (listId: string) => void;
   onRenameGroup?: (groupId: string, name: string) => Promise<void>;
   onUngroupLists?: (groupId: string) => Promise<void>;
-  onMoveListToGroup?: (listId: string, groupId: string | null) => Promise<void>;
+  onMoveListToGroup: (listId: string, groupId: string | null) => Promise<void>;
   onMoveListDown?: (listId: string) => Promise<void>;
+  onReorderList: (listId: string, targetListId: string, insertBefore: boolean) => Promise<void>;
+  onReorderGroup: (groupId: string, targetGroupId: string, insertBefore: boolean) => Promise<void>;
   onToggleCollapsed?: () => void;
   onOpenSettings: () => void;
   onOpenWhatsNew: () => void;
   onSignOut: () => void;
 }
+
+type SidebarDragItem = { type: 'list' | 'group'; id: string };
+type SidebarDropTarget =
+  | { type: 'list' | 'group-reorder'; id: string; position: 'before' | 'after' }
+  | { type: 'group'; id: string }
+  | { type: 'root' };
 
 const SMART_LISTS: { id: SmartListId; label: string; icon: ReactNode }[] = [
   { id: 'my-day', label: 'My Day', icon: <SunIcon /> },
@@ -70,6 +81,7 @@ export function Sidebar({
   onCreateList,
   onCreateGroup,
   onToggleGroup,
+  onUpdateGroupIcon,
   onDeleteList,
   onShareList,
   onDuplicateList,
@@ -77,6 +89,8 @@ export function Sidebar({
   onUngroupLists,
   onMoveListToGroup,
   onMoveListDown,
+  onReorderList,
+  onReorderGroup,
   onToggleCollapsed,
   onOpenSettings,
   onOpenWhatsNew,
@@ -85,10 +99,14 @@ export function Sidebar({
   const [newListTitle, setNewListTitle] = useState('');
   const [newGroupTitle, setNewGroupTitle] = useState('');
   const [groupFormOpen, setGroupFormOpen] = useState(false);
+  const [groupIconPicker, setGroupIconPicker] = useState<{ id: string; top: number; left: number } | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [newListShake, setNewListShake] = useState(false);
   const [sidebarMenu, setSidebarMenu] = useState<{ type: 'list' | 'group'; id: string; x: number; y: number } | null>(null);
   const [moveToGroupOpen, setMoveToGroupOpen] = useState(false);
+  const [moveToGroupPosition, setMoveToGroupPosition] = useState<ContextSubmenuPosition | null>(null);
+  const [draggedItem, setDraggedItem] = useState<SidebarDragItem | null>(null);
+  const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null);
 
   useEffect(() => {
     if (!sidebarMenu) return;
@@ -170,15 +188,136 @@ export function Sidebar({
     .map((part) => part[0])
     .join('')
     .toUpperCase();
+  const orderedGroups = [...groups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const rootLists = lists
+    .filter((list) => !list.groupId || !groups.some((group) => group.id === list.groupId))
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const openMoveToGroup = (anchor: HTMLElement) => {
+    setMoveToGroupPosition(getContextSubmenuPosition(anchor.getBoundingClientRect()));
+    setMoveToGroupOpen(true);
+  };
+  const clearDragState = () => {
+    setDraggedItem(null);
+    setDropTarget(null);
+  };
+  const handleDragStart = (event: ReactDragEvent<HTMLElement>, item: SidebarDragItem) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', `${item.type}:${item.id}`);
+    setDraggedItem(item);
+  };
+  const handleListDragOver = (event: ReactDragEvent<HTMLElement>, list: TodoList) => {
+    if (
+      draggedItem?.type !== 'list' ||
+      draggedItem.id === list.id ||
+      list.ownerUid !== userId ||
+      list.isDefaultTasksList
+    ) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const rect = event.currentTarget.getBoundingClientRect();
+    setDropTarget({
+      type: 'list',
+      id: list.id,
+      position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+    });
+  };
+  const handleListDrop = (event: ReactDragEvent<HTMLElement>, list: TodoList) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (
+      draggedItem?.type !== 'list' ||
+      draggedItem.id === list.id ||
+      list.ownerUid !== userId ||
+      list.isDefaultTasksList
+    ) {
+      clearDragState();
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    void onReorderList(
+      draggedItem.id,
+      list.id,
+      event.clientY < rect.top + rect.height / 2
+    );
+    clearDragState();
+  };
+  const handleGroupDragOver = (event: ReactDragEvent<HTMLElement>, group: TodoGroup) => {
+    if (group.ownerUid !== userId || !draggedItem) return;
+    if (draggedItem.type === 'list') {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      setDropTarget({ type: 'group', id: group.id });
+      return;
+    }
+    if (draggedItem.type === 'group' && draggedItem.id !== group.id) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      const rect = event.currentTarget.getBoundingClientRect();
+      setDropTarget({
+        type: 'group-reorder',
+        id: group.id,
+        position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+      });
+    }
+  };
+  const handleGroupDrop = (event: ReactDragEvent<HTMLElement>, group: TodoGroup) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (
+      group.ownerUid !== userId ||
+      !draggedItem ||
+      (draggedItem.type === 'group' && draggedItem.id === group.id)
+    ) {
+      clearDragState();
+      return;
+    }
+    if (draggedItem.type === 'list') {
+      void onMoveListToGroup(draggedItem.id, group.id);
+    } else {
+      const rect = event.currentTarget.getBoundingClientRect();
+      void onReorderGroup(
+        draggedItem.id,
+        group.id,
+        event.clientY < rect.top + rect.height / 2
+      );
+    }
+    clearDragState();
+  };
+  const handleRootDragOver = (event: ReactDragEvent<HTMLElement>) => {
+    if (draggedItem?.type !== 'list' || (event.target as HTMLElement).closest('.nav-item-row')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDropTarget({ type: 'root' });
+  };
+  const handleRootDrop = (event: ReactDragEvent<HTMLElement>) => {
+    if (
+      draggedItem?.type !== 'list' ||
+      (event.target as HTMLElement).closest('.nav-item-row')
+    ) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void onMoveListToGroup(draggedItem.id, null);
+    clearDragState();
+  };
 
   const renderList = (list: TodoList) => {
     const active = !searchQuery && selection.type === 'list' && selection.id === list.id;
     const count = counts[list.id] ?? 0;
-    const shoppingList = /costco|dollarama|walmart|shoppers|wholesale|grocer|food basic/i.test(list.title);
     return (
       <div
         key={list.id}
-        className={`nav-item-row ${list.groupId ? 'nested' : ''} ${active ? 'active' : ''}`}
+        className={`nav-item-row ${list.groupId ? 'nested' : ''} ${active ? 'active' : ''} ${draggedItem?.type === 'list' && draggedItem.id === list.id ? 'dragging' : ''} ${dropTarget?.type === 'list' && dropTarget.id === list.id ? `drop-${dropTarget.position}` : ''}`}
+        draggable={list.ownerUid === userId && !list.isDefaultTasksList}
+        onDragStart={(event) => {
+          if (list.ownerUid !== userId || list.isDefaultTasksList) {
+            event.preventDefault();
+            return;
+          }
+          handleDragStart(event, { type: 'list', id: list.id });
+        }}
+        onDragEnd={clearDragState}
+        onDragOver={(event) => handleListDragOver(event, list)}
+        onDrop={(event) => handleListDrop(event, list)}
         onContextMenu={(event) => {
           event.preventDefault();
           onSelect({ type: 'list', id: list.id });
@@ -200,12 +339,8 @@ export function Sidebar({
           }}
         >
           <span className="nav-icon">
-            {shoppingList ? (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M2 4h2l2.2 11.2a2 2 0 0 0 2 1.6h8.7a2 2 0 0 0 1.9-1.4L21 8H5" />
-                <circle cx="9" cy="20" r="1.2" /><circle cx="18" cy="20" r="1.2" />
-                <path d="M8 11h10M10 8l1 7m4-7-1 7" />
-              </svg>
+            {list.icon ? (
+              <span className="list-emoji" aria-hidden="true">{list.icon}</span>
             ) : <ListIcon />}
           </span>
           {!collapsed && <span className="nav-label">{list.title}</span>}
@@ -239,10 +374,15 @@ export function Sidebar({
               {!collapsed && (
                 <span className="sidebar-profile-copy">
                   <strong>{displayName}</strong>
-                  <span>{user.email}</span>
                 </span>
               )}
-              {!collapsed && <span className="sidebar-account-chevron" aria-hidden="true">⌄</span>}
+              {!collapsed && (
+                <span className="sidebar-account-chevron" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </span>
+              )}
             </button>
             {accountOpen && (
               <div className="sidebar-account-menu" role="menu" aria-label="Account options">
@@ -321,32 +461,106 @@ export function Sidebar({
 
           <div className="nav-divider" />
 
-          {!collapsed && groups.map((group) => {
-            const groupLists = lists.filter((list) => list.groupId === group.id);
+          {!collapsed && orderedGroups.map((group) => {
+            const groupLists = lists
+              .filter((list) => list.groupId === group.id)
+              .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+            const groupClassName = draggedItem?.type === 'group' && draggedItem.id === group.id
+              ? 'dragging'
+              : dropTarget?.type === 'group' && dropTarget.id === group.id
+                ? 'drop-target'
+                : dropTarget?.type === 'group-reorder' && dropTarget.id === group.id
+                  ? `drop-${dropTarget.position}`
+                  : '';
             return (
               <div key={group.id} className="nav-group">
-                <button
-                  type="button"
-                  data-nav-item="true"
-                  className="nav-item group-header"
-                  onClick={() => onToggleGroup(group)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setMoveToGroupOpen(false);
-                    setSidebarMenu({ type: 'group', id: group.id, x: event.clientX, y: event.clientY });
-                  }}
-                  aria-expanded={!group.collapsed}
-                >
-                  <span className="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h7l2 2h9v11H3z" /></svg></span>
-                  <span className="nav-label">{group.title}</span>
-                  <span className="group-chevron" aria-hidden="true">{group.collapsed ? '▸' : '▾'}</span>
-                </button>
+                <div className="group-header-wrap">
+                  <button
+                    type="button"
+                    data-nav-item="true"
+                    className={`nav-item group-header ${groupClassName}`}
+                    draggable={group.ownerUid === userId}
+                    onDragStart={(event) => {
+                      if (group.ownerUid !== userId) {
+                        event.preventDefault();
+                        return;
+                      }
+                      handleDragStart(event, { type: 'group', id: group.id });
+                    }}
+                    onDragEnd={clearDragState}
+                    onDragOver={(event) => handleGroupDragOver(event, group)}
+                    onDrop={(event) => handleGroupDrop(event, group)}
+                    onClick={() => onToggleGroup(group)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setMoveToGroupOpen(false);
+                      setSidebarMenu({ type: 'group', id: group.id, x: event.clientX, y: event.clientY });
+                    }}
+                    aria-expanded={!group.collapsed}
+                  >
+                    <span className="nav-icon group-icon-placeholder" aria-hidden="true" />
+                    <span className="nav-label">{group.title}</span>
+                    <span className="group-chevron" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="group-icon-button"
+                    aria-label={`Change icon for ${group.title}`}
+                    aria-haspopup="dialog"
+                    aria-expanded={groupIconPicker?.id === group.id}
+                    title="Change folder icon"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                      event.stopPropagation();
+                      if (groupIconPicker?.id === group.id) {
+                        setGroupIconPicker(null);
+                        return;
+                      }
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const pickerHeight = 320;
+                      const pickerWidth = Math.min(320, window.innerWidth - 24);
+                      const belowTop = rect.bottom + 8;
+                      const top = belowTop + pickerHeight <= window.innerHeight - 8
+                        ? belowTop
+                        : Math.max(8, rect.top - pickerHeight - 8);
+                      const left = Math.max(8, Math.min(rect.left, window.innerWidth - pickerWidth - 8));
+                      setGroupIconPicker({ id: group.id, top, left });
+                    }}
+                  >
+                    {group.icon ? (
+                      <span className="list-emoji" aria-hidden="true">{group.icon}</span>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 6h7l2 2h9v11H3z" />
+                      </svg>
+                    )}
+                  </button>
+                  {groupIconPicker?.id === group.id && (
+                    <EmojiPicker
+                      fixedPosition={{ top: groupIconPicker.top, left: groupIconPicker.left }}
+                      onSelect={(icon) => {
+                        void onUpdateGroupIcon(group.id, icon).then(() => setGroupIconPicker(null));
+                      }}
+                      onClose={() => setGroupIconPicker(null)}
+                    />
+                  )}
+                </div>
                 {!group.collapsed && <div className="nav-group-items">{groupLists.map(renderList)}</div>}
               </div>
             );
           })}
 
-          {lists.filter((list) => !list.groupId || !groups.some((group) => group.id === list.groupId)).map(renderList)}
+          <div
+            className={`nav-root-lists ${dropTarget?.type === 'root' ? 'drop-target' : ''}`}
+            onDragOver={handleRootDragOver}
+            onDrop={handleRootDrop}
+          >
+            {rootLists.map(renderList)}
+          </div>
         </nav>
 
         {!collapsed && (
@@ -487,6 +701,7 @@ export function Sidebar({
             const stopMenu = () => {
               setSidebarMenu(null);
               setMoveToGroupOpen(false);
+              setMoveToGroupPosition(null);
             };
             return (
               <>
@@ -495,26 +710,26 @@ export function Sidebar({
                   {list.memberUids?.length ? 'Sharing options' : 'Share list'}
                 </button>
                 {canManage && (
-                  <div className="context-menu-submenu-wrap" onMouseEnter={() => setMoveToGroupOpen(true)} onMouseLeave={() => setMoveToGroupOpen(false)}>
+                  <div className="context-menu-submenu-wrap" onMouseEnter={(event) => openMoveToGroup(event.currentTarget)} onMouseLeave={() => setMoveToGroupOpen(false)}>
                     <button
                       type="button"
                       role="menuitem"
                       className="context-menu-item"
                       aria-haspopup="menu"
                       aria-expanded={moveToGroupOpen}
-                      onClick={() => setMoveToGroupOpen((open) => !open)}
-                      onFocus={() => setMoveToGroupOpen(true)}
+                      onClick={(event) => openMoveToGroup(event.currentTarget)}
+                      onFocus={(event) => openMoveToGroup(event.currentTarget)}
                     >
                       <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h7l2 2h9v11H3z" /><path d="M12 11v5m-2-2 2 2 2-2" /></svg></span>
                       <span>Move list to…</span><span className="context-menu-arrow">›</span>
                     </button>
                     {moveToGroupOpen && (
-                      <div className="context-menu context-menu-submenu" role="menu" aria-label="Move list to group">
-                        <button type="button" role="menuitem" className="context-menu-item" disabled={!list.groupId} onClick={() => { void onMoveListToGroup?.(list.id, null); stopMenu(); }}>
+                      <div className="context-menu context-menu-submenu" role="menu" aria-label="Move list to group" style={moveToGroupPosition ?? undefined}>
+                        <button type="button" role="menuitem" className="context-menu-item" disabled={!list.groupId} onClick={() => { void onMoveListToGroup(list.id, null); stopMenu(); }}>
                           <span className="context-menu-icon" aria-hidden="true"><ListIcon /></span>My lists
                         </button>
-                        {groups.map((group) => (
-                          <button key={group.id} type="button" role="menuitem" className="context-menu-item" disabled={group.id === list.groupId} onClick={() => { void onMoveListToGroup?.(list.id, group.id); stopMenu(); }}>
+                        {orderedGroups.map((group) => (
+                          <button key={group.id} type="button" role="menuitem" className="context-menu-item" disabled={group.id === list.groupId} onClick={() => { void onMoveListToGroup(list.id, group.id); stopMenu(); }}>
                             <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h7l2 2h9v11H3z" /></svg></span>{group.title}
                           </button>
                         ))}
@@ -523,7 +738,7 @@ export function Sidebar({
                   </div>
                 )}
                 {list.groupId && canManage && (
-                  <button type="button" role="menuitem" className="context-menu-item" onClick={() => { void onMoveListToGroup?.(list.id, null); stopMenu(); }}>
+                  <button type="button" role="menuitem" className="context-menu-item" onClick={() => { void onMoveListToGroup(list.id, null); stopMenu(); }}>
                     <span className="context-menu-icon" aria-hidden="true"><ListIcon /></span>Remove from group
                   </button>
                 )}

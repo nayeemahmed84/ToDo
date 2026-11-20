@@ -16,7 +16,9 @@ export interface TodoGroup {
   id: string;
   title: string;
   ownerUid: string;
+  icon?: string | null;
   collapsed?: boolean;
+  sortOrder?: number;
 }
 
 export interface TodoStep {
@@ -30,9 +32,13 @@ export interface TodoList {
   title: string;
   ownerUid: string;
   isDefaultTasksList?: boolean;
+  icon?: string | null;
   groupId?: string | null;
   color?: string;
-  background?: 'coast' | 'field' | 'plain';
+  background?: 'coast' | 'field' | 'plain' | 'none';
+  backgroundImageUrl?: string | null;
+  backgroundImagePath?: string | null;
+  customBackgroundActive?: boolean;
   memberUids?: string[];
   sortOrder?: number;
   createdAt?: unknown;
@@ -62,5 +68,7 @@ export interface TodoItem {
   steps: TodoStep[];
   createdAtMs: number;
   updatedAtMs?: number | null;
+  updatedByUid?: string | null;
+  updatedByName?: string | null;
   completedAtMs?: number | null;
 }

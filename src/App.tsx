@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import {
   addDoc,
   arrayUnion,
@@ -13,10 +14,12 @@ import {
   serverTimestamp,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import {
   auth,
   db,
+  getFirebaseStorage,
   isFirebaseConfigured,
   signInWithGoogle,
   signInWithGoogleRedirect,
@@ -24,12 +27,14 @@ import {
 } from './lib/firebase';
 import { TaskRow } from './components/TaskRow';
 import { Sidebar } from './components/Sidebar';
+import { EmojiPicker } from './components/EmojiPicker';
 import { TaskDetail } from './components/TaskDetail';
 import { TopBar } from './components/TopBar';
 import { AppSettings, DEFAULT_SETTINGS, SettingsModal } from './components/SettingsModal';
 import { ShareDialog } from './components/ShareDialog';
 import { CustomCalendarPicker } from './components/CustomCalendarPicker';
 import { playCompleteSound } from './lib/sound';
+import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
 import {
   RepeatRule,
   SmartListId,
@@ -69,7 +74,7 @@ const SMART_TITLES: Record<SmartListId, string> = {
   completed: 'Completed',
 };
 
-function getListIcon(selection: ViewSelection, listTitle?: string): React.ReactNode {
+function getListIcon(selection: ViewSelection, customIcon?: string | null): React.ReactNode {
   switch (selection.type) {
     case 'smart':
       switch (selection.id) {
@@ -120,14 +125,8 @@ function getListIcon(selection: ViewSelection, listTitle?: string): React.ReactN
           return null;
       }
     case 'list':
-      if (/costco|dollarama|walmart|shoppers|wholesale|grocer|food basic/i.test(listTitle ?? '')) {
-        return (
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M2 4h2l2.2 11.2a2 2 0 0 0 2 1.6h8.7a2 2 0 0 0 1.9-1.4L21 8H5" />
-            <circle cx="9" cy="20" r="1.2" /><circle cx="18" cy="20" r="1.2" />
-            <path d="M8 11h10M10 8l1 7m4-7-1 7" />
-          </svg>
-        );
+      if (customIcon) {
+        return <span className="list-emoji" aria-hidden="true">{customIcon}</span>;
       }
       return (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -200,6 +199,7 @@ export function App() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [addReminderAtMs, setAddReminderAtMs] = useState<number | null>(null);
@@ -209,6 +209,10 @@ export function App() {
   const [addDueCalendarOpen, setAddDueCalendarOpen] = useState(false);
   const [addRemindCalendarOpen, setAddRemindCalendarOpen] = useState(false);
   const [suggestionsLimit, setSuggestionsLimit] = useState(10);
+
+  useEffect(() => {
+    setEmojiPickerOpen(false);
+  }, [selection.type, selection.id, searchQuery]);
 
   useEffect(() => {
     const onGlobalKeyDown = (e: KeyboardEvent) => {
@@ -296,8 +300,14 @@ export function App() {
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [listMenuOpen, setListMenuOpen] = useState(false);
+  const [listOptionsSortOpen, setListOptionsSortOpen] = useState(false);
+  const [listOptionsSortPosition, setListOptionsSortPosition] = useState<ContextSubmenuPosition | null>(null);
+  const [backgroundImageDeleteMenuPosition, setBackgroundImageDeleteMenuPosition] = useState<ContextSubmenuPosition | null>(null);
+  const [backgroundUploadInProgress, setBackgroundUploadInProgress] = useState(false);
   const [taskSubmenu, setTaskSubmenu] = useState<"move" | "copy" | null>(null);
+  const [taskSubmenuPosition, setTaskSubmenuPosition] = useState<ContextSubmenuPosition | null>(null);
   const headerTitleInputRef = useRef<HTMLInputElement>(null);
+  const backgroundImageInputRef = useRef<HTMLInputElement>(null);
   const addTaskFormRef = useRef<HTMLFormElement>(null);
   const addTaskInputRef = useRef<HTMLInputElement>(null);
   const [groupByCategory, setGroupByCategory] = useState(false);
@@ -309,6 +319,14 @@ export function App() {
     if (appSettings.themeMode === 'light') return false;
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
+
+  useEffect(() => {
+    if (!listMenuOpen) {
+      setListOptionsSortOpen(false);
+      setListOptionsSortPosition(null);
+      setBackgroundImageDeleteMenuPosition(null);
+    }
+  }, [listMenuOpen]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
@@ -368,6 +386,11 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   const todayStr = getTodayStr();
+  const openTaskSubmenu = (submenu: "move" | "copy", anchor: HTMLElement) => {
+    setTaskSubmenuPosition(getContextSubmenuPosition(anchor.getBoundingClientRect()));
+    setTaskSubmenu(submenu);
+  };
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
@@ -419,17 +442,24 @@ const [gridEditText, setGridEditText] = useState('');
         e.preventDefault();
         setSidebarOpen((v) => !v);
       } else if (e.key === 'Escape') {
+        if (listOptionsSortOpen) {
+          setListOptionsSortOpen(false);
+          setListOptionsSortPosition(null);
+          return;
+        }
         const hasOpenMenu = Boolean(
-          contextMenu || sortMenuOpen || groupMenuOpen || listMenuOpen ||
+          contextMenu || sortMenuOpen || groupMenuOpen || listMenuOpen || listOptionsSortOpen ||
           addDueMenuOpen || addRemindMenuOpen || addRepeatMenuOpen ||
           addDueCalendarOpen || addRemindCalendarOpen || settingsOpen ||
           shareListId || shortcutsOpen || whatsNewOpen || sidebarOpen ||
-          document.querySelector('.context-menu, .sort-menu, .list-options-menu, .settings-backdrop, .modal-backdrop, .add-picker-wrap .top-bar-popover')
+          document.querySelector('.context-menu, .sort-menu, .list-options-menu, .list-options-sort-submenu, .settings-backdrop, .modal-backdrop, .add-picker-wrap .top-bar-popover')
         );
         setContextMenu(null);
         setSortMenuOpen(false);
         setGroupMenuOpen(false);
         setListMenuOpen(false);
+        setListOptionsSortOpen(false);
+        setListOptionsSortPosition(null);
         setAddDueMenuOpen(false);
         setAddRemindMenuOpen(false);
         setAddRepeatMenuOpen(false);
@@ -462,6 +492,7 @@ const [gridEditText, setGridEditText] = useState('');
     contextMenu,
     groupMenuOpen,
     listMenuOpen,
+    listOptionsSortOpen,
     settingsOpen,
     whatsNewOpen,
     shareListId,
@@ -471,14 +502,23 @@ const [gridEditText, setGridEditText] = useState('');
   ]);
 
   useEffect(() => {
-    if (!sortMenuOpen && !groupMenuOpen && !listMenuOpen) return;
+    if (!sortMenuOpen && !groupMenuOpen && !listMenuOpen && !listOptionsSortOpen) return;
     const closeMenus = () => {
       setSortMenuOpen(false);
       setGroupMenuOpen(false);
       setListMenuOpen(false);
+      setListOptionsSortOpen(false);
+      setListOptionsSortPosition(null);
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeMenus();
+      if (e.key === 'Escape') {
+        if (listOptionsSortOpen) {
+          setListOptionsSortOpen(false);
+          setListOptionsSortPosition(null);
+        } else {
+          closeMenus();
+        }
+      }
     };
     const onMouseDown = (e: MouseEvent) => {
       if (!(e.target as HTMLElement)?.closest('.header-menu-wrap')) closeMenus();
@@ -492,7 +532,7 @@ const [gridEditText, setGridEditText] = useState('');
       window.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('scroll', onScroll, true);
     };
-  }, [sortMenuOpen, groupMenuOpen, listMenuOpen]);
+  }, [sortMenuOpen, groupMenuOpen, listMenuOpen, listOptionsSortOpen]);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (nextUser) => {
@@ -544,8 +584,12 @@ const [gridEditText, setGridEditText] = useState('');
             ownerUid: data.ownerUid as string,
             isDefaultTasksList: Boolean(data.isDefaultTasksList),
             groupId: (data.groupId as string | null | undefined) ?? null,
+            icon: typeof data.icon === 'string' ? data.icon : null,
             color: (data.color as string | undefined) ?? 'blue',
             background: (data.background as TodoList['background'] | undefined) ?? 'field',
+            backgroundImageUrl: typeof data.backgroundImageUrl === 'string' ? data.backgroundImageUrl : null,
+            backgroundImagePath: typeof data.backgroundImagePath === 'string' ? data.backgroundImagePath : null,
+            customBackgroundActive: Boolean(data.customBackgroundActive),
             memberUids: Array.isArray(data.memberUids) ? data.memberUids as string[] : [],
             sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : createdAt?.toMillis?.() ?? index,
             createdAt: data.createdAt,
@@ -581,6 +625,8 @@ const [gridEditText, setGridEditText] = useState('');
             assignedTo: (data.assignedTo as string | null) ?? null,
             attachments: Array.isArray(data.attachments) ? data.attachments : [],
             updatedAtMs: (data.updatedAtMs as number | null) ?? null,
+            updatedByUid: typeof data.updatedByUid === 'string' ? data.updatedByUid : null,
+            updatedByName: typeof data.updatedByName === 'string' ? data.updatedByName : null,
             category: (data.category as any) ?? null,
             notes: (data.notes as string) ?? '',
             steps: Array.isArray(data.steps) ? data.steps : [],
@@ -602,12 +648,18 @@ const [gridEditText, setGridEditText] = useState('');
     const unsubGroups = onSnapshot(
       groupsQuery,
       (snap) => {
-        setGroups(snap.docs.map((d) => ({
-          id: d.id,
-          title: (d.data().title as string) || 'Group',
-          ownerUid: d.data().ownerUid as string,
-          collapsed: Boolean(d.data().collapsed),
-        })));
+        setGroups(snap.docs.map((d, index) => {
+          const data = d.data();
+          const createdAt = data.createdAt as { toMillis?: () => number } | undefined;
+          return {
+            id: d.id,
+            title: (data.title as string) || 'Group',
+            ownerUid: data.ownerUid as string,
+            icon: typeof data.icon === 'string' ? data.icon : null,
+            collapsed: Boolean(data.collapsed),
+            sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : createdAt?.toMillis?.() ?? index,
+          };
+        }));
       },
       (err) => setError(err.message)
     );
@@ -629,8 +681,12 @@ const [gridEditText, setGridEditText] = useState('');
             ownerUid: data.ownerUid as string,
             isDefaultTasksList: Boolean(data.isDefaultTasksList),
             groupId: (data.groupId as string | null | undefined) ?? null,
+            icon: typeof data.icon === 'string' ? data.icon : null,
             color: (data.color as string | undefined) ?? 'blue',
             background: (data.background as TodoList['background'] | undefined) ?? 'field',
+            backgroundImageUrl: typeof data.backgroundImageUrl === 'string' ? data.backgroundImageUrl : null,
+            backgroundImagePath: typeof data.backgroundImagePath === 'string' ? data.backgroundImagePath : null,
+            customBackgroundActive: Boolean(data.customBackgroundActive),
             memberUids: Array.isArray(data.memberUids) ? data.memberUids as string[] : [],
             sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : createdAt?.toMillis?.() ?? index,
             createdAt: data.createdAt,
@@ -852,14 +908,138 @@ const [gridEditText, setGridEditText] = useState('');
   const currentList = selection.type === 'list'
     ? allLists.find((l) => l.id === selection.id) ?? null
     : null;
+  const handleListIconChange = async (icon: string | null) => {
+    if (!user || !currentList || currentList.ownerUid !== user.uid) return;
+    setError(null);
+    try {
+      await updateDoc(doc(db, 'lists', currentList.id), { icon });
+      setEmojiPickerOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update list icon');
+    }
+  };
+  const handleUploadListBackground = async (file: File) => {
+    if (!user || !currentList || currentList.ownerUid !== user.uid) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Choose a JPG, PNG, or WebP image.');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError('Background images must be 8 MB or smaller.');
+      return;
+    }
+
+    setError(null);
+    setBackgroundUploadInProgress(true);
+    let backgroundStorage: ReturnType<typeof getFirebaseStorage> | null = null;
+    let uploadedPath: string | null = null;
+    let uploadCompleted = false;
+    let listUpdated = false;
+    try {
+      backgroundStorage = getFirebaseStorage();
+      uploadedPath = `list-backgrounds/${user.uid}/${currentList.id}/${crypto.randomUUID()}`;
+      const imageRef = ref(backgroundStorage, uploadedPath);
+      await uploadBytes(imageRef, file, { contentType: file.type });
+      uploadCompleted = true;
+      const backgroundImageUrl = await getDownloadURL(imageRef);
+      await updateDoc(doc(db, 'lists', currentList.id), {
+        backgroundImageUrl,
+        backgroundImagePath: uploadedPath,
+        customBackgroundActive: true,
+      });
+      listUpdated = true;
+
+      if (currentList.backgroundImagePath) {
+        try {
+          await deleteObject(ref(backgroundStorage, currentList.backgroundImagePath));
+        } catch (cleanupErr) {
+          setError(`Background updated, but the previous image could not be removed: ${cleanupErr instanceof Error ? cleanupErr.message : 'Unknown error'}`);
+        }
+      }
+      setListMenuOpen(false);
+    } catch (err) {
+      let message = err instanceof Error ? err.message : 'Failed to upload background image';
+      if (backgroundStorage && uploadedPath && uploadCompleted && !listUpdated) {
+        try {
+          await deleteObject(ref(backgroundStorage, uploadedPath));
+        } catch (cleanupErr) {
+          message += ` The uploaded file could not be cleaned up: ${cleanupErr instanceof Error ? cleanupErr.message : 'Unknown error'}`;
+        }
+      }
+      setError(message);
+    } finally {
+      setBackgroundUploadInProgress(false);
+    }
+  };
+  const handleRemoveListBackground = async () => {
+    if (!user || !currentList || currentList.ownerUid !== user.uid) return;
+    setError(null);
+    try {
+      await updateDoc(doc(db, 'lists', currentList.id), {
+        backgroundImageUrl: null,
+        backgroundImagePath: null,
+        customBackgroundActive: false,
+      });
+      setListMenuOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove uploaded background');
+      return;
+    }
+
+    if (currentList.backgroundImagePath) {
+      try {
+        await deleteObject(ref(getFirebaseStorage(), currentList.backgroundImagePath));
+      } catch (err) {
+        setError(`Background removed, but the uploaded file could not be deleted: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+    }
+  };
   const currentTitle = searchQuery.trim()
     ? `Search: "${searchQuery.trim()}"`
     : selection.type === 'smart'
       ? SMART_TITLES[selection.id]
       : currentList?.title ?? 'List';
+  const customBackgroundUrl = currentList?.customBackgroundActive
+    ? currentList.backgroundImageUrl ?? null
+    : null;
   const currentWallpaper = selection.type === 'smart' && selection.id === 'my-day'
     ? 'coast'
-    : currentList?.background ?? 'field';
+    : customBackgroundUrl
+      ? 'custom'
+      : currentList?.background ?? 'field';
+  const sortOptions: { id: SortOption; label: string }[] = [
+    { id: 'importance', label: 'Importance' },
+    { id: 'dueDate', label: 'Due date' },
+    ...(selection.type === 'list' ? [{ id: 'myDay' as SortOption, label: 'Added to My Day' }] : []),
+    { id: 'alphabetical', label: 'Alphabetically' },
+    { id: 'created', label: 'Creation date' },
+  ];
+  const handleSelectSortOption = (sort: SortOption) => {
+    setSortBy(sort);
+    setSortAsc(sort === 'importance' || sort === 'myDay' ? false : true);
+    setSortMenuOpen(false);
+    setListOptionsSortOpen(false);
+    setListMenuOpen(false);
+  };
+  const renderSortMenuOptions = () => (
+    <>
+      <div className="sort-menu-header">Sort by</div>
+      {sortOptions.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          role="menuitemradio"
+          aria-checked={sortBy === option.id}
+          className="sort-menu-item"
+          onClick={() => handleSelectSortOption(option.id)}
+        >
+          <span className="sort-menu-icon">{getSortIcon(option.id)}</span>
+          <span>{option.label}</span>
+          {sortBy === option.id && <span className="sort-menu-check" aria-hidden="true">✓</span>}
+        </button>
+      ))}
+    </>
+  );
 
   const ensureDefaultList = async (): Promise<string> => {
     if (selection.type === 'list') return selection.id;
@@ -910,7 +1090,102 @@ const [gridEditText, setGridEditText] = useState('');
   };
 
   const handleMoveListToGroup = async (listId: string, groupId: string | null) => {
-    await updateDoc(doc(db, 'lists', listId), { groupId });
+    if (!user) return;
+    const list = allLists.find((candidate) => candidate.id === listId);
+    if (!list || list.ownerUid !== user.uid || list.isDefaultTasksList) return;
+    const siblings = allLists
+      .filter((candidate) =>
+        candidate.ownerUid === user.uid &&
+        !candidate.isDefaultTasksList &&
+        candidate.id !== listId &&
+        (candidate.groupId ?? null) === groupId
+      )
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const sourceSiblings = (list.groupId ?? null) === groupId
+      ? []
+      : allLists
+          .filter((candidate) =>
+            candidate.ownerUid === user.uid &&
+            !candidate.isDefaultTasksList &&
+            candidate.id !== listId &&
+            (candidate.groupId ?? null) === (list.groupId ?? null)
+          )
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const nextSortOrder = Math.max(0, ...siblings.map((sibling) => sibling.sortOrder ?? 0)) + 1;
+    const batch = writeBatch(db);
+    sourceSiblings.forEach((sibling, index) => {
+      batch.update(doc(db, 'lists', sibling.id), { sortOrder: index + 1 });
+    });
+    batch.update(doc(db, 'lists', listId), {
+      groupId,
+      sortOrder: nextSortOrder,
+    });
+    try {
+      await batch.commit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to move list');
+    }
+  };
+
+  const handleReorderList = async (
+    listId: string,
+    targetListId: string,
+    insertBefore: boolean
+  ) => {
+    if (!user || listId === targetListId) return;
+    const draggedList = allLists.find((candidate) => candidate.id === listId);
+    const targetList = allLists.find((candidate) => candidate.id === targetListId);
+    if (
+      !draggedList ||
+      !targetList ||
+      draggedList.ownerUid !== user.uid ||
+      targetList.ownerUid !== user.uid ||
+      draggedList.isDefaultTasksList ||
+      targetList.isDefaultTasksList
+    ) return;
+
+    const targetGroupId = targetList.groupId ?? null;
+    const targetSiblings = allLists
+      .filter((candidate) =>
+        candidate.ownerUid === user.uid &&
+        !candidate.isDefaultTasksList &&
+        candidate.id !== draggedList.id &&
+        (candidate.groupId ?? null) === targetGroupId
+      )
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const targetIndex = targetSiblings.findIndex((candidate) => candidate.id === targetListId);
+    if (targetIndex < 0) return;
+    targetSiblings.splice(targetIndex + (insertBefore ? 0 : 1), 0, {
+      ...draggedList,
+      groupId: targetGroupId,
+    });
+
+    const sourceGroupId = draggedList.groupId ?? null;
+    const sourceSiblings = sourceGroupId === targetGroupId
+      ? []
+      : allLists
+          .filter((candidate) =>
+            candidate.ownerUid === user.uid &&
+            !candidate.isDefaultTasksList &&
+            candidate.id !== draggedList.id &&
+            (candidate.groupId ?? null) === sourceGroupId
+          )
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const batch = writeBatch(db);
+    sourceSiblings.forEach((sibling, index) => {
+      batch.update(doc(db, 'lists', sibling.id), { sortOrder: index + 1 });
+    });
+    targetSiblings.forEach((sibling, index) => {
+      batch.update(doc(db, 'lists', sibling.id), {
+        sortOrder: index + 1,
+        ...(sibling.id === draggedList.id ? { groupId: targetGroupId } : {}),
+      });
+    });
+    try {
+      await batch.commit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reorder lists');
+    }
   };
 
   const handleMoveListDown = async (listId: string) => {
@@ -971,7 +1246,13 @@ const [gridEditText, setGridEditText] = useState('');
     item: TodoItem,
     patch: Partial<TodoItem>
   ) => {
-    await updateDoc(doc(db, 'lists', item.listId, 'items', item.id), { ...patch, updatedAtMs: Date.now(), updatedAt: serverTimestamp() });
+    await updateDoc(doc(db, 'lists', item.listId, 'items', item.id), {
+      ...patch,
+      updatedAtMs: Date.now(),
+      updatedAt: serverTimestamp(),
+      updatedByUid: user?.uid ?? item.ownerUid,
+      updatedByName: user?.displayName?.trim() || null,
+    });
     if (patch.done === true) {
       if (soundEnabled) playCompleteSound();
       if (item.repeat && item.repeat !== 'none' && user) {
@@ -1013,6 +1294,10 @@ const [gridEditText, setGridEditText] = useState('');
       notes: item.notes,
       steps: item.steps,
       createdAtMs: item.createdAtMs,
+      updatedAtMs: Date.now(),
+      updatedAt: serverTimestamp(),
+      updatedByUid: user.uid,
+      updatedByName: user.displayName?.trim() || null,
       completedAtMs: item.completedAtMs ?? null,
     });
     await deleteDoc(doc(db, 'lists', item.listId, 'items', item.id));
@@ -1087,6 +1372,9 @@ const [gridEditText, setGridEditText] = useState('');
       notes: item.notes,
       steps: item.steps,
       createdAtMs: item.createdAtMs,
+      updatedAtMs: item.updatedAtMs ?? null,
+      updatedByUid: item.updatedByUid ?? null,
+      updatedByName: item.updatedByName ?? null,
       completedAtMs: item.completedAtMs ?? null,
     });
   };
@@ -1097,14 +1385,56 @@ const [gridEditText, setGridEditText] = useState('');
       title,
       ownerUid: user.uid,
       collapsed: false,
+      sortOrder: Math.max(Date.now(), ...groups.map((group) => (group.sortOrder ?? 0) + 1)),
       createdAt: serverTimestamp(),
     });
+  };
+
+  const handleReorderGroup = async (
+    groupId: string,
+    targetGroupId: string,
+    insertBefore: boolean
+  ) => {
+    if (!user || groupId === targetGroupId) return;
+    const orderedGroups = [...groups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const draggedGroup = orderedGroups.find((group) => group.id === groupId);
+    const targetGroup = orderedGroups.find((group) => group.id === targetGroupId);
+    const targetIndex = orderedGroups.findIndex((group) => group.id === targetGroupId);
+    if (
+      !draggedGroup ||
+      draggedGroup.ownerUid !== user.uid ||
+      !targetGroup ||
+      targetGroup.ownerUid !== user.uid ||
+      targetIndex < 0
+    ) return;
+    const nextGroups = orderedGroups.filter((group) => group.id !== groupId);
+    const adjustedTargetIndex = nextGroups.findIndex((group) => group.id === targetGroupId);
+    nextGroups.splice(adjustedTargetIndex + (insertBefore ? 0 : 1), 0, draggedGroup);
+    const batch = writeBatch(db);
+    nextGroups.forEach((group, index) => {
+      batch.update(doc(db, 'groups', group.id), { sortOrder: index + 1 });
+    });
+    try {
+      await batch.commit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reorder folders');
+    }
   };
 
   const handleToggleGroup = async (group: TodoGroup) => {
     await updateDoc(doc(db, 'groups', group.id), {
       collapsed: !group.collapsed,
     });
+  };
+
+  const handleUpdateGroupIcon = async (groupId: string, icon: string | null) => {
+    if (!user) return;
+    setError(null);
+    try {
+      await updateDoc(doc(db, 'groups', groupId), { icon });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update folder icon');
+    }
   };
 
   const handleImportJson = async (file: File) => {
@@ -1248,11 +1578,14 @@ const [gridEditText, setGridEditText] = useState('');
           onCreateList={handleCreateList}
           onCreateGroup={handleCreateGroup}
           onToggleGroup={handleToggleGroup}
+          onUpdateGroupIcon={handleUpdateGroupIcon}
           onDeleteList={handleDeleteList}
           onShareList={(id) => setShareListId(id)}
           onDuplicateList={(id) => handleDuplicateList(id)}
           onMoveListToGroup={handleMoveListToGroup}
           onMoveListDown={handleMoveListDown}
+          onReorderList={handleReorderList}
+          onReorderGroup={handleReorderGroup}
           onRenameGroup={async (id, title) => {
             await updateDoc(doc(db, 'groups', id), { title });
           }}
@@ -1273,7 +1606,14 @@ const [gridEditText, setGridEditText] = useState('');
           onOpenWhatsNew={() => setWhatsNewOpen(true)}
           onSignOut={() => signOutUser()}
         />
-<main className="main-pane" data-list-color={currentList ? currentList.color ?? 'blue' : 'default'} data-wallpaper={currentWallpaper}>
+<main
+          className="main-pane"
+          data-list-color={currentList ? currentList.color ?? 'blue' : 'default'}
+          data-wallpaper={currentWallpaper}
+          style={customBackgroundUrl ? {
+            backgroundImage: `linear-gradient(rgba(19, 19, 19, .10), rgba(17, 16, 15, .22)), url(${JSON.stringify(customBackgroundUrl)})`,
+          } : undefined}
+        >
         <header className="main-header">
           <button
             className="menu-btn"
@@ -1285,7 +1625,34 @@ const [gridEditText, setGridEditText] = useState('');
           <div className="header-titles">
             {selection.type === 'list' && !searchQuery ? (
               <div className="header-title-row">
-                <span className="header-list-icon">{getListIcon(selection, currentList?.title)}</span>
+                <div className="header-list-icon-wrap">
+                  {currentList?.ownerUid === user.uid ? (
+                    <button
+                      type="button"
+                      className="header-list-icon-button"
+                      aria-label={`Change icon for ${currentList.title}`}
+                      aria-haspopup="dialog"
+                      aria-expanded={emojiPickerOpen}
+                      title="Change list icon"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={() => setEmojiPickerOpen((open) => !open)}
+                    >
+                      <span className="header-list-icon">
+                        {getListIcon(selection, currentList.icon)}
+                      </span>
+                    </button>
+                  ) : (
+                    <span className="header-list-icon">
+                      {getListIcon(selection, currentList?.icon)}
+                    </span>
+                  )}
+                  {emojiPickerOpen && currentList?.ownerUid === user.uid && (
+                    <EmojiPicker
+                      onSelect={handleListIconChange}
+                      onClose={() => setEmojiPickerOpen(false)}
+                    />
+                  )}
+                </div>
                 {currentList?.ownerUid === user.uid ? (
                   <input
                     ref={headerTitleInputRef}
@@ -1384,31 +1751,7 @@ const [gridEditText, setGridEditText] = useState('');
               </button>
               {sortMenuOpen && (
                 <div className="top-bar-popover sort-menu" role="menu" aria-label="Sort by">
-                  <div className="sort-menu-header">Sort by</div>
-                  {([
-                    { id: 'importance', label: 'Importance' },
-                    { id: 'dueDate', label: 'Due date' },
-                    ...(selection.type === 'list' ? [{ id: 'myDay', label: 'Added to My Day' }] : []),
-                    { id: 'alphabetical', label: 'Alphabetically' },
-                    { id: 'created', label: 'Creation date' },
-                  ] as { id: SortOption; label: string }[]).map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={sortBy === opt.id}
-                      className="sort-menu-item"
-                      onClick={() => {
-                        setSortBy(opt.id);
-                        setSortAsc(opt.id === 'importance' || opt.id === 'myDay' ? false : true);
-                        setSortMenuOpen(false);
-                      }}
-                    >
-                      <span className="sort-menu-icon">{getSortIcon(opt.id)}</span>
-                      <span>{opt.label}</span>
-                      {sortBy === opt.id && <span className="sort-menu-check" aria-hidden="true">✓</span>}
-                    </button>
-                  ))}
+                  {renderSortMenuOptions()}
                 </div>
               )}
             </div>
@@ -1441,11 +1784,26 @@ const [gridEditText, setGridEditText] = useState('');
                 </div>
               )}
             </div>
-            <div className="header-menu-wrap header-options-menu-wrap" style={{ position: "relative" }}>
+            <div
+              className="header-menu-wrap header-options-menu-wrap"
+              style={{ position: "relative" }}
+              onClick={(event) => {
+                const target = event.target;
+                if (!(target instanceof Element) || !target.closest('.background-image-delete-menu, .wallpaper-custom')) {
+                  setBackgroundImageDeleteMenuPosition(null);
+                }
+              }}
+            >
               <button
                 type="button"
                 className="toolbar-icon-button toolbar-options-button"
-                onClick={() => { setListMenuOpen((v) => !v); setSortMenuOpen(false); setGroupMenuOpen(false); }}
+                onClick={() => {
+                  setListMenuOpen((open) => !open);
+                  setListOptionsSortOpen(false);
+                  setListOptionsSortPosition(null);
+                  setSortMenuOpen(false);
+                  setGroupMenuOpen(false);
+                }}
                 aria-label="List options"
                 aria-haspopup="menu"
                 aria-expanded={listMenuOpen}
@@ -1456,9 +1814,6 @@ const [gridEditText, setGridEditText] = useState('');
                 <div className="top-bar-popover list-options-menu" role="menu">
                   {selection.type === 'list' && (
                     <>
-                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); headerTitleInputRef.current?.focus(); }}>
-                        Rename list
-                      </button>
                       <div className="list-theme-row">
                         <span>List color</span>
                         <span className="list-theme-swatches">
@@ -1486,37 +1841,110 @@ const [gridEditText, setGridEditText] = useState('');
                       </div>
                       <div className="wallpaper-menu-row">
                         <span>Background</span>
-                        <span className="wallpaper-swatches">
-                          {([
-                            { id: 'field', label: 'Poppy field' },
-                            { id: 'coast', label: 'Coast at sunset' },
-                            { id: 'plain', label: 'Solid background' },
-                          ] as const).map((wallpaper) => (
-                            <button
-                              key={wallpaper.id}
-                              type="button"
-                              className={`wallpaper-swatch wallpaper-${wallpaper.id}`}
-                              aria-label={wallpaper.label}
-                              aria-pressed={(currentList?.background ?? 'field') === wallpaper.id}
-                              title={wallpaper.label}
-                              onClick={async () => {
-                                await updateDoc(doc(db, 'lists', selection.id), { background: wallpaper.id });
-                                setListMenuOpen(false);
-                              }}
-                            />
-                          ))}
+                        <span className="wallpaper-controls">
+                          <span className="wallpaper-swatches">
+                            {([
+                              { id: 'field', label: 'Poppy field' },
+                              { id: 'coast', label: 'Coast at sunset' },
+                              { id: 'plain', label: 'Solid background' },
+                              { id: 'none', label: 'No background' },
+                            ] as const).map((wallpaper) => (
+                              <button
+                                key={wallpaper.id}
+                                type="button"
+                                className={`wallpaper-swatch wallpaper-${wallpaper.id}`}
+                                aria-label={wallpaper.label}
+                                aria-pressed={!currentList?.customBackgroundActive && (currentList?.background ?? 'field') === wallpaper.id}
+                                title={wallpaper.label}
+                                onClick={async () => {
+                                  await updateDoc(doc(db, 'lists', selection.id), {
+                                    background: wallpaper.id,
+                                    customBackgroundActive: false,
+                                  });
+                                  setListMenuOpen(false);
+                                }}
+                              />
+                            ))}
+                            {currentList?.backgroundImageUrl && (
+                              <button
+                                type="button"
+                                className="wallpaper-swatch wallpaper-custom"
+                                aria-label="Uploaded background"
+                                aria-pressed={Boolean(currentList.customBackgroundActive)}
+                                title="Right-click to remove uploaded background"
+                                style={{ backgroundImage: `url(${JSON.stringify(currentList.backgroundImageUrl)})` }}
+                                onClick={async () => {
+                                  setBackgroundImageDeleteMenuPosition(null);
+                                  await updateDoc(doc(db, 'lists', selection.id), { customBackgroundActive: true });
+                                  setListMenuOpen(false);
+                                }}
+                                onContextMenu={(event) => {
+                                  event.preventDefault();
+                                  if (currentList.ownerUid !== user.uid || backgroundUploadInProgress) return;
+                                  const padding = 8;
+                                  const menuWidth = Math.min(190, window.innerWidth - padding * 2);
+                                  const menuHeight = 44;
+                                  setBackgroundImageDeleteMenuPosition({
+                                    top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
+                                    left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
+                                  });
+                                }}
+                              />
+                            )}
+                          </span>
+                          {currentList?.ownerUid === user.uid && (
+                            <>
+                              <input
+                                ref={backgroundImageInputRef}
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                hidden
+                                onChange={(event) => {
+                                  const file = event.currentTarget.files?.[0];
+                                  if (file) void handleUploadListBackground(file);
+                                  event.currentTarget.value = '';
+                                }}
+                              />
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="wallpaper-upload-button"
+                                aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                                title={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                                disabled={backgroundUploadInProgress}
+                                onClick={() => backgroundImageInputRef.current?.click()}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5h14v-5" />
+                                </svg>
+                              </button>
+                            </>
+                          )}
                         </span>
                       </div>
                     </>
                   )}
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); setSortMenuOpen(true); }}>
-                    Sort by…
-                  </button>
-                  <button type="button" role="menuitemcheckbox" aria-checked={groupByCategory} className="account-popover-item" onClick={() => setGroupByCategory((value) => !value)}>
-                    {groupByCategory ? '✓ ' : ''}Group by category
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="account-popover-item list-options-sort-trigger"
+                    aria-haspopup="menu"
+                    aria-expanded={listOptionsSortOpen}
+                    onClick={(event) => {
+                      if (listOptionsSortOpen) {
+                        setListOptionsSortOpen(false);
+                        setListOptionsSortPosition(null);
+                      } else {
+                        setListOptionsSortPosition(getContextSubmenuPosition(event.currentTarget.getBoundingClientRect()));
+                        setListOptionsSortOpen(true);
+                      }
+                    }}
+                  >
+                    <span>Sort by…</span>
+                    <span className="list-options-sort-arrow" aria-hidden="true">›</span>
                   </button>
                   <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setViewMode((mode) => mode === 'list' ? 'grid' : 'list'); setListMenuOpen(false); }}>
-                    Switch to {viewMode === 'list' ? 'Grid' : 'List'} view
+                    {viewMode === 'list' ? 'Grid' : 'List'} view
                   </button>
                   {selection.type === 'list' && (
                     <>
@@ -1539,6 +1967,47 @@ const [gridEditText, setGridEditText] = useState('');
                       </button>
                     </>
                   )}
+                </div>
+              )}
+              {backgroundImageDeleteMenuPosition && currentList?.ownerUid === user.uid && (
+                <div
+                  className="top-bar-popover background-image-delete-menu"
+                  role="menu"
+                  aria-label="Uploaded background options"
+                  style={{
+                    position: 'fixed',
+                    top: backgroundImageDeleteMenuPosition.top,
+                    left: backgroundImageDeleteMenuPosition.left,
+                    right: 'auto',
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="account-popover-item danger"
+                    disabled={backgroundUploadInProgress}
+                    onClick={() => {
+                      setBackgroundImageDeleteMenuPosition(null);
+                      void handleRemoveListBackground();
+                    }}
+                  >
+                    Delete uploaded background
+                  </button>
+                </div>
+              )}
+              {listMenuOpen && listOptionsSortOpen && listOptionsSortPosition && (
+                <div
+                  className="top-bar-popover sort-menu list-options-sort-submenu"
+                  role="menu"
+                  aria-label="Sort by"
+                  style={{
+                    position: 'fixed',
+                    top: listOptionsSortPosition.top,
+                    left: listOptionsSortPosition.left,
+                    right: 'auto',
+                  }}
+                >
+                  {renderSortMenuOptions()}
                 </div>
               )}
             </div>
@@ -1927,7 +2396,7 @@ const [gridEditText, setGridEditText] = useState('');
                   aria-expanded={!isCollapsed}
                 >
                   <span className="section-chevron">{isCollapsed ? '▸' : '▾'}</span>
-                  <span className="section-icon">{getListIcon({ type: 'list', id: list.id }, list.title)}</span>
+                  <span className="section-icon">{getListIcon({ type: 'list', id: list.id }, list.icon)}</span>
                   <span className="section-name">{list.title}</span>
                   <span className="section-count">{items.length}</span>
                 </button>
@@ -2012,7 +2481,7 @@ const [gridEditText, setGridEditText] = useState('');
         </div>
 
         
-        {!searchQuery && activeItems.length === 0 && !(selection.type === 'smart' && (selection.id === 'flagged-email' || selection.id === 'assigned-to-me')) && (
+        {!searchQuery && activeItems.length === 0 && selection.type !== 'list' && !(selection.type === 'smart' && (selection.id === 'flagged-email' || selection.id === 'assigned-to-me')) && (
           <div className={`empty-state ${selection.type === 'smart' && selection.id === 'my-day' ? 'my-day-empty-state' : ''}`}>
             {selection.type === 'smart' && selection.id === 'my-day' && (
               <div className="empty-state-illustration" aria-hidden="true">
@@ -2029,11 +2498,9 @@ const [gridEditText, setGridEditText] = useState('');
                 </svg>
               </div>
             )}
-            <div className="empty-state-title">
-              {selection.type === 'smart' && selection.id === 'my-day'
-                ? 'Focus on your day'
-                : 'No tasks yet'}
-            </div>
+            {selection.type === 'smart' && selection.id === 'my-day' && (
+              <div className="empty-state-title">Focus on your day</div>
+            )}
             <div className="empty-state-copy">
               {selection.type === 'smart' && selection.id === 'my-day'
                 ? 'Get things done with My Day, a list that refreshes every day.'
@@ -2043,7 +2510,7 @@ const [gridEditText, setGridEditText] = useState('');
                 ? 'Tasks with due dates or reminders show up here.'
                 : selection.type === 'smart' && selection.id === 'completed'
                 ? 'Tasks you complete show up here.'
-                : 'Add a task below to get started.'}
+                : ''}
             </div>
             {selection.type === 'smart' && selection.id === 'my-day' && (
               <button type="button" className="empty-state-action" onClick={() => addTaskInputRef.current?.focus()}>
@@ -2159,12 +2626,16 @@ const [gridEditText, setGridEditText] = useState('');
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="folder" /></span>
             Create new list from this task
           </button>
-          <div className="context-menu-submenu-wrap" onMouseEnter={() => setTaskSubmenu("move")} onMouseLeave={() => setTaskSubmenu(null)}>
-            <button type="button" className="context-menu-item" onClick={() => setTaskSubmenu((value) => value === "move" ? null : "move")}>
+          <div className="context-menu-submenu-wrap" onMouseEnter={(event) => openTaskSubmenu("move", event.currentTarget)} onMouseLeave={() => setTaskSubmenu(null)}>
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={(event) => openTaskSubmenu("move", event.currentTarget)}
+            >
               <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="move" /></span><span>Move task to…</span><span className="context-menu-arrow">›</span>
             </button>
             {taskSubmenu === "move" && (
-              <div className="context-menu context-menu-submenu">
+              <div className="context-menu context-menu-submenu" style={taskSubmenuPosition ?? undefined}>
                 {allLists.map((l) => {
                   const isCurrent = l.id === contextMenu.item.listId;
                   return (
@@ -2176,12 +2647,16 @@ const [gridEditText, setGridEditText] = useState('');
               </div>
             )}
           </div>
-          <div className="context-menu-submenu-wrap" onMouseEnter={() => setTaskSubmenu("copy")} onMouseLeave={() => setTaskSubmenu(null)}>
-            <button type="button" className="context-menu-item" onClick={() => setTaskSubmenu((value) => value === "copy" ? null : "copy")}>
+          <div className="context-menu-submenu-wrap" onMouseEnter={(event) => openTaskSubmenu("copy", event.currentTarget)} onMouseLeave={() => setTaskSubmenu(null)}>
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={(event) => openTaskSubmenu("copy", event.currentTarget)}
+            >
               <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="copy" /></span><span>Copy task to…</span><span className="context-menu-arrow">›</span>
             </button>
             {taskSubmenu === "copy" && (
-              <div className="context-menu context-menu-submenu">
+              <div className="context-menu context-menu-submenu" style={taskSubmenuPosition ?? undefined}>
                 {allLists.map((l) => (
                   <button key={l.id} onClick={async () => {
                     if (!user) return;
@@ -2386,11 +2861,10 @@ const [gridEditText, setGridEditText] = useState('');
         <TaskDetail
           key={selectedItem.id}
           item={selectedItem}
-          lists={allLists}
           todayStr={todayStr}
+          currentUserId={user?.uid ?? ''}
           onClose={() => setSelectedItemId(null)}
           onUpdate={handleUpdateItem}
-          onMoveToList={handleMoveToList}
           onDelete={handleDeleteItem}
         />
       )}

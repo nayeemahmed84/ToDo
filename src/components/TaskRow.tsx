@@ -52,7 +52,10 @@ export function TaskRow({
   return (
     <li
       className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''}`}
-      onContextMenu={(event) => onContextMenu(event, item)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onContextMenu(event, item);
+      }}
     >
       <input
         type="checkbox"

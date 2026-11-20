@@ -4,17 +4,15 @@ import {
   AlarmClockIcon,
   CalendarIcon,
   HideDetailIcon,
-  ListIcon,
   PaperclipIcon,
   PlusIcon,
   RepeatIcon,
   StarIcon,
   SunIcon,
-  TagIcon,
   TrashIcon,
   UserPlusIcon,
 } from './Icons';
-import { CategoryColor, RepeatRule, TodoItem, TodoList, TodoStep } from '../types/todo';
+import { RepeatRule, TodoItem, TodoStep } from '../types/todo';
 
 function addDaysStr(baseYmd: string, days: number): string {
   const [y, m, d] = baseYmd.split('-').map(Number);
@@ -24,21 +22,19 @@ function addDaysStr(baseYmd: string, days: number): string {
 
 interface TaskDetailProps {
   item: TodoItem;
-  lists: TodoList[];
   todayStr: string;
+  currentUserId: string;
   onClose: () => void;
   onUpdate: (item: TodoItem, patch: Partial<TodoItem>) => Promise<void>;
-  onMoveToList: (item: TodoItem, targetListId: string) => Promise<void>;
   onDelete: (item: TodoItem) => Promise<void>;
 }
 
 export function TaskDetail({
   item,
-  lists,
   todayStr,
+  currentUserId,
   onClose,
   onUpdate,
-  onMoveToList,
   onDelete,
 }: TaskDetailProps) {
   const [title, setTitle] = useState(item.text);
@@ -52,7 +48,6 @@ export function TaskDetail({
   const [remindOptionsOpen, setRemindOptionsOpen] = useState(false);
   const [dueDateOptionsOpen, setDueDateOptionsOpen] = useState(false);
   const [repeatOptionsOpen, setRepeatOptionsOpen] = useState(false);
-  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [customRepeatOpen, setCustomRepeatOpen] = useState(false);
   const [repeatInterval, setRepeatInterval] = useState(item.repeatCustom?.interval ?? 1);
   const [repeatUnit, setRepeatUnit] = useState<'days' | 'weeks' | 'months' | 'years'>(item.repeatCustom?.unit ?? 'weeks');
@@ -63,6 +58,21 @@ export function TaskDetail({
   const [newStep, setNewStep] = useState('');
 
   const isMyDay = item.myDayDate === todayStr;
+  const lastModifiedByUid = item.updatedByUid ?? item.ownerUid;
+  const lastModifiedBy = lastModifiedByUid === currentUserId
+    ? 'You'
+    : item.updatedByName?.trim() || 'a collaborator';
+  const lastModifiedAt = new Date(item.updatedAtMs ?? item.createdAtMs);
+  const lastModifiedDate = lastModifiedAt.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(lastModifiedAt.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }),
+  });
+  const lastModifiedTime = lastModifiedAt.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 
   const handleTitleBlur = () => {
     const trimmed = title.trim();
@@ -473,62 +483,6 @@ export function TaskDetail({
           onBlur={handleNotesBlur}
         />
       </div>
-
-      <div className="detail-more-options">
-        <button
-          type="button"
-          className="detail-more-toggle"
-          aria-expanded={moreOptionsOpen}
-          onClick={() => setMoreOptionsOpen((open) => !open)}
-        >
-          {moreOptionsOpen ? 'Fewer options' : 'More options'}
-        </button>
-        {moreOptionsOpen && (
-          <div className="detail-more-options-content">
-            <div className="detail-card">
-              <label className="detail-field-label">
-                <div className="detail-field-header">
-                  <TagIcon size={20} />
-                  <span>Pick a category</span>
-                </div>
-                <select
-                  className="repeat-select"
-                  value={item.category ?? ''}
-                  onChange={(e) => onUpdate(item, { category: (e.target.value || null) as CategoryColor | null })}
-                >
-                  <option value="">None</option>
-                  <option value="blue">Blue</option>
-                  <option value="green">Green</option>
-                  <option value="orange">Orange</option>
-                  <option value="purple">Purple</option>
-                  <option value="red">Red</option>
-                  <option value="yellow">Yellow</option>
-                </select>
-              </label>
-            </div>
-
-            {lists.length > 1 && (
-              <div className="detail-card">
-                <label className="detail-field-label">
-                  <div className="detail-field-header">
-                    <ListIcon size={20} />
-                    <span>Move to list</span>
-                  </div>
-                  <select
-                    className="repeat-select"
-                    value={item.listId}
-                    onChange={(e) => {
-                      if (e.target.value !== item.listId) onMoveToList(item, e.target.value);
-                    }}
-                  >
-                    {lists.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
-                  </select>
-                </label>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
       </div>
 
       <div className="detail-footer">
@@ -551,8 +505,15 @@ export function TaskDetail({
               day: 'numeric',
               ...(sameYear ? {} : { year: 'numeric' }),
             });
-            return `Created by You on ${dateStr}`;
+            const timeStr = d.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+            });
+            return `Created by You on ${dateStr} at ${timeStr}`;
           })()}
+          <span>
+            Last modified by {lastModifiedBy} on {lastModifiedDate} at {lastModifiedTime}
+          </span>
         </span>
         <button
           type="button"
