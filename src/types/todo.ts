@@ -4,7 +4,9 @@ export type SmartListId =
   | 'planned'
   | 'assigned-to-me'
   | 'flagged-email'
-  | 'tasks';
+  | 'tasks'
+  | 'all'
+  | 'completed';
 
 export type ViewSelection =
   | { type: 'smart'; id: SmartListId }
@@ -27,13 +29,16 @@ export interface TodoList {
   id: string;
   title: string;
   ownerUid: string;
+  isDefaultTasksList?: boolean;
   groupId?: string | null;
   color?: string;
   createdAt?: unknown;
 }
 
-export type RepeatRule = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
-export type SortOption = 'created' | 'importance' | 'dueDate' | 'alphabetical';
+export type RepeatRule = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+export type SortOption = 'position' | 'importance' | 'dueDate' | 'myDay' | 'alphabetical' | 'created';
+
+export type CategoryColor = 'blue' | 'green' | 'orange' | 'purple' | 'red' | 'yellow';
 
 export interface TodoItem {
   id: string;
@@ -44,9 +49,15 @@ export interface TodoItem {
   important: boolean;
   myDayDate: string | null; // YYYY-MM-DD
   dueDate: string | null;   // YYYY-MM-DD
+  reminderAtMs?: number | null;
   repeat?: RepeatRule;
+  repeatCustom?: { interval: number; unit: 'days' | 'weeks' | 'months' | 'years'; days: number[] } | null;
+  assignedTo?: string | null;
+  attachments?: { id: string; name: string; size: number; type?: string }[];
+  category: CategoryColor | null;
   notes: string;
   steps: TodoStep[];
   createdAtMs: number;
+  updatedAtMs?: number | null;
   completedAtMs?: number | null;
 }
