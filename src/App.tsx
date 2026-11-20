@@ -28,6 +28,7 @@ import {
   RepeatRule,
   SmartListId,
   SortOption,
+  TodoGroup,
   TodoItem,
   TodoList,
   ViewSelection,
@@ -73,6 +74,7 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [lists, setLists] = useState<TodoList[]>([]);
+  const [groups, setGroups] = useState<TodoGroup[]>([]);
   const [allItems, setAllItems] = useState<TodoItem[]>([]);
   const [selection, setSelection] = useState<ViewSelection>({
     type: 'smart',
@@ -189,9 +191,30 @@ export function App() {
       (err) => setError(err.message)
     );
 
+    const groupsQuery = query(
+      collection(db, 'groups'),
+      where('ownerUid', '==', user.uid)
+    );
+
+    const unsubGroups = onSnapshot(
+      groupsQuery,
+      (snap) => {
+        setGroups(
+          snap.docs.map((d) => ({
+            id: d.id,
+            title: (d.data().title as string) || 'Group',
+            ownerUid: d.data().ownerUid as string,
+            collapsed: Boolean(d.data().collapsed),
+          }))
+        );
+      },
+      (err) => setError(err.message)
+    );
+
     return () => {
       unsubLists();
       unsubItems();
+      unsubGroups();
     };
   }, [user]);
 
@@ -407,6 +430,64 @@ export function App() {
     });
   };
 
+  const handleCreateGroup = async (title: string) => {
+    if (!user) return;
+    await addDoc(collection(db, 'groups'), {
+      title,
+      ownerUid: user.uid,
+      collapsed: false,
+      createdAt: serverTimestamp(),
+    });
+  };
+
+  const handleToggleGroup = async (group: TodoGroup) => {
+    await updateDoc(doc(db, 'groups', group.id), {
+      collapsed: !group.collapsed,
+    });
+  };
+
+  const handleImportJson = async (file: File) => {
+    if (!user) return;
+    setError(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as {
+        lists?: { id?: string; title?: string }[];
+        items?: Partial<TodoItem>[];
+      };
+      const idMap = new Map<string, string>();
+      for (const l of parsed.lists ?? []) {
+        const ref = await addDoc(collection(db, 'lists'), {
+          title: l.title || 'Imported List',
+          ownerUid: user.uid,
+          createdAt: serverTimestamp(),
+        });
+        if (l.id) idMap.set(l.id, ref.id);
+      }
+      const fallbackListId = await ensureDefaultList();
+      for (const item of parsed.items ?? []) {
+        const targetListId =
+          (item.listId && idMap.get(item.listId)) || fallbackListId;
+        await addDoc(collection(db, 'lists', targetListId, 'items'), {
+          listId: targetListId,
+          ownerUid: user.uid,
+          text: item.text || 'Untitled task',
+          done: Boolean(item.done),
+          important: Boolean(item.important),
+          myDayDate: item.myDayDate ?? null,
+          dueDate: item.dueDate ?? null,
+          repeat: item.repeat ?? 'none',
+          notes: item.notes ?? '',
+          steps: Array.isArray(item.steps) ? item.steps : [],
+          createdAtMs: item.createdAtMs ?? Date.now(),
+          completedAtMs: item.completedAtMs ?? null,
+        });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import JSON');
+    }
+  };
+
   const handleExportJson = () => {
     const payload = {
       exportedAt: new Date().toISOString(),
@@ -484,6 +565,7 @@ export function App() {
       <Sidebar
         user={user}
         lists={lists}
+        groups={groups}
         selection={selection}
         searchQuery={searchQuery}
         counts={counts}
@@ -506,8 +588,11 @@ export function App() {
         onSelect={setSelection}
         onSearchChange={setSearchQuery}
         onCreateList={handleCreateList}
+        onCreateGroup={handleCreateGroup}
+        onToggleGroup={handleToggleGroup}
         onDeleteList={handleDeleteList}
         onExportJson={handleExportJson}
+        onImportJson={handleImportJson}
         onSignOut={() => signOutUser()}
       />
 

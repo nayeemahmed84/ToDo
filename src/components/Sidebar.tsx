@@ -1,6 +1,6 @@
-import { FormEvent, ReactNode, useState } from 'react';
+import { FormEvent, ReactNode, useRef, useState } from 'react';
 import { User } from 'firebase/auth';
-import { SmartListId, TodoList, ViewSelection } from '../types/todo';
+import { SmartListId, TodoGroup, TodoList, ViewSelection } from '../types/todo';
 import {
   CalendarIcon,
   DownloadIcon,
@@ -16,6 +16,7 @@ import {
 interface SidebarProps {
   user: User;
   lists: TodoList[];
+  groups: TodoGroup[];
   selection: ViewSelection;
   searchQuery: string;
   counts: Record<SmartListId, number> & Record<string, number>;
@@ -28,8 +29,11 @@ interface SidebarProps {
   onSelect: (sel: ViewSelection) => void;
   onSearchChange: (q: string) => void;
   onCreateList: (title: string) => Promise<void>;
+  onCreateGroup: (title: string) => Promise<void>;
+  onToggleGroup: (group: TodoGroup) => Promise<void>;
   onDeleteList: (listId: string) => Promise<void>;
   onExportJson: () => void;
+  onImportJson: (file: File) => Promise<void>;
   onSignOut: () => void;
 }
 
@@ -43,6 +47,7 @@ const SMART_LISTS: { id: SmartListId; label: string; icon: ReactNode }[] = [
 export function Sidebar({
   user,
   lists,
+  groups,
   selection,
   searchQuery,
   counts,
@@ -55,11 +60,16 @@ export function Sidebar({
   onSelect,
   onSearchChange,
   onCreateList,
+  onCreateGroup,
+  onToggleGroup,
   onDeleteList,
   onExportJson,
+  onImportJson,
   onSignOut,
 }: SidebarProps) {
   const [newListTitle, setNewListTitle] = useState('');
+  const [newGroupTitle, setNewGroupTitle] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -121,6 +131,21 @@ export function Sidebar({
 
           <div className="nav-divider" />
 
+          {groups.map((group) => (
+            <div key={group.id} className="nav-group">
+              <button
+                className="nav-item group-header"
+                onClick={() => onToggleGroup(group)}
+              >
+                <span className="nav-icon">📁</span>
+                <span className="nav-label">{group.title}</span>
+                <span className="nav-count">
+                  {group.collapsed ? '▸' : '▾'}
+                </span>
+              </button>
+            </div>
+          ))}
+
           {lists.map((list) => {
             const active =
               !searchQuery &&
@@ -167,6 +192,36 @@ export function Sidebar({
             onChange={(e) => setNewListTitle(e.target.value)}
           />
         </form>
+        <form
+          className="new-list-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!newGroupTitle.trim()) return;
+            await onCreateGroup(newGroupTitle.trim());
+            setNewGroupTitle('');
+          }}
+        >
+          <input
+            type="text"
+            placeholder="+ New group"
+            value={newGroupTitle}
+            onChange={(e) => setNewGroupTitle(e.target.value)}
+          />
+        </form>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json"
+          style={{ display: 'none' }}
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              await onImportJson(file);
+              e.target.value = '';
+            }
+          }}
+        />
 
         <div className="sidebar-footer">
           <button
@@ -188,6 +243,13 @@ export function Sidebar({
           <button className="export-btn" onClick={onExportJson}>
             <DownloadIcon size={14} />
             <span>Export</span>
+          </button>
+          <button
+            className="export-btn"
+            onClick={() => fileInputRef.current?.click()}
+            title="Import JSON backup"
+          >
+            <span>Import</span>
           </button>
         </div>
       </aside>

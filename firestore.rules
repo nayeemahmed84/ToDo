@@ -14,6 +14,11 @@ service cloud.firestore {
       allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
+    match /groups/{groupId} {
+      allow read, update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+    }
+
     match /lists/{listId} {
       allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
       allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
