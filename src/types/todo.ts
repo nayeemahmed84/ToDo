@@ -1,8 +1,21 @@
-export type SmartListId = 'my-day' | 'important' | 'planned' | 'tasks';
+export type SmartListId =
+  | 'my-day'
+  | 'important'
+  | 'planned'
+  | 'assigned-to-me'
+  | 'flagged-email'
+  | 'tasks';
 
 export type ViewSelection =
   | { type: 'smart'; id: SmartListId }
   | { type: 'list'; id: string };
+
+export interface TodoGroup {
+  id: string;
+  title: string;
+  ownerUid: string;
+  collapsed?: boolean;
+}
 
 export interface TodoStep {
   id: string;
@@ -14,6 +27,7 @@ export interface TodoList {
   id: string;
   title: string;
   ownerUid: string;
+  groupId?: string | null;
   color?: string;
   createdAt?: unknown;
 }

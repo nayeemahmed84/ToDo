@@ -55,6 +55,8 @@ const SMART_TITLES: Record<SmartListId, string> = {
   'my-day': 'My Day',
   important: 'Important',
   planned: 'Planned',
+  'assigned-to-me': 'Assigned to me',
+  'flagged-email': 'Flagged email',
   tasks: 'Tasks',
 };
 
@@ -62,6 +64,8 @@ const SMART_COLORS: Record<SmartListId, string> = {
   'my-day': '#4c6ef5',
   important: '#e11d48',
   planned: '#0d9488',
+  'assigned-to-me': '#0284c7',
+  'flagged-email': '#b91c1c',
   tasks: '#4f46e5',
 };
 
@@ -86,9 +90,37 @@ export function App() {
   const [soundEnabled, setSoundEnabled] = useState(
     () => localStorage.getItem('todo-sound') !== '0'
   );
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    item: TodoItem;
+  } | null>(null);
+  const [undoToast, setUndoToast] = useState<{
+    item: TodoItem;
+    timerId: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const todayStr = getTodayStr();
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '1') {
+        e.preventDefault();
+        setSidebarOpen((v) => !v);
+      } else if (e.key === 'Escape') {
+        setContextMenu(null);
+        setSelectedItemId(null);
+      }
+    };
+    const onClick = () => setContextMenu(null);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('click', onClick);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('click', onClick);
+    };
+  }, []);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (nextUser) => {
@@ -200,6 +232,9 @@ export function App() {
         return allItems.filter((i) => i.important);
       case 'planned':
         return allItems.filter((i) => Boolean(i.dueDate));
+      case 'assigned-to-me':
+      case 'flagged-email':
+        return [];
       case 'tasks':
       default:
         return allItems;
@@ -343,9 +378,33 @@ export function App() {
       if (selectedItemId === item.id) {
         setSelectedItemId(null);
       }
+      if (undoToast) window.clearTimeout(undoToast.timerId);
+      const timerId = window.setTimeout(() => setUndoToast(null), 5000);
+      setUndoToast({ item, timerId });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete task');
     }
+  };
+
+  const handleUndoDelete = async () => {
+    if (!undoToast || !user) return;
+    window.clearTimeout(undoToast.timerId);
+    const { item } = undoToast;
+    setUndoToast(null);
+    await addDoc(collection(db, 'lists', item.listId, 'items'), {
+      listId: item.listId,
+      ownerUid: user.uid,
+      text: item.text,
+      done: item.done,
+      important: item.important,
+      myDayDate: item.myDayDate,
+      dueDate: item.dueDate,
+      repeat: item.repeat ?? 'none',
+      notes: item.notes,
+      steps: item.steps,
+      createdAtMs: item.createdAtMs,
+      completedAtMs: item.completedAtMs ?? null,
+    });
   };
 
   const handleExportJson = () => {
@@ -501,6 +560,10 @@ export function App() {
             <li
               key={item.id}
               className={`task-row ${selectedItemId === item.id ? 'selected' : ''}`}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({ x: e.clientX, y: e.clientY, item });
+              }}
             >
               <input
                 type="checkbox"
@@ -589,7 +652,23 @@ export function App() {
         )}
         </div>
 
-        {!searchQuery && (
+        {selection.type === 'smart' &&
+          selection.id === 'flagged-email' &&
+          !searchQuery && (
+            <p className="notice">
+              No flagged emails — Outlook/flagged-email import is V2.
+            </p>
+          )}
+
+        {selection.type === 'smart' &&
+          selection.id === 'assigned-to-me' &&
+          !searchQuery && (
+            <p className="notice">No tasks assigned to you yet.</p>
+          )}
+
+        {!searchQuery &&
+          selection.id !== 'flagged-email' &&
+          selection.id !== 'assigned-to-me' && (
           <form className="add-task-bar" onSubmit={handleAddItem}>
             <span className="add-circle" />
             <input
@@ -597,6 +676,38 @@ export function App() {
               placeholder="Try typing 'Buy groceries' or 'Pay utilities'"
               value={newItemText}
               onChange={(e) => setNewItemText(e.target.value)}
+              onPaste={async (e) => {
+                const text = e.clipboardData.getData('text');
+                const lines = text
+                  .split(/\r?\n/)
+                  .map((l) => l.trim())
+                  .filter(Boolean);
+                if (lines.length > 1 && user) {
+                  e.preventDefault();
+                  const targetListId = await ensureDefaultList();
+                  await Promise.all(
+                    lines.map((line) =>
+                      addDoc(collection(db, 'lists', targetListId, 'items'), {
+                        listId: targetListId,
+                        ownerUid: user.uid,
+                        text: line,
+                        done: false,
+                        important: false,
+                        myDayDate:
+                          selection.type === 'smart' &&
+                          selection.id === 'my-day'
+                            ? todayStr
+                            : null,
+                        dueDate: null,
+                        notes: '',
+                        steps: [],
+                        createdAtMs: Date.now(),
+                        completedAtMs: null,
+                      })
+                    )
+                  );
+                }
+              }}
             />
             {newItemText.trim() && (
               <button className="primary small" type="submit">
@@ -606,6 +717,67 @@ export function App() {
           </form>
         )}
       </main>
+
+      {contextMenu && (
+        <div
+          className="context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              const isMyDay = contextMenu.item.myDayDate === todayStr;
+              handleUpdateItem(contextMenu.item, {
+                myDayDate: isMyDay ? null : todayStr,
+              });
+              setContextMenu(null);
+            }}
+          >
+            {contextMenu.item.myDayDate === todayStr
+              ? 'Remove from My Day'
+              : 'Add to My Day'}
+          </button>
+          <button
+            onClick={() => {
+              handleUpdateItem(contextMenu.item, {
+                important: !contextMenu.item.important,
+              });
+              setContextMenu(null);
+            }}
+          >
+            {contextMenu.item.important
+              ? 'Remove importance'
+              : 'Mark as important'}
+          </button>
+          <button
+            onClick={() => {
+              handleUpdateItem(contextMenu.item, {
+                done: !contextMenu.item.done,
+                completedAtMs: !contextMenu.item.done ? Date.now() : null,
+              });
+              setContextMenu(null);
+            }}
+          >
+            {contextMenu.item.done ? 'Mark as not completed' : 'Mark as completed'}
+          </button>
+          <button
+            className="danger"
+            onClick={() => {
+              handleDeleteItem(contextMenu.item);
+              setContextMenu(null);
+            }}
+          >
+            Delete task
+          </button>
+        </div>
+      )}
+
+      {undoToast && (
+        <div className="undo-toast">
+          <span>Deleted &ldquo;{undoToast.item.text}&rdquo;</span>
+          <button onClick={handleUndoDelete}>Undo</button>
+        </div>
+      )}
 
       {selectedItem && (
         <TaskDetail
