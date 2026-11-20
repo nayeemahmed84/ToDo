@@ -81,7 +81,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>('created');
   const [darkMode, setDarkMode] = useState(
-    () => localStorage.getItem('todo-dark') === '1'
+    () => localStorage.getItem('todo-dark') !== '0'
   );
   const [soundEnabled, setSoundEnabled] = useState(
     () => localStorage.getItem('todo-sound') !== '0'
@@ -473,24 +473,8 @@ export function App() {
 
         {error && <p className="error">{error}</p>}
 
-        {!searchQuery && (
-          <form className="add-task-bar" onSubmit={handleAddItem}>
-            <span className="plus-icon">+</span>
-            <input
-              type="text"
-              placeholder="Add a task"
-              value={newItemText}
-              onChange={(e) => setNewItemText(e.target.value)}
-            />
-            {newItemText.trim() && (
-              <button className="primary small" type="submit">
-                Add
-              </button>
-            )}
-          </form>
-        )}
-
-        <ul className="task-list">
+        <div className="tasks-scroll">
+          <ul className="task-list">
           {activeItems.map((item) => (
             <li
               key={item.id}
@@ -580,6 +564,24 @@ export function App() {
               </ul>
             )}
           </section>
+        )}
+        </div>
+
+        {!searchQuery && (
+          <form className="add-task-bar" onSubmit={handleAddItem}>
+            <span className="add-circle" />
+            <input
+              type="text"
+              placeholder="Try typing 'Buy groceries' or 'Pay utilities'"
+              value={newItemText}
+              onChange={(e) => setNewItemText(e.target.value)}
+            />
+            {newItemText.trim() && (
+              <button className="primary small" type="submit">
+                Add
+              </button>
+            )}
+          </form>
         )}
       </main>
 

@@ -62,22 +62,65 @@ body {
 }
 
 .app-shell.dark {
-  --bg-main: #0f172a;
-  --bg-card: #1e293b;
-  --border: #334155;
-  --text: #f1f5f9;
-  --text-muted: #94a3b8;
+  --bg-main: #141414;
+  --bg-card: rgba(34, 34, 34, 0.82);
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #f3f4f6;
+  --text-muted: #9ca3af;
 }
 
-.app-shell.dark .sidebar,
-.app-shell.dark .detail-panel,
+.app-shell.dark .sidebar {
+  background: #1c1c1c;
+  border-color: #2a2a2a;
+}
+
+.app-shell.dark .nav-item:hover,
+.app-shell.dark .nav-item-row:hover {
+  background: #262626;
+}
+
+.app-shell.dark .nav-item.active,
+.app-shell.dark .nav-item-row.active {
+  background: #2c2c2c;
+  color: #fff;
+  position: relative;
+}
+
+.app-shell.dark .nav-item.active::before,
+.app-shell.dark .nav-item-row.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 3px;
+  background: #60a5fa;
+}
+
+.app-shell.dark .detail-panel {
+  background: #1c1c1c;
+  border-color: #2a2a2a;
+}
+
 .app-shell.dark .detail-card,
-.app-shell.dark .detail-action,
+.app-shell.dark .detail-action {
+  background: #252525;
+  border-color: #333;
+  color: var(--text);
+}
+
 .app-shell.dark .add-task-bar,
 .app-shell.dark .task-row {
-  background: var(--bg-card);
-  border-color: var(--border);
+  background: rgba(30, 30, 30, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-color: rgba(255, 255, 255, 0.07);
   color: var(--text);
+}
+
+.app-shell.dark .task-row:hover {
+  background: rgba(42, 42, 42, 0.85);
 }
 
 .app-shell.dark .task-title,
@@ -275,9 +318,26 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 1.5rem 2rem;
+  padding: 1.5rem 2rem 1.25rem;
+  overflow: hidden;
+  background-image:
+    radial-gradient(circle at 78% 48%, rgba(234, 88, 12, 0.35), transparent 42%),
+    radial-gradient(circle at 25% 20%, rgba(30, 58, 138, 0.55), transparent 55%),
+    linear-gradient(160deg, #1e3a5f 0%, #3b2f2f 55%, #1c1917 100%) !important;
+}
+
+.tasks-scroll {
+  flex: 1;
   overflow-y: auto;
-  background: linear-gradient(180deg, #5b7cfa 0%, #4c6ef5 120px, #f8fafc 120px);
+  padding-right: 0.25rem;
+}
+
+.add-circle {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #9ca3af;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .main-header {
@@ -354,10 +414,10 @@ body {
   align-items: center;
   gap: 0.75rem;
   background: #fff;
-  padding: 0.65rem 1rem;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
-  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  margin-top: 0.75rem;
 }
 
 .plus-icon {
