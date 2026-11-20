@@ -255,9 +255,23 @@ export function App() {
 
   const handleDeleteList = async (listId: string) => {
     if (!user) return;
-    await deleteDoc(doc(db, 'lists', listId));
-    if (selection.type === 'list' && selection.id === listId) {
-      setSelection({ type: 'smart', id: 'my-day' });
+    setError(null);
+    try {
+      const listItems = allItems.filter((i) => i.listId === listId);
+      await Promise.all(
+        listItems.map((i) =>
+          deleteDoc(doc(db, 'lists', listId, 'items', i.id))
+        )
+      );
+      await deleteDoc(doc(db, 'lists', listId));
+      if (selection.type === 'list' && selection.id === listId) {
+        setSelection({ type: 'smart', id: 'my-day' });
+      }
+      if (selectedItemId && listItems.some((i) => i.id === selectedItemId)) {
+        setSelectedItemId(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete list');
     }
   };
 
@@ -323,7 +337,15 @@ export function App() {
   };
 
   const handleDeleteItem = async (item: TodoItem) => {
-    await deleteDoc(doc(db, 'lists', item.listId, 'items', item.id));
+    setError(null);
+    try {
+      await deleteDoc(doc(db, 'lists', item.listId, 'items', item.id));
+      if (selectedItemId === item.id) {
+        setSelectedItemId(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete task');
+    }
   };
 
   const handleExportJson = () => {

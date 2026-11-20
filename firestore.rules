@@ -21,6 +21,7 @@ service cloud.firestore {
 
       match /items/{itemId} {
         allow read, write: if isListOwner(listId);
+        allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
       }
     }
   }
