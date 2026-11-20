@@ -75,6 +75,7 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [lists, setLists] = useState<TodoList[]>([]);
+  const [sharedLists, setSharedLists] = useState<TodoList[]>([]);
   const [groups, setGroups] = useState<TodoGroup[]>([]);
   const [allItems, setAllItems] = useState<TodoItem[]>([]);
   const [selection, setSelection] = useState<ViewSelection>({
@@ -231,8 +232,28 @@ export function App() {
       (err) => setError(err.message)
     );
 
+    const sharedListsQuery = query(
+      collection(db, 'lists'),
+      where('memberUids', 'array-contains', user.uid)
+    );
+
+    const unsubSharedLists = onSnapshot(
+      sharedListsQuery,
+      (snap) => {
+        setSharedLists(
+          snap.docs.map((d) => ({
+            id: d.id,
+            title: (d.data().title as string) || 'Untitled',
+            ownerUid: d.data().ownerUid as string,
+          }))
+        );
+      },
+      (err) => setError(err.message)
+    );
+
     return () => {
       unsubLists();
+      unsubSharedLists();
       unsubItems();
       unsubGroups();
     };
@@ -303,11 +324,18 @@ export function App() {
   const selectedItem =
     allItems.find((i) => i.id === selectedItemId) ?? null;
 
+  const allLists = useMemo(() => {
+    const map = new Map<string, TodoList>();
+    for (const l of lists) map.set(l.id, l);
+    for (const l of sharedLists) map.set(l.id, l);
+    return Array.from(map.values());
+  }, [lists, sharedLists]);
+
   const currentTitle = searchQuery.trim()
     ? `Search: "${searchQuery.trim()}"`
     : selection.type === 'smart'
       ? SMART_TITLES[selection.id]
-      : lists.find((l) => l.id === selection.id)?.title ?? 'List';
+      : allLists.find((l) => l.id === selection.id)?.title ?? 'List';
 
   const ensureDefaultList = async (): Promise<string> => {
     if (selection.type === 'list') return selection.id;
@@ -584,7 +612,7 @@ export function App() {
     <div className={`app-shell ${darkMode ? 'dark' : ''}`}>
       <Sidebar
         user={user}
-        lists={lists}
+        lists={allLists}
         groups={groups}
         selection={selection}
         searchQuery={searchQuery}
