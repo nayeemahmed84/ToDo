@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { RepeatRule, TodoItem, TodoStep } from '../types/todo';
+import { RepeatRule, TodoItem, TodoList, TodoStep } from '../types/todo';
 
 function addDaysStr(baseYmd: string, days: number): string {
   const [y, m, d] = baseYmd.split('-').map(Number);
@@ -9,17 +9,21 @@ function addDaysStr(baseYmd: string, days: number): string {
 
 interface TaskDetailProps {
   item: TodoItem;
+  lists: TodoList[];
   todayStr: string;
   onClose: () => void;
   onUpdate: (item: TodoItem, patch: Partial<TodoItem>) => Promise<void>;
+  onMoveToList: (item: TodoItem, targetListId: string) => Promise<void>;
   onDelete: (item: TodoItem) => Promise<void>;
 }
 
 export function TaskDetail({
   item,
+  lists,
   todayStr,
   onClose,
   onUpdate,
+  onMoveToList,
   onDelete,
 }: TaskDetailProps) {
   const [title, setTitle] = useState(item.text);
@@ -212,6 +216,29 @@ export function TaskDetail({
           </select>
         </label>
       </div>
+
+      {lists.length > 1 && (
+        <div className="detail-card">
+          <label className="detail-field-label">
+            <span>📂 Move to list</span>
+            <select
+              className="repeat-select"
+              value={item.listId}
+              onChange={(e) => {
+                if (e.target.value !== item.listId) {
+                  onMoveToList(item, e.target.value);
+                }
+              }}
+            >
+              {lists.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       <div className="detail-card">
         <textarea

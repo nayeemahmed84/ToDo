@@ -442,6 +442,57 @@ export function App() {
     }
   };
 
+  const handleMoveToList = async (item: TodoItem, targetListId: string) => {
+    if (!user || targetListId === item.listId) return;
+    const ref = await addDoc(collection(db, 'lists', targetListId, 'items'), {
+      listId: targetListId,
+      ownerUid: user.uid,
+      text: item.text,
+      done: item.done,
+      important: item.important,
+      myDayDate: item.myDayDate,
+      dueDate: item.dueDate,
+      repeat: item.repeat ?? 'none',
+      notes: item.notes,
+      steps: item.steps,
+      createdAtMs: item.createdAtMs,
+      completedAtMs: item.completedAtMs ?? null,
+    });
+    await deleteDoc(doc(db, 'lists', item.listId, 'items', item.id));
+    setSelectedItemId(ref.id);
+  };
+
+  const handleDuplicateList = async (listId: string) => {
+    if (!user) return;
+    const source = allLists.find((l) => l.id === listId);
+    if (!source) return;
+    const newRef = await addDoc(collection(db, 'lists'), {
+      title: `${source.title} (copy)`,
+      ownerUid: user.uid,
+      createdAt: serverTimestamp(),
+    });
+    const listItems = allItems.filter((i) => i.listId === listId);
+    await Promise.all(
+      listItems.map((i) =>
+        addDoc(collection(db, 'lists', newRef.id, 'items'), {
+          listId: newRef.id,
+          ownerUid: user.uid,
+          text: i.text,
+          done: i.done,
+          important: i.important,
+          myDayDate: i.myDayDate,
+          dueDate: i.dueDate,
+          repeat: i.repeat ?? 'none',
+          notes: i.notes,
+          steps: i.steps,
+          createdAtMs: Date.now(),
+          completedAtMs: i.completedAtMs ?? null,
+        })
+      )
+    );
+    setSelection({ type: 'list', id: newRef.id });
+  };
+
   const handleDeleteItem = async (item: TodoItem) => {
     setError(null);
     try {
@@ -707,17 +758,25 @@ export function App() {
             <option value="alphabetical">Sort: A-Z</option>
           </select>
           {selection.type === 'list' && (
-            <button
-              className="sort-select"
-              onClick={() => {
-                const url = `${window.location.origin}/?join=${selection.id}`;
-                navigator.clipboard?.writeText(url);
-                setShareToast(true);
-                window.setTimeout(() => setShareToast(false), 3000);
-              }}
-            >
-              Share
-            </button>
+            <>
+              <button
+                className="sort-select"
+                onClick={() => handleDuplicateList(selection.id)}
+              >
+                Duplicate
+              </button>
+              <button
+                className="sort-select"
+                onClick={() => {
+                  const url = `${window.location.origin}/?join=${selection.id}`;
+                  navigator.clipboard?.writeText(url);
+                  setShareToast(true);
+                  window.setTimeout(() => setShareToast(false), 3000);
+                }}
+              >
+                Share
+              </button>
+            </>
           )}
         </header>
 
@@ -970,9 +1029,11 @@ export function App() {
         <TaskDetail
           key={selectedItem.id}
           item={selectedItem}
+          lists={allLists}
           todayStr={todayStr}
           onClose={() => setSelectedItemId(null)}
           onUpdate={handleUpdateItem}
+          onMoveToList={handleMoveToList}
           onDelete={handleDeleteItem}
         />
       )}
