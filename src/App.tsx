@@ -321,6 +321,32 @@ export function App() {
 
   const activeItems = sortedVisible.filter((i) => !i.done);
   const completedItems = sortedVisible.filter((i) => i.done);
+
+  const tomorrowStr = useMemo(() => {
+    const [y, m, d] = todayStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d + 1);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  }, [todayStr]);
+
+  const plannedGroups = useMemo(() => {
+    if (selection.type !== 'smart' || selection.id !== 'planned' || searchQuery) {
+      return null;
+    }
+    const groups: { label: string; items: TodoItem[] }[] = [
+      { label: 'Overdue', items: [] },
+      { label: 'Today', items: [] },
+      { label: 'Tomorrow', items: [] },
+      { label: 'Later', items: [] },
+    ];
+    for (const item of activeItems) {
+      if (!item.dueDate) continue;
+      if (item.dueDate < todayStr) groups[0].items.push(item);
+      else if (item.dueDate === todayStr) groups[1].items.push(item);
+      else if (item.dueDate === tomorrowStr) groups[2].items.push(item);
+      else groups[3].items.push(item);
+    }
+    return groups.filter((g) => g.items.length > 0);
+  }, [activeItems, selection, searchQuery, todayStr, tomorrowStr]);
   const selectedItem =
     allItems.find((i) => i.id === selectedItemId) ?? null;
 
@@ -783,7 +809,68 @@ export function App() {
         {error && <p className="error">{error}</p>}
 
         <div className="tasks-scroll">
-          <ul className="task-list">
+        {plannedGroups ? (
+          plannedGroups.map((group) => (
+            <section key={group.label} className="completed-section">
+              <div className="completed-toggle">{group.label} ({group.items.length})</div>
+              <ul className="task-list">
+                {group.items.map((item) => (
+                  <li
+                    key={item.id}
+                    className={`task-row ${selectedItemId === item.id ? 'selected' : ''}`}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, item });
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      className="circle-check"
+                      checked={item.done}
+                      onChange={() =>
+                        handleUpdateItem(item, {
+                          done: true,
+                          completedAtMs: Date.now(),
+                        })
+                      }
+                    />
+                    <button
+                      className="task-body"
+                      onClick={() => setSelectedItemId(item.id)}
+                    >
+                      <span className="task-title">{item.text}</span>
+                      <span className="task-meta">
+                        {item.dueDate && (
+                          <span
+                            className={
+                              item.dueDate < todayStr
+                                ? 'due-overdue'
+                                : item.dueDate === todayStr
+                                  ? 'due-today'
+                                  : ''
+                            }
+                          >
+                            📅 {item.dueDate}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    <button
+                      className={`star-btn ${item.important ? 'active' : ''}`}
+                      onClick={() =>
+                        handleUpdateItem(item, { important: !item.important })
+                      }
+                      title="Mark as important"
+                    >
+                      {item.important ? '★' : '☆'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))
+        ) : (
+        <ul className="task-list">
           {activeItems.map((item) => (
             <li
               key={item.id}
@@ -845,6 +932,7 @@ export function App() {
             </li>
           ))}
         </ul>
+        )}
 
         {completedItems.length > 0 && (
           <section className="completed-section">
