@@ -27,6 +27,7 @@ import { TaskDetail } from './components/TaskDetail';
 import { TopBar } from './components/TopBar';
 import { AppSettings, DEFAULT_SETTINGS, SettingsModal } from './components/SettingsModal';
 import { ShareDialog } from './components/ShareDialog';
+import { CustomCalendarPicker } from './components/CustomCalendarPicker';
 import { playCompleteSound } from './lib/sound';
 import {
   RepeatRule,
@@ -83,20 +84,71 @@ export function App() {
   const [sharedLists, setSharedLists] = useState<TodoList[]>([]);
   const [groups, setGroups] = useState<TodoGroup[]>([]);
   const [allItems, setAllItems] = useState<TodoItem[]>([]);
-  const [selection, setSelection] = useState<ViewSelection>({
-    type: 'smart',
-    id: 'my-day',
+  const [selection, setSelection] = useState<ViewSelection>(() => {
+    const path = window.location.pathname.toLowerCase();
+    if (path === '/tasks/flagged' || path === '/tasks/flagged-email') return { type: 'smart', id: 'flagged-email' };
+    if (path === '/tasks/important') return { type: 'smart', id: 'important' };
+    if (path === '/tasks/planned') return { type: 'smart', id: 'planned' };
+    if (path === '/tasks/all') return { type: 'smart', id: 'all' };
+    if (path === '/tasks/completed') return { type: 'smart', id: 'completed' };
+    if (path === '/tasks/assigned-to-me') return { type: 'smart', id: 'assigned-to-me' };
+    if (path === '/tasks/inbox' || path === '/tasks/tasks') return { type: 'smart', id: 'tasks' };
+    return { type: 'smart', id: 'my-day' };
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [newItemText, setNewItemText] = useState('');
-  const [showCompleted, setShowCompleted] = useState(true);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addReminderAtMs, setAddReminderAtMs] = useState<number | null>(null);
   const [addDueMenuOpen, setAddDueMenuOpen] = useState(false);
+  const [addRemindMenuOpen, setAddRemindMenuOpen] = useState(false);
   const [addRepeatMenuOpen, setAddRepeatMenuOpen] = useState(false);
+  const [addDueCalendarOpen, setAddDueCalendarOpen] = useState(false);
+  const [addRemindCalendarOpen, setAddRemindCalendarOpen] = useState(false);
+  const [suggestionsLimit, setSuggestionsLimit] = useState(10);
+
+  useEffect(() => {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
+        searchEl?.focus();
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!addDueMenuOpen && !addRemindMenuOpen && !addRepeatMenuOpen && !addDueCalendarOpen && !addRemindCalendarOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setAddDueMenuOpen(false);
+        setAddRemindMenuOpen(false);
+        setAddRepeatMenuOpen(false);
+        setAddDueCalendarOpen(false);
+        setAddRemindCalendarOpen(false);
+      }
+    };
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement)?.closest('.add-picker-wrap')) {
+        setAddDueMenuOpen(false);
+        setAddRemindMenuOpen(false);
+        setAddRepeatMenuOpen(false);
+        setAddDueCalendarOpen(false);
+        setAddRemindCalendarOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onDown);
+    };
+  }, [addDueMenuOpen, addRemindMenuOpen, addRepeatMenuOpen, addDueCalendarOpen, addRemindCalendarOpen]);
   const [installPrompt, setInstallPrompt] = useState<Event & { prompt?: () => Promise<void> } | null>(null);
   const [shareListId, setShareListId] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -135,9 +187,39 @@ export function App() {
   const [viewAnnouncement, setViewAnnouncement] = useState('');
   const [addDueDate, setAddDueDate] = useState<string | null>(null);
   const [addRepeat, setAddRepeat] = useState<RepeatRule>('none');
-  const [darkMode, setDarkMode] = useState(
-    () => localStorage.getItem('todo-dark') !== '0'
-  );
+  const [darkMode, setDarkMode] = useState(() => {
+    if (appSettings.themeMode === 'dark') return true;
+    if (appSettings.themeMode === 'light') return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
+        searchEl?.focus();
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const sync = () => {
+      const isDark =
+        appSettings.themeMode === 'dark' ||
+        (appSettings.themeMode === 'system' && mq.matches);
+      setDarkMode(isDark);
+      localStorage.setItem('todo-dark', isDark ? '1' : '0');
+    };
+    sync();
+    if (appSettings.themeMode === 'system') {
+      mq.addEventListener('change', sync);
+      return () => mq.removeEventListener('change', sync);
+    }
+  }, [appSettings.themeMode]);
   const [soundEnabled, setSoundEnabled] = useState(
     () => localStorage.getItem('todo-sound') !== '0'
   );
@@ -160,6 +242,18 @@ export function App() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [gridEditId, setGridEditId] = useState<string | null>(null);
   const [gridEditText, setGridEditText] = useState('');
+
+  useEffect(() => {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
+        searchEl?.focus();
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, []);
 
   useEffect(() => {
     if (selection.type === 'smart' && selection.id === 'my-day') {
@@ -185,6 +279,18 @@ export function App() {
   }, [allItems, todayStr, defaultTasksList]);
 
   useEffect(() => {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
+        searchEl?.focus();
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === '1') {
         e.preventDefault();
@@ -204,10 +310,34 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
+        searchEl?.focus();
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, []);
+
+  useEffect(() => {
     return onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setAuthReady(true);
     });
+  }, []);
+
+  useEffect(() => {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
+        searchEl?.focus();
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
   }, []);
 
   useEffect(() => {
@@ -227,6 +357,18 @@ export function App() {
         );
     }
   }, [user]);
+
+  useEffect(() => {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
+        searchEl?.focus();
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -1126,7 +1268,7 @@ export function App() {
               />
               <button type="submit" disabled={!newItemText.trim()} className="add-task-submit-btn">Add</button>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingLeft: "28px", fontSize: "0.8rem", color: "var(--text-2)" }}>
+            <div className="add-picker-wrap" style={{ display: "flex", alignItems: "center", gap: "10px", paddingLeft: "28px", fontSize: "0.8rem", color: "var(--text-2)" }}>
               <div style={{ position: 'relative', display: 'inline-block' }}>
                 <button type="button" className="chip-btn" onClick={() => { setAddDueMenuOpen((v) => !v); setAddRepeatMenuOpen(false); }} title="Add due date">
                   📅 {addDueDate ? `Due: ${addDueDate}` : "Due date"}
@@ -1136,13 +1278,69 @@ export function App() {
                     <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(todayStr); setAddDueMenuOpen(false); }}>Today</button>
                     <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(tomorrowStr); setAddDueMenuOpen(false); }}>Tomorrow</button>
                     <button type="button" role="menuitem" className="account-popover-item" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 7); setAddDueDate(d.toISOString().slice(0, 10)); setAddDueMenuOpen(false); }}>Next week</button>
+                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueMenuOpen(false); setAddDueCalendarOpen(true); }}>Pick a date</button>
                     {addDueDate && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddDueDate(null); setAddDueMenuOpen(false); }}>Remove due date</button>}
                   </div>
                 )}
+                {addDueCalendarOpen && (
+                  <div className="top-bar-popover" style={{ left: 0, padding: 0 }}>
+                    <CustomCalendarPicker
+                      initialDate={addDueDate}
+                      todayStr={todayStr}
+                      onSave={(dateStr) => { setAddDueDate(dateStr); setAddDueCalendarOpen(false); }}
+                      onCancel={() => setAddDueCalendarOpen(false)}
+                    />
+                  </div>
+                )}
               </div>
-              <button type="button" className="chip-btn" onClick={() => setAddReminderAtMs((v) => (v ? null : Date.now() + 3600000))} title="Remind me">
-                🔔 {addReminderAtMs ? 'Later today' : 'Remind me'}
-              </button>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button type="button" className="chip-btn" onClick={() => { setAddRemindMenuOpen((v) => !v); setAddDueMenuOpen(false); setAddRepeatMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Remind me">
+                  🔔 {addReminderAtMs ? new Date(addReminderAtMs).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Remind me'}
+                </button>
+                {addRemindMenuOpen && (
+                  <div className="top-bar-popover" role="menu" style={{ minWidth: '190px', left: 0 }}>
+                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                      const d = new Date();
+                      d.setHours(d.getHours() + 1, 0, 0, 0);
+                      setAddReminderAtMs(d.getTime());
+                      setAddRemindMenuOpen(false);
+                    }}>Later today</button>
+                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 1);
+                      d.setHours(9, 0, 0, 0);
+                      setAddReminderAtMs(d.getTime());
+                      setAddRemindMenuOpen(false);
+                    }}>Tomorrow, 9 AM</button>
+                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 7);
+                      d.setHours(9, 0, 0, 0);
+                      setAddReminderAtMs(d.getTime());
+                      setAddRemindMenuOpen(false);
+                    }}>Next week, 9 AM</button>
+                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddRemindMenuOpen(false); setAddRemindCalendarOpen(true); }}>Pick a date & time</button>
+                    {addReminderAtMs && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddReminderAtMs(null); setAddRemindMenuOpen(false); }}>Remove reminder</button>}
+                  </div>
+                )}
+                {addRemindCalendarOpen && (
+                  <div className="top-bar-popover" style={{ left: 0, padding: 0 }}>
+                    <CustomCalendarPicker
+                      initialDate={todayStr}
+                      todayStr={todayStr}
+                      withTime
+                      onSave={(dateStr, timeStr) => {
+                        const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
+                        const d = new Date(`${dateStr}T00:00:00`);
+                        d.setHours(hh, mm, 0, 0);
+                        setAddReminderAtMs(d.getTime());
+                        setAddRemindCalendarOpen(false);
+                      }}
+                      onCancel={() => setAddRemindCalendarOpen(false)}
+                    />
+                  </div>
+                )}
+              </div>
               <div style={{ position: 'relative', display: 'inline-block' }}>
                 <button type="button" className="chip-btn" onClick={() => { setAddRepeatMenuOpen((v) => !v); setAddDueMenuOpen(false); }} title="Repeat">
                   🔁 {addRepeat !== "none" ? addRepeat : "Repeat"}
@@ -1171,12 +1369,20 @@ export function App() {
           const q = searchQuery.trim().toLowerCase();
           const listCount = allLists.filter((l) => l.title.toLowerCase().includes(q)).length;
           const groupCount = groups.filter((g) => g.title.toLowerCase().includes(q)).length;
-          const taskCount = activeItems.length + completedItems.length;
+          const allMatched = [...activeItems, ...completedItems];
+          const taskCount = allMatched.length;
+          const noteCount = allMatched.filter((i) => (i.notes ?? '').toLowerCase().includes(q)).length;
+          const stepCount = allMatched.reduce((acc, i) => acc + (i.steps ?? []).filter((s) => s.text.toLowerCase().includes(q)).length, 0);
           return (
-            <div style={{ display: 'flex', gap: '12px', fontSize: '0.82rem', color: 'var(--text-2)', marginBottom: '0.75rem', padding: '0 4px' }}>
-              <span>Tasks ({taskCount})</span>
-              <span>Lists ({listCount})</span>
-              <span>Groups ({groupCount})</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.82rem', color: 'var(--text-2)', marginBottom: '0.75rem', padding: '0 4px' }}>
+              <div>{taskCount} Tasks, {noteCount} Notes, and {stepCount} Steps found</div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <span>Tasks ({taskCount})</span>
+                <span>Notes ({noteCount})</span>
+                <span>Steps ({stepCount})</span>
+                <span>Lists ({listCount})</span>
+                <span>Groups ({groupCount})</span>
+              </div>
             </div>
           );
         })()}
@@ -1880,7 +2086,7 @@ export function App() {
               {myDaySuggestions.length === 0 ? (
                 <li className="suggestions-empty">No suggestions right now.</li>
               ) : (
-                myDaySuggestions.map((item) => {
+                myDaySuggestions.slice(0, suggestionsLimit).map((item) => {
                   const listName =
                     lists.find((l) => l.id === item.listId)?.title ??
                     'Tasks';
@@ -1905,6 +2111,16 @@ export function App() {
                 })
               )}
             </ul>
+            {myDaySuggestions.length > suggestionsLimit && suggestionsLimit < 20 && (
+              <button
+                type="button"
+                className="chip-btn"
+                style={{ alignSelf: 'flex-start', marginTop: '0.5rem' }}
+                onClick={() => setSuggestionsLimit((n) => Math.min(20, n + 10))}
+              >
+                More
+              </button>
+            )}
           </aside>
         )}
 

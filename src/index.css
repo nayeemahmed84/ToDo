@@ -340,9 +340,6 @@ body {
     transition: none;
   }
 }
-  background: #1c1c1c;
-  border-color: #2a2a2a;
-}
 
 .app-shell.dark .detail-card,
 .app-shell.dark .detail-action {
@@ -386,7 +383,7 @@ body {
 }
 
 .sidebar {
-  width: 360px;
+  width: 380px;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   display: flex;
@@ -628,7 +625,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  color: #fff;
+  color: var(--text);
   margin-bottom: 1.25rem;
 }
 
@@ -639,7 +636,7 @@ body {
 .header-title-input {
   background: transparent;
   border: none;
-  color: #fff;
+  color: var(--text);
   font-size: 1.65rem;
   font-weight: 600;
   outline: none;
@@ -658,9 +655,9 @@ body {
 }
 
 .sort-select {
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.4rem 0.65rem;
   font-size: 0.85rem;
@@ -693,9 +690,6 @@ body {
   background: #fff;
   font-size: 0.88rem;
 }
-  margin: 0;
-  font-size: 1.65rem;
-}
 
 .subtitle {
   margin: 0.15rem 0 0;
@@ -705,9 +699,9 @@ body {
 
 .menu-btn {
   display: none;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--surface-hover);
   border: none;
-  color: #fff;
+  color: var(--text);
   font-size: 1.25rem;
   padding: 0.4rem 0.65rem;
   border-radius: 8px;
@@ -878,16 +872,8 @@ body {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .detail-panel,
-  .context-menu,
-  .top-bar-popover,
-  .modal-card {
-    animation: none;
-    transition: none;
-  }
-}
-  width: 360px;
+.detail-panel {
+  width: 510px;
   position: relative;
   background: var(--sidebar-bg);
   border-left: 1px solid var(--border);
@@ -1482,25 +1468,8 @@ button.primary.small {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .detail-panel,
-  .context-menu,
-  .top-bar-popover,
-  .modal-card {
-    animation: none;
-    transition: none;
-  }
-}
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    max-width: 360px;
-    z-index: 35;
-    box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
-  }
-
   .main-pane {
     padding: 1rem;
   }
+}
 }

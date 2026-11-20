@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { User } from 'firebase/auth';
 import { TodoList } from '../types/todo';
 
@@ -20,6 +20,17 @@ export function ShareDialog({
   const [email, setEmail] = useState('');
   const [copied, setCopied] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
+
+  const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const shareUrl = `${window.location.origin}/?share=${encodeURIComponent(list.id)}`;
 
@@ -37,7 +48,11 @@ export function ShareDialog({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,0.45)', zIndex: 100 }}
+    >
       <div
         className="modal-card"
         onClick={(e) => e.stopPropagation()}
@@ -95,7 +110,7 @@ export function ShareDialog({
                 setTimeout(() => setCopied(false), 2000);
               }}
             >
-              {copied ? 'Copied' : 'Copy link'}
+              {copied ? 'Copied ✓' : 'Copy link'}
             </button>
           </div>
         </div>
@@ -112,7 +127,7 @@ export function ShareDialog({
             />
             <button
               type="submit"
-              disabled={!email.trim()}
+              disabled={!isValidEmail}
               style={{
                 background: 'var(--accent)',
                 color: '#fff',
@@ -120,19 +135,58 @@ export function ShareDialog({
                 borderRadius: '4px',
                 padding: '6px 14px',
                 fontSize: '0.85rem',
-                cursor: email.trim() ? 'pointer' : 'not-allowed',
-                opacity: email.trim() ? 1 : 0.5,
+                cursor: isValidEmail ? 'pointer' : 'not-allowed',
+                opacity: isValidEmail ? 1 : 0.5,
               }}
             >
               Invite
             </button>
           </div>
+          {email.trim().length > 0 && !isValidEmail && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>Enter a valid email address</div>
+          )}
           {statusMsg && <div style={{ fontSize: '0.8rem', color: 'var(--text-2)' }}>{statusMsg}</div>}
         </form>
 
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-2)' }}>
-          Anyone with this link and an account can join and edit this list.
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-2)' }}>
+            Anyone with this link and an account can join and edit this list.
+          </div>
+          <button
+            type="button"
+            className="chip-btn"
+            style={{ flexShrink: 0 }}
+            onClick={() => setManageOpen((v) => !v)}
+          >
+            Manage access
+          </button>
         </div>
+
+        {manageOpen && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem', fontSize: '0.85rem' }}>
+            <div style={{ fontWeight: 600, marginBottom: '6px' }}>Manage access</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+              <span>{user.displayName || user.email}</span>
+              <span style={{ color: 'var(--text-2)' }}>Owner</span>
+            </div>
+            {((list as TodoList & { memberIds?: string[] }).memberIds ?? []).map((mid) => (
+              <div key={mid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+                <span>{mid}</span>
+                <button
+                  type="button"
+                  className="chip-btn"
+                  onClick={() => {
+                    if (window.confirm(`Remove ${mid} from '${list.title}'? They will no longer see this list.`)) {
+                      onRemoveMember(mid);
+                    }
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

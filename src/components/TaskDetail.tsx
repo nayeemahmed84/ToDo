@@ -29,7 +29,10 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const [title, setTitle] = useState(item.text);
   const [notes, setNotes] = useState(item.notes);
-  const [paneWidth, setPaneWidth] = useState(360);
+  const [paneWidth, setPaneWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("todo-detail-width"));
+    return saved >= 320 && saved <= 1015 ? saved : 510;
+  });
   const [duePickerOpen, setDuePickerOpen] = useState(false);
   const [remindPickerOpen, setRemindPickerOpen] = useState(false);
   const [customRepeatOpen, setCustomRepeatOpen] = useState(false);
@@ -80,20 +83,21 @@ export function TaskDetail({
     await onUpdate(item, { steps: nextSteps });
   };
 
-  const startResize = (e: React.MouseEvent) => {
+  const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startW = paneWidth;
-    const onMove = (ev: MouseEvent) => {
-      const next = Math.min(600, Math.max(300, startW + (startX - ev.clientX)));
+    const onMove = (ev: PointerEvent) => {
+      const next = Math.min(1015, Math.max(320, startW + (startX - ev.clientX)));
       setPaneWidth(next);
+      localStorage.setItem("todo-detail-width", String(next));
     };
     const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   const nextHourDate = new Date();
@@ -104,9 +108,9 @@ export function TaskDetail({
   return (
     <aside className="detail-panel" style={{ width: `${paneWidth}px` }}>
       <div
-        onMouseDown={startResize}
+        onPointerDown={startResize}
         title="Drag to resize"
-        style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "5px", cursor: "col-resize", zIndex: 10 }}
+        style={{ position: "absolute", left: "-4px", top: 0, bottom: 0, width: "8px", cursor: "col-resize", zIndex: 10 }}
       />
       <div className="detail-header">
         <span>Task Details</span>
@@ -509,28 +513,17 @@ export function TaskDetail({
 
       <div className="detail-footer">
         <span className="meta-time">
-          Created{' '}
-          {new Date(item.createdAtMs).toLocaleString('en-CA', {
-            weekday: 'short',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-          {item.updatedAtMs && item.updatedAtMs - item.createdAtMs > 5000 && (
-            <>
-              {' · Updated '}
-              {new Date(item.updatedAtMs).toLocaleString('en-CA', {
-                weekday: 'short',
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </>
-          )}
+          {(() => {
+            const d = new Date(item.createdAtMs);
+            const sameYear = d.getFullYear() === new Date().getFullYear();
+            const dateStr = d.toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              ...(sameYear ? {} : { year: 'numeric' }),
+            });
+            return `Created on ${dateStr}`;
+          })()}
         </span>
         <button
           className="danger-btn"

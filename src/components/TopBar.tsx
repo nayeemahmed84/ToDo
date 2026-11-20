@@ -19,6 +19,7 @@ export function TopBar({
   onSignOut,
 }: TopBarProps) {
   const [helpOpen, setHelpOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const helpRef = useRef<HTMLDivElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
@@ -116,7 +117,7 @@ export function TopBar({
                 className="account-popover-item"
                 onClick={() => {
                   setHelpOpen(false);
-                  window.alert("What's new in ToDo PWA v0.1.0:\n• Smart lists including My Day, Important, Planned, All, Completed, Flagged email, and Assigned to me\n• List sharing with member management and invitation links\n• Custom recurrence, reminders, categories, and sorting");
+                  setWhatsNewOpen(true);
                 }}
               >
                 What&apos;s new
@@ -166,6 +167,30 @@ export function TopBar({
           )}
         </div>
       </div>
+      {whatsNewOpen && (
+        <div
+          className="modal-backdrop"
+          style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,0.45)', zIndex: 100 }}
+          onClick={() => setWhatsNewOpen(false)}
+        >
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ padding: '1.25rem', width: '420px', maxWidth: '92vw', background: 'var(--surface)', color: 'var(--text)', borderRadius: '8px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-menu)' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem' }}>What's new in ToDo PWA v0.1.0</h2>
+              <button type="button" className="icon-btn" onClick={() => setWhatsNewOpen(false)} aria-label="Close">×</button>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.6 }}>
+              <li>Smart lists including My Day, Important, Planned, All, Completed, Flagged email, and Assigned to me</li>
+              <li>List sharing with member management and invitation links</li>
+              <li>Custom recurrence, reminders, categories, and sorting</li>
+              <li>Resizable task detail pane and improved light theme contrast</li>
+            </ul>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

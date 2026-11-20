@@ -124,7 +124,7 @@ export function Sidebar({
             if (item.id === 'completed' && !settings.smartCompleted) return false;
             if (item.id === 'flagged-email' && !settings.smartFlaggedEmail) return false;
             if (item.id === 'assigned-to-me' && !settings.smartAssignedToMe) return false;
-            if (settings.autoHideEmptySmartLists && (counts[item.id] ?? 0) === 0) return false;
+            if (item.id !== 'flagged-email' && settings.autoHideEmptySmartLists && (counts[item.id] ?? 0) === 0) return false;
             return true;
           }).map((item) => {
             const active =
@@ -190,6 +190,11 @@ export function Sidebar({
               <div
                 key={list.id}
                 className={`nav-item-row ${active ? 'active' : ''}`}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onSelect({ type: 'list', id: list.id });
+                  setSidebarMenu({ type: 'list', id: list.id, x: e.clientX, y: e.clientY });
+                }}
               >
                 <button
                   type="button"
