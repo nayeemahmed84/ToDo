@@ -1,6 +1,17 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, ReactNode, useState } from 'react';
 import { User } from 'firebase/auth';
 import { SmartListId, TodoList, ViewSelection } from '../types/todo';
+import {
+  CalendarIcon,
+  DownloadIcon,
+  HomeIcon,
+  ListIcon,
+  LogOutIcon,
+  MoonIcon,
+  StarIcon,
+  SunIcon,
+  VolumeIcon,
+} from './Icons';
 
 interface SidebarProps {
   user: User;
@@ -22,11 +33,11 @@ interface SidebarProps {
   onSignOut: () => void;
 }
 
-const SMART_LISTS: { id: SmartListId; label: string; icon: string }[] = [
-  { id: 'my-day', label: 'My Day', icon: '☀️' },
-  { id: 'important', label: 'Important', icon: '⭐' },
-  { id: 'planned', label: 'Planned', icon: '📅' },
-  { id: 'tasks', label: 'Tasks', icon: '🏠' },
+const SMART_LISTS: { id: SmartListId; label: string; icon: ReactNode }[] = [
+  { id: 'my-day', label: 'My Day', icon: <SunIcon /> },
+  { id: 'important', label: 'Important', icon: <StarIcon /> },
+  { id: 'planned', label: 'Planned', icon: <CalendarIcon /> },
+  { id: 'tasks', label: 'Tasks', icon: <HomeIcon /> },
 ];
 
 export function Sidebar({
@@ -70,7 +81,7 @@ export function Sidebar({
             <div className="user-email">{user.email}</div>
           </div>
           <button className="icon-btn" title="Sign out" onClick={onSignOut}>
-            ↪
+            <LogOutIcon />
           </button>
         </div>
 
@@ -128,7 +139,9 @@ export function Sidebar({
                     onClose();
                   }}
                 >
-                  <span className="nav-icon">☰</span>
+                  <span className="nav-icon">
+                    <ListIcon />
+                  </span>
                   <span className="nav-label">{list.title}</span>
                   {(counts[list.id] ?? 0) > 0 && (
                     <span className="nav-count">{counts[list.id]}</span>
@@ -161,17 +174,20 @@ export function Sidebar({
             onClick={onToggleDarkMode}
             title="Toggle dark mode"
           >
-            {darkMode ? '☀️ Light' : '🌙 Dark'}
+            {darkMode ? <SunIcon size={14} /> : <MoonIcon size={14} />}
+            <span>{darkMode ? 'Light' : 'Dark'}</span>
           </button>
           <button
             className="export-btn"
             onClick={onToggleSound}
             title="Toggle completion sound"
           >
-            {soundEnabled ? '🔊 Sound' : '🔇 Muted'}
+            <VolumeIcon size={14} muted={!soundEnabled} />
+            <span>{soundEnabled ? 'Sound' : 'Muted'}</span>
           </button>
           <button className="export-btn" onClick={onExportJson}>
-            Export
+            <DownloadIcon size={14} />
+            <span>Export</span>
           </button>
         </div>
       </aside>
