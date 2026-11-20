@@ -3,12 +3,37 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#2563eb" />
+    <meta name="theme-color" content="transparent" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/icon.svg" />
-    <title>ToDo PWA</title>
+    <title>To Do</title>
+    <link rel="stylesheet" href="/src/tokens.css" />
+    <script>
+      (function () {
+        var html = document.documentElement;
+        var dark = true;
+        try {
+          var storedSettings = localStorage.getItem('todo-settings');
+          if (storedSettings) {
+            var settings = JSON.parse(storedSettings);
+            if (settings.themeMode === 'dark') dark = true;
+            else if (settings.themeMode === 'light') dark = false;
+            else if (settings.themeModeExplicit) dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            else dark = true;
+          } else {
+            var storedDark = localStorage.getItem('todo-dark');
+            dark = storedDark !== null
+              ? storedDark === '1'
+              : true;
+          }
+        } catch {
+          dark = true;
+        }
+        html.setAttribute('data-theme', dark ? 'dark' : 'light');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

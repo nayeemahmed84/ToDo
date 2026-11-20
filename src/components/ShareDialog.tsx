@@ -51,40 +51,83 @@ export function ShareDialog({
     <div
       className="modal-backdrop"
       onClick={onClose}
-      style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,0.45)', zIndex: 100 }}
+      style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', background: 'var(--color-overlay)', zIndex: 100 }}
     >
       <div
         className="modal-card"
         onClick={(e) => e.stopPropagation()}
         style={{
           padding: '1.25rem',
-          width: '420px',
+          width: '495px',
+          minHeight: '495px',
           maxWidth: '92vw',
-          background: 'var(--surface)',
-          color: 'var(--text)',
+          background: 'var(--color-surface)',
+          color: 'var(--color-text)',
           borderRadius: '8px',
-          border: '1px solid var(--border)',
+          border: '1px solid var(--color-border)',
           boxShadow: 'var(--shadow-menu)',
           display: 'flex',
           flexDirection: 'column',
           gap: '1rem',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Share list</h2>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close share dialog">
+        <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 600, textAlign: 'center' }}>Share list</h2>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close share dialog"
+            style={{ position: 'absolute', right: 0, fontSize: '20px' }}
+          >
             ×
           </button>
         </div>
 
         <div>
           <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>List members</div>
-          <div style={{ fontSize: '0.88rem', padding: '4px 0' }}>
-            {user.displayName || user.email} (Owner)
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.88rem', padding: '4px 0' }}>
+            <span
+              style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                background: 'var(--color-accent)',
+                color: 'var(--color-text-inverse)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '13px',
+                fontWeight: 600,
+                flexShrink: 0,
+              }}
+            >
+              {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+            </span>
+            <span>{user.displayName || user.email} (Owner)</span>
           </div>
           {((list as TodoList & { memberIds?: string[] }).memberIds ?? []).map((mid) => (
             <div key={mid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.88rem', padding: '4px 0' }}>
-              <span>{mid}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
+                <span
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '50%',
+                    background: 'var(--color-surface-hover)',
+                    color: 'var(--color-text)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    flexShrink: 0,
+                  }}
+                >
+                  {mid.charAt(0).toUpperCase()}
+                </span>
+                {mid}
+              </span>
               <button type="button" className="chip-btn" onClick={() => onRemoveMember(mid)}>
                 Remove
               </button>
@@ -99,7 +142,7 @@ export function ShareDialog({
               type="text"
               readOnly
               value={shareUrl}
-              style={{ flex: 1, padding: '6px 8px', fontSize: '0.82rem', background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '4px' }}
+              style={{ flex: 1, padding: '6px 8px', fontSize: '0.82rem', background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
             />
             <button
               type="button"
@@ -123,14 +166,14 @@ export function ShareDialog({
               placeholder="Enter email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              style={{ flex: 1, padding: '6px 8px', fontSize: '0.85rem', background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '4px' }}
+              style={{ flex: 1, padding: '6px 8px', fontSize: '0.85rem', background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
             />
             <button
               type="submit"
               disabled={!isValidEmail}
               style={{
-                background: 'var(--accent)',
-                color: '#fff',
+                background: 'var(--color-accent)',
+                color: 'var(--color-text-inverse)',
                 border: 'none',
                 borderRadius: '4px',
                 padding: '6px 14px',
@@ -143,13 +186,13 @@ export function ShareDialog({
             </button>
           </div>
           {email.trim().length > 0 && !isValidEmail && (
-            <div style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>Enter a valid email address</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--color-danger)' }}>Enter a valid email address</div>
           )}
-          {statusMsg && <div style={{ fontSize: '0.8rem', color: 'var(--text-2)' }}>{statusMsg}</div>}
+          {statusMsg && <div style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>{statusMsg}</div>}
         </form>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-2)' }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>
             Anyone with this link and an account can join and edit this list.
           </div>
           <button
@@ -163,11 +206,11 @@ export function ShareDialog({
         </div>
 
         {manageOpen && (
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem', fontSize: '0.85rem' }}>
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem', fontSize: '0.85rem' }}>
             <div style={{ fontWeight: 600, marginBottom: '6px' }}>Manage access</div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
               <span>{user.displayName || user.email}</span>
-              <span style={{ color: 'var(--text-2)' }}>Owner</span>
+              <span style={{ color: 'var(--color-text-2)' }}>Owner</span>
             </div>
             {((list as TodoList & { memberIds?: string[] }).memberIds ?? []).map((mid) => (
               <div key={mid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>

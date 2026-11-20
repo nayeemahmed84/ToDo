@@ -32,6 +32,9 @@ export interface TodoList {
   isDefaultTasksList?: boolean;
   groupId?: string | null;
   color?: string;
+  background?: 'coast' | 'field' | 'plain';
+  memberUids?: string[];
+  sortOrder?: number;
   createdAt?: unknown;
 }
 

@@ -1,5 +1,19 @@
 import { FormEvent, useRef, useState } from 'react';
 import { CustomCalendarPicker } from './CustomCalendarPicker';
+import {
+  AlarmClockIcon,
+  CalendarIcon,
+  HideDetailIcon,
+  ListIcon,
+  PaperclipIcon,
+  PlusIcon,
+  RepeatIcon,
+  StarIcon,
+  SunIcon,
+  TagIcon,
+  TrashIcon,
+  UserPlusIcon,
+} from './Icons';
 import { CategoryColor, RepeatRule, TodoItem, TodoList, TodoStep } from '../types/todo';
 
 function addDaysStr(baseYmd: string, days: number): string {
@@ -31,10 +45,14 @@ export function TaskDetail({
   const [notes, setNotes] = useState(item.notes);
   const [paneWidth, setPaneWidth] = useState(() => {
     const saved = Number(localStorage.getItem("todo-detail-width"));
-    return saved >= 320 && saved <= 1015 ? saved : 510;
+    return saved >= 320 && saved <= 1015 ? saved : 360;
   });
   const [duePickerOpen, setDuePickerOpen] = useState(false);
   const [remindPickerOpen, setRemindPickerOpen] = useState(false);
+  const [remindOptionsOpen, setRemindOptionsOpen] = useState(false);
+  const [dueDateOptionsOpen, setDueDateOptionsOpen] = useState(false);
+  const [repeatOptionsOpen, setRepeatOptionsOpen] = useState(false);
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [customRepeatOpen, setCustomRepeatOpen] = useState(false);
   const [repeatInterval, setRepeatInterval] = useState(item.repeatCustom?.interval ?? 1);
   const [repeatUnit, setRepeatUnit] = useState<'days' | 'weeks' | 'months' | 'years'>(item.repeatCustom?.unit ?? 'weeks');
@@ -112,25 +130,18 @@ export function TaskDetail({
         title="Drag to resize"
         style={{ position: "absolute", left: "-4px", top: 0, bottom: 0, width: "8px", cursor: "col-resize", zIndex: 10 }}
       />
-      <div className="detail-header">
-        <span>Task Details</span>
-        <button
-          type="button"
-          className="chip-btn"
-          onClick={() => onUpdate(item, { done: !item.done, completedAtMs: !item.done ? Date.now() : null })}
-        >
-          {item.done ? "Completed" : "Complete task"}
-        </button>
-        <button className="icon-btn" onClick={onClose} aria-label="Close">
+      <div className="detail-top-close">
+        <button className="icon-btn" onClick={onClose} aria-label="Close" title="Close">
           ✕
         </button>
       </div>
 
-      <div className="detail-card">
+      <div className="detail-scroll-body">
+      <div className="detail-card detail-title-card">
         <div className="detail-title-row">
           <input
             type="checkbox"
-            className="circle-check"
+            className="circle-check detail-checkbox"
             checked={item.done}
             onChange={() =>
               onUpdate(item, {
@@ -139,10 +150,10 @@ export function TaskDetail({
               })
             }
           />
-          <input
-            type="text"
+          <textarea
             className={`detail-title-input ${item.done ? 'done' : ''}`}
             value={title}
+            rows={Math.min(4, Math.max(1, Math.ceil(title.length / 20)))}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={handleTitleBlur}
           />
@@ -150,8 +161,9 @@ export function TaskDetail({
             className={`star-btn ${item.important ? 'active' : ''}`}
             onClick={() => onUpdate(item, { important: !item.important })}
             title="Mark as important"
+            aria-label="Mark as important"
           >
-            {item.important ? '★' : '☆'}
+            <StarIcon size={22} filled={item.important} />
           </button>
         </div>
 
@@ -177,211 +189,162 @@ export function TaskDetail({
         </ul>
 
         <form className="add-step-form" onSubmit={handleAddStep}>
+          <PlusIcon size={22} />
           <input
             type="text"
-            placeholder="+ Add step"
+            placeholder="Add step"
             value={newStep}
             onChange={(e) => setNewStep(e.target.value)}
           />
         </form>
       </div>
 
-      <button
-        className={`detail-action ${isMyDay ? 'active' : ''}`}
-        onClick={() =>
-          onUpdate(item, { myDayDate: isMyDay ? null : todayStr })
-        }
-      >
-        <span>☀️</span>
-        <span>{isMyDay ? 'Added to My Day' : 'Add to My Day'}</span>
-      </button>
-
-      <div className="detail-card">
-        <label className="detail-field-label">
-          <span>📅 Due date</span>
-          <div className="quick-picks">
-            <button
-              type="button"
-              className="chip-btn"
-              onClick={() => onUpdate(item, { dueDate: todayStr })}
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              className="chip-btn"
-              onClick={() =>
-                onUpdate(item, { dueDate: addDaysStr(todayStr, 1) })
-              }
-            >
-              Tomorrow
-            </button>
-            <button
-              type="button"
-              className="chip-btn"
-              onClick={() =>
-                onUpdate(item, { dueDate: addDaysStr(todayStr, 7) })
-              }
-            >
-              Next week
-            </button>
-          </div>
-          <div className="due-row" style={{ position: "relative", display: "flex", gap: "8px", alignItems: "center" }}>
-            <button type="button" className="chip-btn" onClick={() => setDuePickerOpen((v) => !v)}>
-              {item.dueDate ? `Due: ${item.dueDate}` : "Pick a date"}
-            </button>
-            {item.dueDate && (
-              <button type="button" className="clear-btn" onClick={() => onUpdate(item, { dueDate: null })}>
-                Clear
-              </button>
-            )}
-            {duePickerOpen && (
-              <div style={{ position: "absolute", top: "34px", left: 0, zIndex: 40 }}>
-                <CustomCalendarPicker
-                  initialDate={item.dueDate}
-                  todayStr={todayStr}
-                  onSave={(d) => { onUpdate(item, { dueDate: d }); setDuePickerOpen(false); }}
-                  onCancel={() => setDuePickerOpen(false)}
-                />
-              </div>
-            )}
-          </div>
-        </label>
+      <div className="detail-card detail-my-day-card">
+        <button
+          type="button"
+          className={`detail-action detail-action-inline ${isMyDay ? 'active' : ''}`}
+          onClick={() => onUpdate(item, { myDayDate: isMyDay ? null : todayStr })}
+        >
+          <SunIcon size={20} />
+          <span>{isMyDay ? 'Added to My Day' : 'Add to My Day'}</span>
+        </button>
       </div>
 
-      <div className="detail-card">
-        <label className="detail-field-label">
-          <span>🔁 Repeat</span>
-          <select
-            className="repeat-select"
-            value={item.repeat ?? 'none'}
-            onChange={(e) => {
-              const val = e.target.value as RepeatRule;
-              if (val === 'custom') { setCustomRepeatOpen(true); }
-              else { onUpdate(item, { repeat: val }); }
-            }}
-          >
-            <option value="none">Never</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="weekdays">Weekdays</option>
-            <option value="yearly">Yearly</option>
-            <option value="custom">Custom…</option>
-          </select>
-        </label>
-      </div>
-
-      {lists.length > 1 && (
-        <div className="detail-card">
-          <label className="detail-field-label">
-            <span>📂 Move to list</span>
-            <select
-              className="repeat-select"
-              value={item.listId}
-              onChange={(e) => {
-                if (e.target.value !== item.listId) {
-                  onMoveToList(item, e.target.value);
-                }
-              }}
-            >
-              {lists.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.title}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-
-      <div className="detail-card">
-        <label className="detail-field-label">
-          <span>🎨 Category</span>
-          <select
-            className="repeat-select"
-            value={item.category ?? ''}
-            onChange={(e) =>
-              onUpdate(item, {
-                category: (e.target.value || null) as CategoryColor | null,
-              })
-            }
-          >
-            <option value="">None</option>
-            <option value="blue">Blue</option>
-            <option value="green">Green</option>
-            <option value="orange">Orange</option>
-            <option value="purple">Purple</option>
-            <option value="red">Red</option>
-            <option value="yellow">Yellow</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="detail-card" style={{ position: 'relative' }}>
-        <div className="detail-section-label">🔔 Remind me</div>
-        <div className="due-chips">
-          <button type="button" className="chip-btn" onClick={() => onUpdate(item, { reminderAtMs: nextHourDate.getTime() })}>
-            Later today {laterTodayLabel}
-          </button>
+      <div className="detail-card detail-schedule-card">
+        <section className="detail-schedule-section">
           <button
             type="button"
-            className="chip-btn"
-            onClick={() => {
-              const d = new Date();
-              d.setDate(d.getDate() + 1);
-              d.setHours(9, 0, 0, 0);
-              onUpdate(item, { reminderAtMs: d.getTime() });
-            }}
+            className="detail-schedule-trigger"
+            aria-expanded={remindOptionsOpen}
+            onClick={() => setRemindOptionsOpen((open) => !open)}
           >
-            Tomorrow 9:00 AM
+            <AlarmClockIcon size={20} />
+            <span>Remind me</span>
+            {item.reminderAtMs && <span className="detail-schedule-value">{new Date(item.reminderAtMs).toLocaleString()}</span>}
           </button>
-          <button type="button" className="chip-btn" onClick={() => setRemindPickerOpen((v) => !v)}>
-            Pick a date &amp; time
-          </button>
-          {item.reminderAtMs && (
-            <button type="button" className="clear-btn" onClick={() => onUpdate(item, { reminderAtMs: null })}>
-              ×
-            </button>
+          {remindOptionsOpen && (
+            <div className="detail-schedule-options">
+              <button type="button" className="chip-btn detail-pill" onClick={() => { onUpdate(item, { reminderAtMs: nextHourDate.getTime() }); setRemindOptionsOpen(false); }}>
+                Later today {laterTodayLabel}
+              </button>
+              <button type="button" className="chip-btn detail-pill" onClick={() => {
+                const d = new Date();
+                d.setDate(d.getDate() + 1);
+                d.setHours(9, 0, 0, 0);
+                onUpdate(item, { reminderAtMs: d.getTime() });
+                setRemindOptionsOpen(false);
+              }}>
+                Tomorrow 9:00 AM
+              </button>
+              <button type="button" className="chip-btn detail-pill" onClick={() => setRemindPickerOpen((open) => !open)}>
+                Pick a date &amp; time
+              </button>
+              {item.reminderAtMs && <button type="button" className="clear-btn" onClick={() => { onUpdate(item, { reminderAtMs: null }); setRemindOptionsOpen(false); }}>Clear</button>}
+              {remindPickerOpen && (
+                <div className="detail-schedule-popover">
+                  <CustomCalendarPicker
+                    todayStr={todayStr}
+                    withTime
+                    onSave={(d, t) => {
+                      const [hh, mm] = (t || '10:00').split(':').map(Number);
+                      const [yy, mo, dd] = d.split('-').map(Number);
+                      const dt = new Date(yy, mo - 1, dd, hh, mm, 0, 0);
+                      onUpdate(item, { reminderAtMs: dt.getTime() });
+                      setRemindPickerOpen(false);
+                      setRemindOptionsOpen(false);
+                    }}
+                    onCancel={() => setRemindPickerOpen(false)}
+                  />
+                </div>
+              )}
+            </div>
           )}
-        </div>
-        {item.reminderAtMs && (
-          <div style={{ fontSize: '0.78rem', color: 'var(--accent)', marginTop: '4px' }}>
-            Reminder: {new Date(item.reminderAtMs).toLocaleString()}
-          </div>
-        )}
-        {remindPickerOpen && (
-          <div style={{ position: 'absolute', top: '68px', left: 0, zIndex: 40 }}>
-            <CustomCalendarPicker
-              todayStr={todayStr}
-              withTime
-              onSave={(d, t) => {
-                const [hh, mm] = (t || '10:00').split(':').map(Number);
-                const [yy, mo, dd] = d.split('-').map(Number);
-                const dt = new Date(yy, mo - 1, dd, hh, mm, 0, 0);
-                onUpdate(item, { reminderAtMs: dt.getTime() });
-                setRemindPickerOpen(false);
-              }}
-              onCancel={() => setRemindPickerOpen(false)}
-            />
-          </div>
-        )}
+        </section>
+
+        <section className="detail-schedule-section">
+          <button
+            type="button"
+            className="detail-schedule-trigger"
+            aria-expanded={dueDateOptionsOpen}
+            onClick={() => setDueDateOptionsOpen((open) => !open)}
+          >
+            <CalendarIcon size={20} />
+            <span>{item.dueDate ? 'Due date' : 'Add due date'}</span>
+            {item.dueDate && <span className="detail-schedule-value">{new Date(`${item.dueDate}T00:00:00`).toLocaleDateString()}</span>}
+          </button>
+          {dueDateOptionsOpen && (
+            <div className="detail-schedule-options">
+              <button type="button" className="chip-btn detail-pill" onClick={() => { onUpdate(item, { dueDate: todayStr }); setDueDateOptionsOpen(false); }}>Today</button>
+              <button type="button" className="chip-btn detail-pill" onClick={() => { onUpdate(item, { dueDate: addDaysStr(todayStr, 1) }); setDueDateOptionsOpen(false); }}>Tomorrow</button>
+              <button type="button" className="chip-btn detail-pill" onClick={() => { onUpdate(item, { dueDate: addDaysStr(todayStr, 7) }); setDueDateOptionsOpen(false); }}>Next week</button>
+              <button type="button" className="chip-btn detail-pill" onClick={() => setDuePickerOpen((open) => !open)}>{item.dueDate ? 'Change date' : 'Pick a date'}</button>
+              {item.dueDate && <button type="button" className="clear-btn" onClick={() => { onUpdate(item, { dueDate: null }); setDueDateOptionsOpen(false); }}>Clear</button>}
+              {duePickerOpen && (
+                <div className="detail-schedule-popover">
+                  <CustomCalendarPicker
+                    initialDate={item.dueDate}
+                    todayStr={todayStr}
+                    onSave={(d) => { onUpdate(item, { dueDate: d }); setDuePickerOpen(false); setDueDateOptionsOpen(false); }}
+                    onCancel={() => setDuePickerOpen(false)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="detail-schedule-section">
+          <button
+            type="button"
+            className="detail-schedule-trigger"
+            aria-expanded={repeatOptionsOpen}
+            onClick={() => setRepeatOptionsOpen((open) => !open)}
+          >
+            <RepeatIcon size={20} />
+            <span>Repeat</span>
+            {item.repeat && item.repeat !== 'none' && <span className="detail-schedule-value">{item.repeat === 'custom' ? 'Custom' : item.repeat.charAt(0).toUpperCase() + item.repeat.slice(1)}</span>}
+          </button>
+          {repeatOptionsOpen && (
+            <label className="detail-field-label detail-repeat-options">
+              <span className="sr-only">Repeat frequency</span>
+              <select
+                className="repeat-select"
+                value={item.repeat ?? 'none'}
+                onChange={(e) => {
+                  const val = e.target.value as RepeatRule;
+                  if (val === 'custom') setCustomRepeatOpen(true);
+                  else onUpdate(item, { repeat: val });
+                }}
+              >
+                <option value="none">Never</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="yearly">Yearly</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </label>
+          )}
+        </section>
       </div>
 
-      <div className="detail-card">
-        <button type="button" className="detail-action" onClick={() => setAssignNoteOpen((v) => !v)}>
-          👤 Assign to
+      <div className="detail-card detail-action-card">
+        <button type="button" className="detail-action detail-action-inline" onClick={() => setAssignNoteOpen((v) => !v)}>
+          <UserPlusIcon size={20} />
+          <span>Assign to</span>
         </button>
         {assignNoteOpen && (
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-2)', marginTop: '4px' }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--color-text-2)', marginTop: '4px' }}>
             This list is not shared yet — share it to assign tasks.
           </div>
         )}
       </div>
 
-      <div className="detail-card">
-        <button type="button" className="detail-action" onClick={() => fileInputRef.current?.click()}>
-          📎 Add file
+      <div className="detail-card detail-action-card">
+        <button type="button" className="detail-action detail-action-inline" onClick={() => fileInputRef.current?.click()}>
+          <PaperclipIcon size={20} />
+          <span>Add file</span>
         </button>
         <input
           ref={fileInputRef}
@@ -414,14 +377,14 @@ export function TaskDetail({
             e.target.value = '';
           }}
         />
-        {fileError && <div style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '4px' }}>{fileError}</div>}
+        {fileError && <div style={{ fontSize: '0.78rem', color: 'var(--color-danger)', marginTop: '4px' }}>{fileError}</div>}
         {(item.attachments ?? []).map((att) => (
           <div
             key={att.id}
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', marginTop: '4px' }}
           >
-            <span>
-              📎 {att.name} ({Math.max(1, Math.round(att.size / 1024))} KB)
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <PaperclipIcon size={14} /> {att.name} ({Math.max(1, Math.round(att.size / 1024))} KB)
             </span>
             <button
               type="button"
@@ -435,7 +398,7 @@ export function TaskDetail({
       </div>
 
       {customRepeatOpen && (
-        <div className="detail-card" style={{ border: '1px solid var(--accent)' }}>
+        <div className="detail-card" style={{ border: '1px solid var(--color-accent)' }}>
           <div className="detail-section-label">Custom repeat</div>
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px' }}>
             <input
@@ -469,9 +432,9 @@ export function TaskDetail({
                     padding: '3px 6px',
                     fontSize: '0.75rem',
                     borderRadius: '4px',
-                    border: '1px solid var(--border)',
-                    background: active ? 'var(--accent)' : 'transparent',
-                    color: active ? '#fff' : 'var(--text)',
+                    border: '1px solid var(--color-border)',
+                    background: active ? 'var(--color-accent)' : 'transparent',
+                    color: active ? 'var(--color-text-inverse)' : 'var(--color-text)',
                     cursor: 'pointer',
                   }}
                 >
@@ -488,7 +451,7 @@ export function TaskDetail({
               type="button"
               disabled={repeatDays.length === 0}
               className="chip-btn"
-              style={{ background: 'var(--accent)', color: '#fff', opacity: repeatDays.length === 0 ? 0.5 : 1 }}
+              style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)', opacity: repeatDays.length === 0 ? 0.5 : 1 }}
               onClick={() => {
                 onUpdate(item, { repeat: 'custom', repeatCustom: { interval: repeatInterval, unit: repeatUnit, days: repeatDays } });
                 setCustomRepeatOpen(false);
@@ -500,18 +463,84 @@ export function TaskDetail({
         </div>
       )}
 
-      <div className="detail-card">
+      <div className="detail-card detail-note-card">
         <textarea
           className="notes-input"
-          placeholder="Add note..."
-          rows={4}
+          placeholder="Add note"
+          rows={3}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           onBlur={handleNotesBlur}
         />
       </div>
 
+      <div className="detail-more-options">
+        <button
+          type="button"
+          className="detail-more-toggle"
+          aria-expanded={moreOptionsOpen}
+          onClick={() => setMoreOptionsOpen((open) => !open)}
+        >
+          {moreOptionsOpen ? 'Fewer options' : 'More options'}
+        </button>
+        {moreOptionsOpen && (
+          <div className="detail-more-options-content">
+            <div className="detail-card">
+              <label className="detail-field-label">
+                <div className="detail-field-header">
+                  <TagIcon size={20} />
+                  <span>Pick a category</span>
+                </div>
+                <select
+                  className="repeat-select"
+                  value={item.category ?? ''}
+                  onChange={(e) => onUpdate(item, { category: (e.target.value || null) as CategoryColor | null })}
+                >
+                  <option value="">None</option>
+                  <option value="blue">Blue</option>
+                  <option value="green">Green</option>
+                  <option value="orange">Orange</option>
+                  <option value="purple">Purple</option>
+                  <option value="red">Red</option>
+                  <option value="yellow">Yellow</option>
+                </select>
+              </label>
+            </div>
+
+            {lists.length > 1 && (
+              <div className="detail-card">
+                <label className="detail-field-label">
+                  <div className="detail-field-header">
+                    <ListIcon size={20} />
+                    <span>Move to list</span>
+                  </div>
+                  <select
+                    className="repeat-select"
+                    value={item.listId}
+                    onChange={(e) => {
+                      if (e.target.value !== item.listId) onMoveToList(item, e.target.value);
+                    }}
+                  >
+                    {lists.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
+                  </select>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      </div>
+
       <div className="detail-footer">
+        <button
+          type="button"
+          className="icon-btn detail-footer-btn"
+          onClick={onClose}
+          aria-label="Hide detail view"
+          title="Hide detail view"
+        >
+          <HideDetailIcon size={20} />
+        </button>
         <span className="meta-time">
           {(() => {
             const d = new Date(item.createdAtMs);
@@ -522,17 +551,20 @@ export function TaskDetail({
               day: 'numeric',
               ...(sameYear ? {} : { year: 'numeric' }),
             });
-            return `Created on ${dateStr}`;
+            return `Created by You on ${dateStr}`;
           })()}
         </span>
         <button
-          className="danger-btn"
+          type="button"
+          className="icon-btn detail-footer-btn detail-delete-btn"
           onClick={async () => {
             await onDelete(item);
             onClose();
           }}
+          aria-label="Delete task"
+          title="Delete task"
         >
-          Delete task
+          <TrashIcon size={20} />
         </button>
       </div>
     </aside>

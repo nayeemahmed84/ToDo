@@ -62,18 +62,18 @@ export function CustomCalendarPicker({
     <div
       className="custom-calendar-popover"
       style={{
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
+        background: 'var(--color-calendar-bg)',
+        border: '1px solid var(--color-border)',
         borderRadius: '6px',
         boxShadow: 'var(--shadow-menu)',
-        padding: '10px',
-        width: '240px',
+        padding: '14px',
+        width: '305px',
         zIndex: 50,
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-        <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{monthLabel}</span>
-        <div style={{ display: 'flex', gap: '4px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <span style={{ fontWeight: 600, fontSize: '16px' }}>{monthLabel}</span>
+        <div style={{ display: 'flex', gap: '6px' }}>
           <button
             type="button"
             disabled={isCurrentMonth}
@@ -86,9 +86,9 @@ export function CustomCalendarPicker({
               }
             }}
             aria-label="Previous month"
-            style={{ border: 'none', background: 'transparent', cursor: isCurrentMonth ? 'not-allowed' : 'pointer', opacity: isCurrentMonth ? 0.35 : 1, color: 'var(--text)' }}
+            style={{ border: 'none', background: 'transparent', fontSize: '18px', cursor: isCurrentMonth ? 'not-allowed' : 'pointer', opacity: isCurrentMonth ? 0.35 : 1, color: 'var(--color-text)' }}
           >
-            ↑
+            ←
           </button>
           <button
             type="button"
@@ -101,22 +101,22 @@ export function CustomCalendarPicker({
               }
             }}
             aria-label="Next month"
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text)' }}
+            style={{ border: 'none', background: 'transparent', fontSize: '18px', cursor: 'pointer', color: 'var(--color-text)' }}
           >
-            ↓
+            →
           </button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', textAlign: 'center', fontSize: '0.75rem', marginBottom: '4px', color: 'var(--text-2)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', textAlign: 'center', fontSize: '14px', marginBottom: '6px', color: 'var(--color-text-2)' }}>
         {WEEKDAYS.map((w) => (
           <span key={w}>{w}</span>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', textAlign: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', textAlign: 'center', justifyItems: 'center' }}>
         {days.map((d, i) => {
-          if (!d) return <span key={`empty-${i}`} />;
+          if (!d) return <span key={`empty-${i}`} style={{ width: '38px', height: '38px' }} />;
           const disabled = d < todayStr;
           const isSelected = d === selectedDate;
           const isToday = d === todayStr;
@@ -127,14 +127,19 @@ export function CustomCalendarPicker({
               disabled={disabled}
               onClick={() => setSelectedDate(d)}
               style={{
-                border: isToday && !isSelected ? '1px solid var(--accent)' : 'none',
-                borderRadius: '4px',
-                padding: '4px 0',
-                fontSize: '0.8rem',
+                width: isToday || isSelected ? '36px' : '38px',
+                height: isToday || isSelected ? '36px' : '38px',
+                border: isToday && !isSelected ? '1px solid var(--color-accent)' : 'none',
+                borderRadius: isToday || isSelected ? '50%' : '4px',
+                padding: 0,
+                fontSize: '15px',
                 cursor: disabled ? 'not-allowed' : 'pointer',
                 opacity: disabled ? 0.35 : 1,
-                background: isSelected ? 'var(--accent)' : 'transparent',
-                color: isSelected ? '#fff' : 'var(--text)',
+                background: isSelected || isToday ? 'var(--color-accent)' : 'transparent',
+                color: isSelected || isToday ? 'var(--color-text-inverse)' : 'var(--color-text)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
               {Number(d.split('-')[2])}
@@ -145,11 +150,11 @@ export function CustomCalendarPicker({
 
       {withTime && (
         <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <label style={{ fontSize: '0.8rem', color: 'var(--text-2)' }}>Time:</label>
+          <label style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>Time:</label>
           <select
             value={timeStr}
             onChange={(e) => setTimeStr(e.target.value)}
-            style={{ flex: 1, fontSize: '0.8rem', padding: '3px', background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '4px' }}
+            style={{ flex: 1, fontSize: '0.8rem', padding: '3px', background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
           >
             {timeOptions.map((t) => (
               <option key={t} value={t}>
@@ -160,20 +165,24 @@ export function CustomCalendarPicker({
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '10px' }}>
-        <button type="button" onClick={onCancel} className="chip-btn">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+        <button type="button" onClick={onCancel} className="calendar-cancel">
           Cancel
         </button>
         <button
           type="button"
+          className="calendar-save"
           onClick={() => onSave(selectedDate, withTime ? timeStr : undefined)}
           style={{
-            background: 'var(--accent)',
-            color: '#fff',
+            flex: 1,
+            height: '48px',
+            background: 'var(--color-accent)',
+            color: 'var(--color-text-inverse)',
             border: 'none',
             borderRadius: '4px',
-            padding: '4px 12px',
-            fontSize: '0.8rem',
+            padding: '0 16px',
+            fontSize: '16px',
+            fontWeight: 600,
             cursor: 'pointer',
           }}
         >

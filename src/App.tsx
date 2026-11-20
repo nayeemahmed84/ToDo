@@ -22,6 +22,7 @@ import {
   signInWithGoogleRedirect,
   signOutUser,
 } from './lib/firebase';
+import { TaskRow } from './components/TaskRow';
 import { Sidebar } from './components/Sidebar';
 import { TaskDetail } from './components/TaskDetail';
 import { TopBar } from './components/TopBar';
@@ -68,6 +69,104 @@ const SMART_TITLES: Record<SmartListId, string> = {
   completed: 'Completed',
 };
 
+function getListIcon(selection: ViewSelection, listTitle?: string): React.ReactNode {
+  switch (selection.type) {
+    case 'smart':
+      switch (selection.id) {
+        case 'my-day':
+          return (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+          );
+        case 'important':
+          return (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+          );
+        case 'planned':
+          return (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+            </svg>
+          );
+        case 'all':
+          return <span style={{ fontSize: '20px', fontWeight: 600, lineHeight: 1 }}>∞</span>;
+        case 'completed':
+          return <span className="completed-nav-icon">✓</span>;
+        case 'flagged-email':
+          return (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 21V4m0 0h14l-3.5 5L19 14H5" />
+            </svg>
+          );
+        case 'assigned-to-me':
+          return (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          );
+        case 'tasks':
+          return (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />
+            </svg>
+          );
+        default:
+          return null;
+      }
+    case 'list':
+      if (/costco|dollarama|walmart|shoppers|wholesale|grocer|food basic/i.test(listTitle ?? '')) {
+        return (
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M2 4h2l2.2 11.2a2 2 0 0 0 2 1.6h8.7a2 2 0 0 0 1.9-1.4L21 8H5" />
+            <circle cx="9" cy="20" r="1.2" /><circle cx="18" cy="20" r="1.2" />
+            <path d="M8 11h10M10 8l1 7m4-7-1 7" />
+          </svg>
+        );
+      }
+      return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+function getSortIcon(sort: SortOption): React.ReactNode {
+  if (sort === 'importance') {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true"><polygon points="12 2 15 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 9 8.3 12 2" /></svg>;
+  }
+  if (sort === 'dueDate') {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>;
+  }
+  if (sort === 'myDay') {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>;
+  }
+  if (sort === 'alphabetical') return <span aria-hidden="true" style={{ fontSize: 15, fontWeight: 700 }}>A↓</span>;
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>;
+}
+
+function ContextMenuIcon({ kind }: { kind: 'sun' | 'star' | 'check' | 'calendar' | 'folder' | 'move' | 'copy' | 'trash' }) {
+  const paths: Record<typeof kind, React.ReactNode> = {
+    sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
+    star: <polygon points="12 2 15 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 9 8.3 12 2" />,
+    check: <><circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" /></>,
+    calendar: <><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></>,
+    folder: <path d="M3 6h7l2 2h9v11H3z" />,
+    move: <><path d="M3 6h7l2 2h9v11H3z" /><path d="M12 11v5m-2-2 2 2 2-2" /></>,
+    copy: <><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>,
+    trash: <><path d="M3 6h18M8 6V4h8v2m-11 0 1 15h12l1-15" /><path d="M10 10v7m4-7v7" /></>,
+  };
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
+}
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -102,6 +201,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [addReminderAtMs, setAddReminderAtMs] = useState<number | null>(null);
   const [addDueMenuOpen, setAddDueMenuOpen] = useState(false);
   const [addRemindMenuOpen, setAddRemindMenuOpen] = useState(false);
@@ -155,14 +255,29 @@ export function App() {
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
     try {
       const raw = localStorage.getItem("todo-settings");
-      return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS;
+      if (raw) {
+        const stored = JSON.parse(raw) as Partial<AppSettings>;
+        const merged = { ...DEFAULT_SETTINGS, ...stored };
+        // The old default was "system"; use the screenshot-matched dark theme
+        // unless someone explicitly selected light in the appearance settings.
+        if (merged.themeMode === 'system' && !merged.themeModeExplicit) merged.themeMode = 'dark';
+        return merged;
+      }
+      const legacyDark = localStorage.getItem('todo-dark');
+      return legacyDark === null
+        ? DEFAULT_SETTINGS
+        : { ...DEFAULT_SETTINGS, themeMode: legacyDark === '1' ? 'dark' : 'light' };
     } catch {
       return DEFAULT_SETTINGS;
     }
   });
   const updateAppSettings = (patch: Partial<AppSettings>) => {
     setAppSettings((prev) => {
-      const next = { ...prev, ...patch };
+      const next = {
+        ...prev,
+        ...patch,
+        ...(patch.themeMode !== undefined ? { themeModeExplicit: true } : {}),
+      };
       localStorage.setItem("todo-settings", JSON.stringify(next));
       if (patch.themeMode !== undefined) {
         const isDark = patch.themeMode === "dark" || (patch.themeMode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -183,6 +298,8 @@ export function App() {
   const [listMenuOpen, setListMenuOpen] = useState(false);
   const [taskSubmenu, setTaskSubmenu] = useState<"move" | "copy" | null>(null);
   const headerTitleInputRef = useRef<HTMLInputElement>(null);
+  const addTaskFormRef = useRef<HTMLFormElement>(null);
+  const addTaskInputRef = useRef<HTMLInputElement>(null);
   const [groupByCategory, setGroupByCategory] = useState(false);
   const [viewAnnouncement, setViewAnnouncement] = useState('');
   const [addDueDate, setAddDueDate] = useState<string | null>(null);
@@ -194,16 +311,32 @@ export function App() {
   });
 
   useEffect(() => {
-    const onGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
-        searchEl?.focus();
-      }
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    const topBarColor = getComputedStyle(document.documentElement).getPropertyValue('--color-top-bar-bg').trim();
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', topBarColor);
+  }, [darkMode]);
+
+  useEffect(() => {
+    const syncSidebarBreakpoint = () => {
+      if (window.innerWidth < 1024) {
+        setSidebarOpen(false);
+        setSidebarCollapsed(false);
+      } else setSidebarOpen(false);
     };
-    window.addEventListener('keydown', onGlobalKeyDown);
-    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+    window.addEventListener('resize', syncSidebarBreakpoint);
+    return () => window.removeEventListener('resize', syncSidebarBreakpoint);
   }, []);
+
+  useEffect(() => {
+    const syncFullscreen = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen?.();
+  };
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -238,28 +371,30 @@ export function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
-  const [suggestionsOpen, setSuggestionsOpen] = useState(true);
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
-  const [gridEditId, setGridEditId] = useState<string | null>(null);
-  const [gridEditText, setGridEditText] = useState('');
-
-  useEffect(() => {
-    const onGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
-        searchEl?.focus();
-      }
-    };
-    window.addEventListener('keydown', onGlobalKeyDown);
-    return () => window.removeEventListener('keydown', onGlobalKeyDown);
-  }, []);
-
-  useEffect(() => {
-    if (selection.type === 'smart' && selection.id === 'my-day') {
-      setSuggestionsOpen(true);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+const [isFullscreen, setIsFullscreen] = useState(false);
+const [gridEditId, setGridEditId] = useState<string | null>(null);
+const [gridEditText, setGridEditText] = useState('');
+  const [collapsedLists, setCollapsedLists] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem('todo-collapsed-lists');
+      return raw ? JSON.parse(raw) as Record<string, boolean> : {};
+    } catch {
+      return {};
     }
-  }, [selection]);
+  });
+
+  useEffect(() => {
+    localStorage.setItem('todo-collapsed-lists', JSON.stringify(collapsedLists));
+  }, [collapsedLists]);
+
+  // Auto-focus the add-task input when selection changes (list opened)
+  useEffect(() => {
+    if (!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'flagged-email' && selection.id !== 'assigned-to-me') {
+      setTimeout(() => addTaskInputRef.current?.focus(), 100);
+    }
+  }, [selection, searchQuery, viewMode]);
 
   const myDaySuggestions = useMemo(() => {
     const tmrw = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -279,65 +414,91 @@ export function App() {
   }, [allItems, todayStr, defaultTasksList]);
 
   useEffect(() => {
-    const onGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
-        searchEl?.focus();
-      }
-    };
-    window.addEventListener('keydown', onGlobalKeyDown);
-    return () => window.removeEventListener('keydown', onGlobalKeyDown);
-  }, []);
-
-  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === '1') {
         e.preventDefault();
         setSidebarOpen((v) => !v);
       } else if (e.key === 'Escape') {
+        const hasOpenMenu = Boolean(
+          contextMenu || sortMenuOpen || groupMenuOpen || listMenuOpen ||
+          addDueMenuOpen || addRemindMenuOpen || addRepeatMenuOpen ||
+          addDueCalendarOpen || addRemindCalendarOpen || settingsOpen ||
+          shareListId || shortcutsOpen || whatsNewOpen || sidebarOpen ||
+          document.querySelector('.context-menu, .sort-menu, .list-options-menu, .settings-backdrop, .modal-backdrop, .add-picker-wrap .top-bar-popover')
+        );
         setContextMenu(null);
-        setSelectedItemId(null);
+        setSortMenuOpen(false);
+        setGroupMenuOpen(false);
+        setListMenuOpen(false);
+        setAddDueMenuOpen(false);
+        setAddRemindMenuOpen(false);
+        setAddRepeatMenuOpen(false);
+        setAddDueCalendarOpen(false);
+        setAddRemindCalendarOpen(false);
+        setSettingsOpen(false);
+        setWhatsNewOpen(false);
+        setShareListId(null);
+        setShortcutsOpen(false);
+        setSidebarOpen(false);
+        if (!hasOpenMenu) setSelectedItemId(null);
       }
     };
     const onClick = () => setContextMenu(null);
+    const onScroll = () => setContextMenu(null);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('click', onClick);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('click', onClick);
+      window.removeEventListener('scroll', onScroll, true);
     };
-  }, []);
+  }, [
+    addDueCalendarOpen,
+    addDueMenuOpen,
+    addRemindCalendarOpen,
+    addRemindMenuOpen,
+    addRepeatMenuOpen,
+    contextMenu,
+    groupMenuOpen,
+    listMenuOpen,
+    settingsOpen,
+    whatsNewOpen,
+    shareListId,
+    shortcutsOpen,
+    sidebarOpen,
+    sortMenuOpen,
+  ]);
 
   useEffect(() => {
-    const onGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
-        searchEl?.focus();
-      }
+    if (!sortMenuOpen && !groupMenuOpen && !listMenuOpen) return;
+    const closeMenus = () => {
+      setSortMenuOpen(false);
+      setGroupMenuOpen(false);
+      setListMenuOpen(false);
     };
-    window.addEventListener('keydown', onGlobalKeyDown);
-    return () => window.removeEventListener('keydown', onGlobalKeyDown);
-  }, []);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeMenus();
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement)?.closest('.header-menu-wrap')) closeMenus();
+    };
+    const onScroll = () => closeMenus();
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [sortMenuOpen, groupMenuOpen, listMenuOpen]);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setAuthReady(true);
     });
-  }, []);
-
-  useEffect(() => {
-    const onGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
-        searchEl?.focus();
-      }
-    };
-    window.addEventListener('keydown', onGlobalKeyDown);
-    return () => window.removeEventListener('keydown', onGlobalKeyDown);
   }, []);
 
   useEffect(() => {
@@ -359,18 +520,6 @@ export function App() {
   }, [user]);
 
   useEffect(() => {
-    const onGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        const searchEl = document.querySelector<HTMLInputElement>('.search-input');
-        searchEl?.focus();
-      }
-    };
-    window.addEventListener('keydown', onGlobalKeyDown);
-    return () => window.removeEventListener('keydown', onGlobalKeyDown);
-  }, []);
-
-  useEffect(() => {
     if (!user) {
       setLists([]);
       setAllItems([]);
@@ -386,13 +535,22 @@ export function App() {
     const unsubLists = onSnapshot(
       listsQuery,
       (snap) => {
-        setLists(
-          snap.docs.map((d) => ({
+        setLists(snap.docs.map((d, index) => {
+          const data = d.data();
+          const createdAt = data.createdAt as { toMillis?: () => number } | undefined;
+          return {
             id: d.id,
-            title: (d.data().title as string) || 'Untitled',
-            ownerUid: d.data().ownerUid as string,
-          }))
-        );
+            title: (data.title as string) || 'Untitled',
+            ownerUid: data.ownerUid as string,
+            isDefaultTasksList: Boolean(data.isDefaultTasksList),
+            groupId: (data.groupId as string | null | undefined) ?? null,
+            color: (data.color as string | undefined) ?? 'blue',
+            background: (data.background as TodoList['background'] | undefined) ?? 'field',
+            memberUids: Array.isArray(data.memberUids) ? data.memberUids as string[] : [],
+            sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : createdAt?.toMillis?.() ?? index,
+            createdAt: data.createdAt,
+          };
+        }));
       },
       (err) => setError(err.message)
     );
@@ -418,6 +576,11 @@ export function App() {
             myDayDate: (data.myDayDate as string | null) ?? null,
             dueDate: (data.dueDate as string | null) ?? null,
             repeat: (data.repeat as RepeatRule) ?? 'none',
+            repeatCustom: (data.repeatCustom as TodoItem['repeatCustom']) ?? null,
+            reminderAtMs: (data.reminderAtMs as number | null) ?? null,
+            assignedTo: (data.assignedTo as string | null) ?? null,
+            attachments: Array.isArray(data.attachments) ? data.attachments : [],
+            updatedAtMs: (data.updatedAtMs as number | null) ?? null,
             category: (data.category as any) ?? null,
             notes: (data.notes as string) ?? '',
             steps: Array.isArray(data.steps) ? data.steps : [],
@@ -439,14 +602,12 @@ export function App() {
     const unsubGroups = onSnapshot(
       groupsQuery,
       (snap) => {
-        setGroups(
-          snap.docs.map((d) => ({
-            id: d.id,
-            title: (d.data().title as string) || 'Group',
-            ownerUid: d.data().ownerUid as string,
-            collapsed: Boolean(d.data().collapsed),
-          }))
-        );
+        setGroups(snap.docs.map((d) => ({
+          id: d.id,
+          title: (d.data().title as string) || 'Group',
+          ownerUid: d.data().ownerUid as string,
+          collapsed: Boolean(d.data().collapsed),
+        })));
       },
       (err) => setError(err.message)
     );
@@ -459,13 +620,22 @@ export function App() {
     const unsubSharedLists = onSnapshot(
       sharedListsQuery,
       (snap) => {
-        setSharedLists(
-          snap.docs.map((d) => ({
+        setSharedLists(snap.docs.map((d, index) => {
+          const data = d.data();
+          const createdAt = data.createdAt as { toMillis?: () => number } | undefined;
+          return {
             id: d.id,
-            title: (d.data().title as string) || 'Untitled',
-            ownerUid: d.data().ownerUid as string,
-          }))
-        );
+            title: (data.title as string) || 'Untitled',
+            ownerUid: data.ownerUid as string,
+            isDefaultTasksList: Boolean(data.isDefaultTasksList),
+            groupId: (data.groupId as string | null | undefined) ?? null,
+            color: (data.color as string | undefined) ?? 'blue',
+            background: (data.background as TodoList['background'] | undefined) ?? 'field',
+            memberUids: Array.isArray(data.memberUids) ? data.memberUids as string[] : [],
+            sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : createdAt?.toMillis?.() ?? index,
+            createdAt: data.createdAt,
+          };
+        }));
       },
       (err) => setError(err.message)
     );
@@ -615,14 +785,81 @@ export function App() {
     const map = new Map<string, TodoList>();
     for (const l of lists) map.set(l.id, l);
     for (const l of sharedLists) map.set(l.id, l);
-    return Array.from(map.values());
+    return Array.from(map.values()).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   }, [lists, sharedLists]);
 
+  const toggleListCollapsed = (listId: string) => {
+    setCollapsedLists((prev) => ({ ...prev, [listId]: !prev[listId] }));
+  };
+
+  const allViewGroups = useMemo(() => {
+    if (
+      !searchQuery &&
+      selection.type === 'smart' &&
+      selection.id === 'all'
+    ) {
+      const map = new Map<string, TodoList>();
+      for (const l of allLists) map.set(l.id, l);
+      const groups: { list: TodoList; items: TodoItem[] }[] = [];
+      for (const l of allLists) {
+        const items = activeItems.filter((i) => i.listId === l.id);
+        if (items.length > 0) {
+          groups.push({ list: l, items });
+        }
+      }
+      // fallback: tasks without a matching list
+      const orphan = activeItems.filter((i) => !map.has(i.listId));
+      if (orphan.length > 0) {
+        groups.push({ list: { id: '', title: 'Untitled', ownerUid: user?.uid ?? '', isDefaultTasksList: false }, items: orphan });
+      }
+      return groups;
+    }
+    return null;
+  }, [activeItems, allLists, searchQuery, selection, user?.uid]);
+
+  const handleOpen = (e: React.MouseEvent<HTMLButtonElement>, item: TodoItem) => {
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(item.id)) next.delete(item.id);
+        else next.add(item.id);
+        return next;
+      });
+      setLastSelectedId(item.id);
+    } else if (e.shiftKey && lastSelectedId) {
+      const idxA = activeItems.findIndex((t) => t.id === lastSelectedId);
+      const idxB = activeItems.findIndex((t) => t.id === item.id);
+      if (idxA !== -1 && idxB !== -1) {
+        const [start, end] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
+        const rangeIds = activeItems.slice(start, end + 1).map((t) => t.id);
+        setSelectedIds(new Set(rangeIds));
+      }
+    } else {
+      setSelectedIds(new Set());
+      setSelectedItemId(item.id);
+      setLastSelectedId(item.id);
+    }
+  };
+
+  const handleToggleDone = (item: TodoItem) => {
+    handleUpdateItem(item, { done: !item.done, completedAtMs: !item.done ? Date.now() : null });
+  };
+
+  const handleToggleImportant = (item: TodoItem) => {
+    handleUpdateItem(item, { important: !item.important });
+  };
+
+  const currentList = selection.type === 'list'
+    ? allLists.find((l) => l.id === selection.id) ?? null
+    : null;
   const currentTitle = searchQuery.trim()
     ? `Search: "${searchQuery.trim()}"`
     : selection.type === 'smart'
       ? SMART_TITLES[selection.id]
-      : lists.find((l) => l.id === selection.id)?.title ?? 'List';
+      : currentList?.title ?? 'List';
+  const currentWallpaper = selection.type === 'smart' && selection.id === 'my-day'
+    ? 'coast'
+    : currentList?.background ?? 'field';
 
   const ensureDefaultList = async (): Promise<string> => {
     if (selection.type === 'list') return selection.id;
@@ -631,6 +868,7 @@ export function App() {
       title: 'Tasks',
       isDefaultTasksList: true,
       ownerUid: user!.uid,
+      sortOrder: 0,
       createdAt: serverTimestamp(),
     });
     return ref.id;
@@ -642,6 +880,8 @@ export function App() {
     const ref = await addDoc(collection(db, 'lists'), {
       title,
       ownerUid: user.uid,
+      sortOrder: Date.now(),
+      background: 'field',
       createdAt: serverTimestamp(),
     });
     setSelection({ type: 'list', id: ref.id });
@@ -669,6 +909,30 @@ export function App() {
     }
   };
 
+  const handleMoveListToGroup = async (listId: string, groupId: string | null) => {
+    await updateDoc(doc(db, 'lists', listId), { groupId });
+  };
+
+  const handleMoveListDown = async (listId: string) => {
+    if (!user) return;
+    const list = allLists.find((candidate) => candidate.id === listId);
+    if (!list || list.ownerUid !== user.uid) return;
+    const siblings = allLists.filter((candidate) =>
+      candidate.ownerUid === user.uid &&
+      candidate.id !== defaultTasksList?.id &&
+      candidate.groupId === list.groupId
+    );
+    const index = siblings.findIndex((candidate) => candidate.id === listId);
+    if (index < 0 || index >= siblings.length - 1) return;
+    const next = siblings[index + 1];
+    const currentOrder = list.sortOrder ?? index;
+    const nextOrder = next.sortOrder ?? index + 1;
+    await Promise.all([
+      updateDoc(doc(db, 'lists', list.id), { sortOrder: nextOrder }),
+      updateDoc(doc(db, 'lists', next.id), { sortOrder: currentOrder }),
+    ]);
+  };
+
   const handleAddItem = async (e: FormEvent) => {
     e.preventDefault();
     if (!user || !newItemText.trim()) return;
@@ -685,10 +949,9 @@ export function App() {
           selection.type === 'smart' && selection.id === 'my-day'
             ? todayStr
             : null,
-        dueDate:
-          selection.type === 'smart' && selection.id === 'planned'
-            ? todayStr
-            : null,
+        dueDate: addDueDate ?? (selection.type === 'smart' && selection.id === 'planned' ? todayStr : null),
+        reminderAtMs: addReminderAtMs,
+        repeat: addRepeat,
         notes: '',
         category: null,
         steps: [],
@@ -696,6 +959,9 @@ export function App() {
         completedAtMs: null,
       });
       setNewItemText('');
+      setAddDueDate(null);
+      setAddReminderAtMs(null);
+      setAddRepeat('none');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add task');
     }
@@ -760,6 +1026,9 @@ export function App() {
     const newRef = await addDoc(collection(db, 'lists'), {
       title: `${source.title} (copy)`,
       ownerUid: user.uid,
+      color: source.color ?? 'blue',
+      background: source.background ?? 'field',
+      sortOrder: Date.now(),
       createdAt: serverTimestamp(),
     });
     const listItems = allItems.filter((i) => i.listId === listId);
@@ -951,11 +1220,8 @@ export function App() {
   }
 
   return (
-    <div className={`app-shell ${darkMode ? 'dark' : ''}`}>
+    <div className="app-shell">
       <TopBar
-        user={user}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
         onToggleSidebar={() => {
           if (window.innerWidth < 1024) {
             setSidebarOpen((v) => !v);
@@ -963,18 +1229,12 @@ export function App() {
             setSidebarCollapsed((v) => !v);
           }
         }}
-        onOpenSettings={() => {
-          setSortMenuOpen(false);
-          setGroupMenuOpen(false);
-          setListMenuOpen(false);
-          setContextMenu(null);
-          setSettingsOpen(true);
-        }}
-        onSignOut={() => signOutUser()}
       />
       <div className="app-body">
-        <Sidebar
+<Sidebar
+          user={user}
           lists={allLists.filter((l) => l.id !== defaultTasksList?.id)}
+          userId={user.uid}
           groups={groups}
           selection={selection}
           searchQuery={searchQuery}
@@ -991,9 +1251,8 @@ export function App() {
           onDeleteList={handleDeleteList}
           onShareList={(id) => setShareListId(id)}
           onDuplicateList={(id) => handleDuplicateList(id)}
-          onRenameList={async (id, title) => {
-            await updateDoc(doc(db, 'lists', id), { title });
-          }}
+          onMoveListToGroup={handleMoveListToGroup}
+          onMoveListDown={handleMoveListDown}
           onRenameGroup={async (id, title) => {
             await updateDoc(doc(db, 'groups', id), { title });
           }}
@@ -1003,8 +1262,18 @@ export function App() {
               deleteDoc(doc(db, 'groups', id)),
             ]);
           }}
+          onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+          onOpenSettings={() => {
+            setSortMenuOpen(false);
+            setGroupMenuOpen(false);
+            setListMenuOpen(false);
+            setContextMenu(null);
+            setSettingsOpen(true);
+          }}
+          onOpenWhatsNew={() => setWhatsNewOpen(true)}
+          onSignOut={() => signOutUser()}
         />
-        <main className="main-pane">
+<main className="main-pane" data-list-color={currentList ? currentList.color ?? 'blue' : 'default'} data-wallpaper={currentWallpaper}>
         <header className="main-header">
           <button
             className="menu-btn"
@@ -1015,211 +1284,309 @@ export function App() {
           </button>
           <div className="header-titles">
             {selection.type === 'list' && !searchQuery ? (
-              <input
-                ref={headerTitleInputRef}
-                className="header-title-input"
-                value={currentTitle}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setLists((prev) =>
-                    prev.map((l) =>
-                      l.id === selection.id ? { ...l, title: val } : l
-                    )
-                  );
-                }}
-                onBlur={(e) => {
-                  const trimmed = e.target.value.trim();
-                  if (trimmed) {
-                    updateDoc(doc(db, 'lists', selection.id), {
-                      title: trimmed,
-                    });
-                  }
-                }}
-              />
+              <div className="header-title-row">
+                <span className="header-list-icon">{getListIcon(selection, currentList?.title)}</span>
+                {currentList?.ownerUid === user.uid ? (
+                  <input
+                    ref={headerTitleInputRef}
+                    type="text"
+                    aria-label="List name"
+                    className="header-title-input"
+                    value={currentTitle}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setLists((prev) => prev.map((list) =>
+                        list.id === selection.id ? { ...list, title: val } : list
+                      ));
+                    }}
+                    onBlur={(e) => {
+                      const trimmed = e.target.value.trim();
+                      if (trimmed) {
+                        updateDoc(doc(db, 'lists', selection.id), { title: trimmed });
+                      }
+                    }}
+                  />
+                ) : (
+                  <h2 className="header-title">{currentTitle}</h2>
+                )}
+              </div>
             ) : (
-              <h2>{currentTitle}</h2>
+              <div className="header-title-row">
+                <h2 className="header-title">{currentTitle}</h2>
+              </div>
             )}
             {selection.type === 'smart' &&
               selection.id === 'my-day' &&
               !searchQuery && (
                 <p className="subtitle">
-                  {new Date().toLocaleDateString(undefined, {
+                  {new Date().toLocaleDateString('en-GB', {
                     weekday: 'long',
-                    month: 'long',
                     day: 'numeric',
+                    month: 'long',
                   })}
                 </p>
               )}
           </div>
-          <div className="view-tabs" role="tablist" aria-label="View mode">
-            <button
-              role="tab"
-              aria-selected={viewMode === 'list'}
-              className={`view-tab ${viewMode === 'list' ? 'active' : ''}`}
-              onClick={() => { setViewMode('list'); setViewAnnouncement('List view opened'); }}
-            >
-              List
-            </button>
-            <button
-              role="tab"
-              aria-selected={viewMode === 'grid'}
-              className={`view-tab ${viewMode === 'grid' ? 'active' : ''}`}
-              onClick={() => { setViewMode('grid'); setViewAnnouncement('Grid view opened'); }}
-            >
-              Grid
-            </button>
-          </div>
-          <span className="sr-only" aria-live="polite">{viewAnnouncement}</span>
-          <button
-            className="sort-select"
-            onClick={() => window.print()}
-            title="Print list"
-          >
-            Print
-          </button>
-          <div className="header-menu-wrap" style={{ position: "relative" }}>
+          <div className="header-toolbar">
+            <div className="view-tabs" role="tablist" aria-label="View mode">
+              <button
+                role="tab"
+                aria-selected={viewMode === 'list'}
+                className={`view-tab ${viewMode === 'list' ? 'active' : ''}`}
+                onClick={() => { setViewMode('list'); setViewAnnouncement('List view opened'); }}
+              >
+                List
+              </button>
+              <button
+                role="tab"
+                aria-selected={viewMode === 'grid'}
+                className={`view-tab ${viewMode === 'grid' ? 'active' : ''}`}
+                onClick={() => { setViewMode('grid'); setViewAnnouncement('Grid view opened'); }}
+              >
+                Grid
+              </button>
+            </div>
+            <span className="sr-only" aria-live="polite">{viewAnnouncement}</span>
             <button
               type="button"
-              className="sort-select"
-              onClick={() => { setSortMenuOpen((v) => !v); setGroupMenuOpen(false); }}
-              aria-haspopup="menu"
-              aria-expanded={sortMenuOpen}
+              className="toolbar-icon-button workspace-fullscreen-button"
+              onClick={toggleFullscreen}
+              aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+              title={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
             >
-              Sort
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {isFullscreen ? <><path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5" /></> : <><path d="M14 3h7v7M21 3l-8 8M10 21H3v-7M3 21l8-8" /></>}
+              </svg>
             </button>
-            {sortMenuOpen && (
-              <div className="top-bar-popover" role="menu" style={{ minWidth: "200px" }}>
-                {([
-                  { id: 'importance', label: 'Importance' },
-                  { id: 'dueDate', label: 'Due date' },
-                  ...(selection.type === 'smart' && selection.id === 'my-day' ? [] : [{ id: 'myDay', label: 'Added to My Day' }]),
-                  { id: 'alphabetical', label: 'Alphabetically' },
-                  { id: 'created', label: 'Creation date' },
-                ] as { id: SortOption; label: string }[]).map((opt) => (
+            <button
+              className="toolbar-btn toolbar-print-button"
+              onClick={() => window.print()}
+              title="Print list"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 9V2h12v7" />
+                <rect x="2" y="9" width="20" height="12" rx="2" />
+              </svg>
+              <span>Print</span>
+            </button>
+            <div className="header-menu-wrap header-sort-menu-wrap" style={{ position: "relative" }}>
+              <button
+                type="button"
+                className="toolbar-btn themed toolbar-sort-button"
+                onClick={() => { setSortMenuOpen((v) => !v); setGroupMenuOpen(false); setListMenuOpen(false); }}
+                aria-haspopup="menu"
+                aria-expanded={sortMenuOpen}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18M3 12h18M3 18h18" />
+                </svg>
+                <span>Sort</span>
+              </button>
+              {sortMenuOpen && (
+                <div className="top-bar-popover sort-menu" role="menu" aria-label="Sort by">
+                  <div className="sort-menu-header">Sort by</div>
+                  {([
+                    { id: 'importance', label: 'Importance' },
+                    { id: 'dueDate', label: 'Due date' },
+                    ...(selection.type === 'list' ? [{ id: 'myDay', label: 'Added to My Day' }] : []),
+                    { id: 'alphabetical', label: 'Alphabetically' },
+                    { id: 'created', label: 'Creation date' },
+                  ] as { id: SortOption; label: string }[]).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={sortBy === opt.id}
+                      className="sort-menu-item"
+                      onClick={() => {
+                        setSortBy(opt.id);
+                        setSortAsc(opt.id === 'importance' || opt.id === 'myDay' ? false : true);
+                        setSortMenuOpen(false);
+                      }}
+                    >
+                      <span className="sort-menu-icon">{getSortIcon(opt.id)}</span>
+                      <span>{opt.label}</span>
+                      {sortBy === opt.id && <span className="sort-menu-check" aria-hidden="true">✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="header-menu-wrap header-group-menu-wrap" style={{ position: "relative" }}>
+              <button
+                type="button"
+                className="toolbar-btn themed toolbar-group-button"
+                onClick={() => { setGroupMenuOpen((v) => !v); setSortMenuOpen(false); setListMenuOpen(false); }}
+                aria-haspopup="menu"
+                aria-expanded={groupMenuOpen}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+                <span>Group</span>
+              </button>
+              {groupMenuOpen && (
+                <div className="top-bar-popover" role="menu" style={{ minWidth: "180px" }}>
                   <button
-                    key={opt.id}
                     type="button"
                     role="menuitemcheckbox"
-                    aria-checked={sortBy === opt.id}
+                    aria-checked={groupByCategory}
                     className="account-popover-item"
-                    onClick={() => {
-                      setSortBy(opt.id);
-                      setSortAsc(opt.id === 'importance' || opt.id === 'myDay' ? false : true);
-                      setSortMenuOpen(false);
-                    }}
+                    onClick={() => { setGroupByCategory((v) => !v); setGroupMenuOpen(false); }}
                   >
-                    {sortBy === opt.id ? "✓ " : "  "}{opt.label}
+                    {groupByCategory ? "✓ " : "  "}Categories
                   </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="header-menu-wrap" style={{ position: "relative" }}>
-            <button
-              type="button"
-              className="sort-select"
-              onClick={() => { setGroupMenuOpen((v) => !v); setSortMenuOpen(false); }}
-              aria-haspopup="menu"
-              aria-expanded={groupMenuOpen}
-            >
-              Group
-            </button>
-            {groupMenuOpen && (
-              <div className="top-bar-popover" role="menu" style={{ minWidth: "180px" }}>
-                <button
-                  type="button"
-                  role="menuitemcheckbox"
-                  aria-checked={groupByCategory}
-                  className="account-popover-item"
-                  onClick={() => { setGroupByCategory((v) => !v); setGroupMenuOpen(false); }}
-                >
-                  {groupByCategory ? "✓ " : "  "}Categories
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="header-menu-wrap" style={{ position: "relative" }}>
-            <button
-              type="button"
-              className="sort-select"
-              onClick={() => { setListMenuOpen((v) => !v); setSortMenuOpen(false); setGroupMenuOpen(false); }}
-              aria-label="List options"
-              aria-haspopup="menu"
-              aria-expanded={listMenuOpen}
-            >
-              …
-            </button>
-            {listMenuOpen && (
-              <div className="top-bar-popover" role="menu" style={{ minWidth: "220px" }}>
-                {selection.type === 'smart' ? (
+                </div>
+              )}
+            </div>
+            <div className="header-menu-wrap header-options-menu-wrap" style={{ position: "relative" }}>
+              <button
+                type="button"
+                className="toolbar-icon-button toolbar-options-button"
+                onClick={() => { setListMenuOpen((v) => !v); setSortMenuOpen(false); setGroupMenuOpen(false); }}
+                aria-label="List options"
+                aria-haspopup="menu"
+                aria-expanded={listMenuOpen}
+              >
+                <span>…</span>
+              </button>
+              {listMenuOpen && (
+                <div className="top-bar-popover list-options-menu" role="menu">
+                  {selection.type === 'list' && (
+                    <>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); headerTitleInputRef.current?.focus(); }}>
+                        Rename list
+                      </button>
+                      <div className="list-theme-row">
+                        <span>List color</span>
+                        <span className="list-theme-swatches">
+                          {[
+                            { key: "blue", var: "var(--swatch-blue)" },
+                            { key: "red", var: "var(--swatch-red)" },
+                            { key: "purple", var: "var(--swatch-purple)" },
+                            { key: "green", var: "var(--swatch-green)" },
+                            { key: "teal", var: "var(--swatch-teal)" },
+                          ].map((swatch) => (
+                            <button
+                              key={swatch.key}
+                              type="button"
+                              aria-label={`List color ${swatch.key}`}
+                              aria-pressed={(currentList?.color ?? 'blue') === swatch.key}
+                              className="list-theme-swatch"
+                              onClick={async () => {
+                                await updateDoc(doc(db, "lists", selection.id), { color: swatch.key });
+                                setListMenuOpen(false);
+                              }}
+                              style={{ background: swatch.var }}
+                            />
+                          ))}
+                        </span>
+                      </div>
+                      <div className="wallpaper-menu-row">
+                        <span>Background</span>
+                        <span className="wallpaper-swatches">
+                          {([
+                            { id: 'field', label: 'Poppy field' },
+                            { id: 'coast', label: 'Coast at sunset' },
+                            { id: 'plain', label: 'Solid background' },
+                          ] as const).map((wallpaper) => (
+                            <button
+                              key={wallpaper.id}
+                              type="button"
+                              className={`wallpaper-swatch wallpaper-${wallpaper.id}`}
+                              aria-label={wallpaper.label}
+                              aria-pressed={(currentList?.background ?? 'field') === wallpaper.id}
+                              title={wallpaper.label}
+                              onClick={async () => {
+                                await updateDoc(doc(db, 'lists', selection.id), { background: wallpaper.id });
+                                setListMenuOpen(false);
+                              }}
+                            />
+                          ))}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); setSortMenuOpen(true); }}>
+                    Sort by…
+                  </button>
+                  <button type="button" role="menuitemcheckbox" aria-checked={groupByCategory} className="account-popover-item" onClick={() => setGroupByCategory((value) => !value)}>
+                    {groupByCategory ? '✓ ' : ''}Group by category
+                  </button>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setViewMode((mode) => mode === 'list' ? 'grid' : 'list'); setListMenuOpen(false); }}>
+                    Switch to {viewMode === 'list' ? 'Grid' : 'List'} view
+                  </button>
+                  {selection.type === 'list' && (
+                    <>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); void handleDuplicateList(selection.id); }}>
+                        Duplicate list
+                      </button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); setShareListId(selection.id); }}>
+                        Share list
+                      </button>
+                    </>
+                  )}
                   <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); window.print(); }}>
                     Print list
                   </button>
-                ) : (
-                  <>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); headerTitleInputRef.current?.focus(); }}>
-                      Rename list
-                    </button>
-                    <div className="account-popover-item" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "default" }}>
-                      <span>Change theme</span>
-                      <span style={{ display: "flex", gap: "6px" }}>
-                        {["#0078d4", "#e74856", "#8764b8", "#107c10", "#0099bc"].map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            aria-label={`Theme ${c}`}
-                            onClick={async () => {
-                              await updateDoc(doc(db, "lists", selection.id), { color: c });
-                              setListMenuOpen(false);
-                            }}
-                            style={{ width: "16px", height: "16px", borderRadius: "50%", border: "none", background: c, cursor: "pointer" }}
-                          />
-                        ))}
-                      </span>
-                    </div>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); window.print(); }}>
-                      Print list
-                    </button>
-                    <div className="account-popover-divider" />
-                    <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setListMenuOpen(false); handleDeleteList(selection.id); }}>
-                      Delete list
-                    </button>
-                  </>
-                )}
-              </div>
+                  {selection.type === 'list' && (
+                    <>
+                      <div className="account-popover-divider" />
+                      <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setListMenuOpen(false); handleDeleteList(selection.id); }}>
+                        Delete list
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            {selection.type === 'smart' && selection.id === 'my-day' && (
+              <button
+                type="button"
+                className="toolbar-icon-button suggestions-btn"
+                onClick={() => setSuggestionsOpen((v) => !v)}
+                aria-pressed={suggestionsOpen}
+                aria-label={suggestionsOpen ? 'Hide suggestions' : 'Show suggestions'}
+                title={suggestionsOpen ? 'Hide suggestions' : 'Suggestions'}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M9 18h6M10 21h4M8.3 14.5A7 7 0 1 1 15.7 14.5c-.9.8-1.2 1.7-1.2 2.5h-5c0-.8-.3-1.7-1.2-2.5Z" />
+                  <path d="M12 2v2" />
+                </svg>
+              </button>
+            )}
+            {selection.type === 'list' && (
+              <>
+                <button
+                  className="toolbar-btn toolbar-duplicate-button"
+                  onClick={() => handleDuplicateList(selection.id)}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                  <span>Duplicate</span>
+                </button>
+                <button
+                  className="toolbar-icon-button toolbar-share-button"
+                  onClick={() => { setSortMenuOpen(false); setGroupMenuOpen(false); setListMenuOpen(false); setContextMenu(null); setShareListId(selection.id); }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="9" cy="8" r="3.5" />
+                    <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16.5 4.8a3.5 3.5 0 0 1 0 6.4M18 14a5.5 5.5 0 0 1 3.5 5.1" />
+                  </svg>
+                  {currentList?.memberUids?.length ? <span className="share-member-count">{currentList.memberUids.length + 1}</span> : null}
+                </button>
+              </>
             )}
           </div>
-          {selection.type === 'smart' && selection.id === 'my-day' && (
-            <button
-              type="button"
-              className="sort-select"
-              onClick={() => setSuggestionsOpen((v) => !v)}
-              aria-pressed={suggestionsOpen}
-            >
-              💡 Suggestions
-            </button>
-          )}
-          {selection.type === 'list' && (
-            <>
-              <button
-                className="sort-select"
-                onClick={() => handleDuplicateList(selection.id)}
-              >
-                Duplicate
-              </button>
-              <button
-                className="sort-select"
-                onClick={() => { setSortMenuOpen(false); setGroupMenuOpen(false); setListMenuOpen(false); setContextMenu(null); setShareListId(selection.id); }}
-              >
-                Share
-              </button>
-            </>
-          )}
         </header>
 
         {(sortBy !== 'position' || groupByCategory) && (
           <div className="sort-pill-bar" style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", fontSize: "0.85rem", flexWrap: "wrap" }}>{sortBy !== 'position' && (
-            <span className="sort-pill" style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", padding: "3px 10px", display: "inline-flex", alignItems: "center", gap: "8px" }}>
+            <span className="sort-pill" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "14px", padding: "3px 10px", display: "inline-flex", alignItems: "center", gap: "8px" }}>
               <span>Sorted by {({
   position: 'position',
   importance: 'importance',
@@ -1228,25 +1595,28 @@ export function App() {
   alphabetical: 'alphabetical',
   created: 'creation date',
 }[sortBy])}</span>
-              <button type="button" onClick={() => setSortAsc((v) => !v)} title="Reverse sort order" aria-label="Reverse sort order" style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--text)" }}>⇅</button>
-              <button type="button" onClick={() => setSortBy("position")} title="Remove sort order" aria-label="Remove sort order" style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--text)" }}>×</button>
+              <button type="button" onClick={() => setSortAsc((v) => !v)} title="Reverse sort order" aria-label="Reverse sort order" style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--color-text)" }}>⇅</button>
+              <button type="button" onClick={() => setSortBy("position")} title="Remove sort order" aria-label="Remove sort order" style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--color-text)" }}>×</button>
             </span>)}
             {groupByCategory && (
-              <span className="sort-pill" style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", padding: "3px 10px", display: "inline-flex", alignItems: "center", gap: "8px" }}>
+              <span className="sort-pill" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "14px", padding: "3px 10px", display: "inline-flex", alignItems: "center", gap: "8px" }}>
                 <span>Grouped by categories</span>
-                <button type="button" onClick={() => setGroupByCategory(false)} title="Remove grouping" aria-label="Remove grouping" style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--text)" }}>×</button>
+                <button type="button" onClick={() => setGroupByCategory(false)} title="Remove grouping" aria-label="Remove grouping" style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--color-text)" }}>×</button>
               </span>
             )}
           </div>
         )}
 
-        {!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'flagged-email' && selection.id !== 'assigned-to-me' && (
-          <form className="add-task-bar top-add-task" onSubmit={handleAddItem} style={{ marginBottom: "10px", flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span className="add-circle" />
+{!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'flagged-email' && selection.id !== 'assigned-to-me' && (
+          <form className="add-task-row" onSubmit={handleAddItem} ref={addTaskFormRef}>
+            <div className="add-task-top-row">
+              <span className="add-task-checkbox" aria-hidden="true" />
               <input
+                ref={addTaskInputRef}
                 type="text"
-                placeholder="Add a task"
+                placeholder={selection.type === 'smart' && selection.id === 'my-day'
+                  ? "Try typing 'Pay utilities bill by Friday 6pm'"
+                  : 'Add a task. Type @ to assign it to someone.'}
                 aria-label={`List ${currentTitle}, Press shift+tab to access List options`}
                 value={newItemText}
                 onChange={(e) => setNewItemText(e.target.value)}
@@ -1268,95 +1638,107 @@ export function App() {
               />
               <button type="submit" disabled={!newItemText.trim()} className="add-task-submit-btn">Add</button>
             </div>
-            <div className="add-picker-wrap" style={{ display: "flex", alignItems: "center", gap: "10px", paddingLeft: "28px", fontSize: "0.8rem", color: "var(--text-2)" }}>
-              <div style={{ position: 'relative', display: 'inline-block' }}>
-                <button type="button" className="chip-btn" onClick={() => { setAddDueMenuOpen((v) => !v); setAddRepeatMenuOpen(false); }} title="Add due date">
-                  📅 {addDueDate ? `Due: ${addDueDate}` : "Due date"}
-                </button>
-                {addDueMenuOpen && (
-                  <div className="top-bar-popover" role="menu" style={{ minWidth: '160px', left: 0 }}>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(todayStr); setAddDueMenuOpen(false); }}>Today</button>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(tomorrowStr); setAddDueMenuOpen(false); }}>Tomorrow</button>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 7); setAddDueDate(d.toISOString().slice(0, 10)); setAddDueMenuOpen(false); }}>Next week</button>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueMenuOpen(false); setAddDueCalendarOpen(true); }}>Pick a date</button>
-                    {addDueDate && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddDueDate(null); setAddDueMenuOpen(false); }}>Remove due date</button>}
-                  </div>
-                )}
-                {addDueCalendarOpen && (
-                  <div className="top-bar-popover" style={{ left: 0, padding: 0 }}>
-                    <CustomCalendarPicker
-                      initialDate={addDueDate}
-                      todayStr={todayStr}
-                      onSave={(dateStr) => { setAddDueDate(dateStr); setAddDueCalendarOpen(false); }}
-                      onCancel={() => setAddDueCalendarOpen(false)}
-                    />
-                  </div>
-                )}
+            <div className="add-task-divider" />
+            <div className="add-task-bottom-row">
+              <div className="add-picker-wrap">
+              <button type="button" className="add-task-icon-btn" onClick={() => { setAddDueMenuOpen((v) => !v); setAddRepeatMenuOpen(false); setAddRemindMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Add due date">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <path d="M16 2v4M8 2v4M3 10h18" />
+                </svg>
+                {addDueDate && <span className="add-task-icon-label">Due: {addDueDate}</span>}
+              </button>
+              {addDueMenuOpen && (
+                <div className="top-bar-popover" role="menu" style={{ minWidth: '160px', left: 0 }}>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(todayStr); setAddDueMenuOpen(false); }}>Today</button>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(tomorrowStr); setAddDueMenuOpen(false); }}>Tomorrow</button>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 7); setAddDueDate(d.toISOString().slice(0, 10)); setAddDueMenuOpen(false); }}>Next week</button>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueMenuOpen(false); setAddDueCalendarOpen(true); }}>Pick a date</button>
+                  {addDueDate && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddDueDate(null); setAddDueMenuOpen(false); }}>Remove due date</button>}
+                </div>
+              )}
+              {addDueCalendarOpen && (
+                <div className="top-bar-popover" style={{ left: 0, padding: 0 }}>
+                  <CustomCalendarPicker
+                    initialDate={addDueDate}
+                    todayStr={todayStr}
+                    onSave={(dateStr) => { setAddDueDate(dateStr); setAddDueCalendarOpen(false); }}
+                    onCancel={() => setAddDueCalendarOpen(false)}
+                  />
+                </div>
+              )}
               </div>
-              <div style={{ position: 'relative', display: 'inline-block' }}>
-                <button type="button" className="chip-btn" onClick={() => { setAddRemindMenuOpen((v) => !v); setAddDueMenuOpen(false); setAddRepeatMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Remind me">
-                  🔔 {addReminderAtMs ? new Date(addReminderAtMs).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Remind me'}
-                </button>
-                {addRemindMenuOpen && (
-                  <div className="top-bar-popover" role="menu" style={{ minWidth: '190px', left: 0 }}>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
-                      const d = new Date();
-                      d.setHours(d.getHours() + 1, 0, 0, 0);
+              <div className="add-picker-wrap">
+              <button type="button" className="add-task-icon-btn" onClick={() => { setAddRemindMenuOpen((v) => !v); setAddDueMenuOpen(false); setAddRepeatMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Remind me">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                {addReminderAtMs && <span className="add-task-icon-label">{new Date(addReminderAtMs).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>}
+              </button>
+              {addRemindMenuOpen && (
+                <div className="top-bar-popover" role="menu" style={{ minWidth: '190px', left: 0 }}>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                    const d = new Date();
+                    d.setHours(d.getHours() + 1, 0, 0, 0);
+                    setAddReminderAtMs(d.getTime());
+                    setAddRemindMenuOpen(false);
+                  }}>Later today</button>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                    const d = new Date();
+                    d.setDate(d.getDate() + 1);
+                    d.setHours(9, 0, 0, 0);
+                    setAddReminderAtMs(d.getTime());
+                    setAddRemindMenuOpen(false);
+                  }}>Tomorrow, 9 AM</button>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                    const d = new Date();
+                    d.setDate(d.getDate() + 7);
+                    d.setHours(9, 0, 0, 0);
+                    setAddReminderAtMs(d.getTime());
+                    setAddRemindMenuOpen(false);
+                  }}>Next week, 9 AM</button>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddRemindMenuOpen(false); setAddRemindCalendarOpen(true); }}>Pick a date & time</button>
+                  {addReminderAtMs && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddReminderAtMs(null); setAddRemindMenuOpen(false); }}>Remove reminder</button>}
+                </div>
+              )}
+              {addRemindCalendarOpen && (
+                <div className="top-bar-popover" style={{ left: 0, padding: 0 }}>
+                  <CustomCalendarPicker
+                    initialDate={todayStr}
+                    todayStr={todayStr}
+                    withTime
+                    onSave={(dateStr, timeStr) => {
+                      const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
+                      const d = new Date(`${dateStr}T00:00:00`);
+                      d.setHours(hh, mm, 0, 0);
                       setAddReminderAtMs(d.getTime());
-                      setAddRemindMenuOpen(false);
-                    }}>Later today</button>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 1);
-                      d.setHours(9, 0, 0, 0);
-                      setAddReminderAtMs(d.getTime());
-                      setAddRemindMenuOpen(false);
-                    }}>Tomorrow, 9 AM</button>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 7);
-                      d.setHours(9, 0, 0, 0);
-                      setAddReminderAtMs(d.getTime());
-                      setAddRemindMenuOpen(false);
-                    }}>Next week, 9 AM</button>
-                    <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddRemindMenuOpen(false); setAddRemindCalendarOpen(true); }}>Pick a date & time</button>
-                    {addReminderAtMs && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddReminderAtMs(null); setAddRemindMenuOpen(false); }}>Remove reminder</button>}
-                  </div>
-                )}
-                {addRemindCalendarOpen && (
-                  <div className="top-bar-popover" style={{ left: 0, padding: 0 }}>
-                    <CustomCalendarPicker
-                      initialDate={todayStr}
-                      todayStr={todayStr}
-                      withTime
-                      onSave={(dateStr, timeStr) => {
-                        const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
-                        const d = new Date(`${dateStr}T00:00:00`);
-                        d.setHours(hh, mm, 0, 0);
-                        setAddReminderAtMs(d.getTime());
-                        setAddRemindCalendarOpen(false);
-                      }}
-                      onCancel={() => setAddRemindCalendarOpen(false)}
-                    />
-                  </div>
-                )}
+                      setAddRemindCalendarOpen(false);
+                    }}
+                    onCancel={() => setAddRemindCalendarOpen(false)}
+                  />
+                </div>
+              )}
               </div>
-              <div style={{ position: 'relative', display: 'inline-block' }}>
-                <button type="button" className="chip-btn" onClick={() => { setAddRepeatMenuOpen((v) => !v); setAddDueMenuOpen(false); }} title="Repeat">
-                  🔁 {addRepeat !== "none" ? addRepeat : "Repeat"}
-                </button>
-                {addRepeatMenuOpen && (
-                  <div className="top-bar-popover" role="menu" style={{ minWidth: '160px', left: 0 }}>
-                    {(['daily', 'weekdays', 'weekly', 'monthly', 'yearly'] as const).map((r) => (
-                      <button key={r} type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddRepeat(r); setAddRepeatMenuOpen(false); }}>
-                        {r.charAt(0).toUpperCase() + r.slice(1)}
-                      </button>
-                    ))}
-                    {addRepeat !== 'none' && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddRepeat('none'); setAddRepeatMenuOpen(false); }}>Never</button>}
-                  </div>
-                )}
+              <div className="add-picker-wrap">
+              <button type="button" className="add-task-icon-btn" onClick={() => { setAddRepeatMenuOpen((v) => !v); setAddDueMenuOpen(false); setAddRemindMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Repeat">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14" />
+                  <path d="M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3" />
+                </svg>
+                {addRepeat !== "none" && <span className="add-task-icon-label">{addRepeat}</span>}
+              </button>
+              {addRepeatMenuOpen && (
+                <div className="top-bar-popover" role="menu" style={{ minWidth: '160px', left: 0 }}>
+                  {(['daily', 'weekdays', 'weekly', 'monthly', 'yearly'] as const).map((r) => (
+                    <button key={r} type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddRepeat(r); setAddRepeatMenuOpen(false); }}>
+                      {r.charAt(0).toUpperCase() + r.slice(1)}
+                    </button>
+                  ))}
+                  {addRepeat !== 'none' && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddRepeat('none'); setAddRepeatMenuOpen(false); }}>Never</button>}
+                </div>
+              )}
               </div>
-              {/\btomorrow\b$/i.test(newItemText.trim()) && <span style={{ color: "var(--accent)" }}>Due: Tomorrow</span>}
             </div>
           </form>
         )}
@@ -1374,7 +1756,7 @@ export function App() {
           const noteCount = allMatched.filter((i) => (i.notes ?? '').toLowerCase().includes(q)).length;
           const stepCount = allMatched.reduce((acc, i) => acc + (i.steps ?? []).filter((s) => s.text.toLowerCase().includes(q)).length, 0);
           return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.82rem', color: 'var(--text-2)', marginBottom: '0.75rem', padding: '0 4px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.82rem', color: 'var(--color-text-2)', marginBottom: '0.75rem', padding: '0 4px' }}>
               <div>{taskCount} Tasks, {noteCount} Notes, and {stepCount} Steps found</div>
               <div style={{ display: 'flex', gap: '12px' }}>
                 <span>Tasks ({taskCount})</span>
@@ -1419,97 +1801,21 @@ export function App() {
               <div className="completed-toggle">{group.label} ({group.items.length})</div>
               <ul className="task-list">
                 {group.items.map((item) => (
-                  <li
+                  <TaskRow
                     key={item.id}
-                    className={`task-row ${
-                selectedItemId === item.id || selectedIds.has(item.id)
-                  ? 'selected'
-                  : ''
-              }`}
+                    item={item}
+                    lists={allLists}
+                    selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                    todayStr={todayStr}
+                    tomorrowStr={tomorrowStr}
+                    showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
+                    onToggleDone={handleToggleDone}
+                    onToggleImportant={handleToggleImportant}
+                    onOpen={handleOpen}
                     onContextMenu={(e) => {
-                      e.preventDefault();
                       setContextMenu({ x: e.clientX, y: e.clientY, item });
                     }}
-                  >
-                    <input
-                      type="checkbox"
-                      className="circle-check"
-                      checked={item.done}
-                      onChange={() =>
-                        handleUpdateItem(item, {
-                          done: true,
-                          completedAtMs: Date.now(),
-                        })
-                      }
-                    />
-                    <button
-                      className="task-body"
-                      onClick={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    setSelectedIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(item.id)) next.delete(item.id);
-                      else next.add(item.id);
-                      return next;
-                    });
-                    setLastSelectedId(item.id);
-                  } else if (e.shiftKey && lastSelectedId) {
-                    const idxA = activeItems.findIndex(
-                      (t) => t.id === lastSelectedId
-                    );
-                    const idxB = activeItems.findIndex((t) => t.id === item.id);
-                    if (idxA !== -1 && idxB !== -1) {
-                      const [start, end] =
-                        idxA < idxB ? [idxA, idxB] : [idxB, idxA];
-                      const rangeIds = activeItems
-                        .slice(start, end + 1)
-                        .map((t) => t.id);
-                      setSelectedIds(new Set(rangeIds));
-                    }
-                  } else {
-                    setSelectedIds(new Set());
-                    setSelectedItemId(item.id);
-                    setLastSelectedId(item.id);
-                  }
-                }}
-                    >
-                      <span className="task-title">{item.text}</span>
-                      {(selection.type === 'smart' || searchQuery.trim() || item.dueDate || item.reminderAtMs || (item.repeat && item.repeat !== 'none')) && (
-                        <div className="task-meta" style={{ fontSize: '0.78rem', color: 'var(--text-2)', display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
-                          {(selection.type === 'smart' || searchQuery.trim()) && (
-                            <span>{allLists.find((l) => l.id === item.listId)?.title ?? 'Tasks'}</span>
-                          )}
-                          {item.dueDate && <span>Due {item.dueDate === todayStr ? 'Today' : item.dueDate === tomorrowStr ? 'Tomorrow' : item.dueDate}</span>}
-                          {item.reminderAtMs && <span>🔔</span>}
-                          {item.repeat && item.repeat !== 'none' && <span>🔁</span>}
-                        </div>
-                      )}
-                      <span className="task-meta">
-                        {item.dueDate && (
-                          <span
-                            className={
-                              item.dueDate < todayStr
-                                ? 'due-overdue'
-                                : item.dueDate === todayStr
-                                  ? 'due-today'
-                                  : ''
-                            }
-                          >
-                            📅 {item.dueDate}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                    <button
-                      className={`star-btn ${item.important ? 'active' : ''}`}
-                      onClick={() =>
-                        handleUpdateItem(item, { important: !item.important })
-                      }
-                      title="Mark as important"
-                    >
-                      {item.important ? '★' : '☆'}
-                    </button>
-                  </li>
+                  />
                 ))}
               </ul>
             </section>
@@ -1589,7 +1895,7 @@ export function App() {
                         />
                       ) : (
                         item.text
-                      )}
+        )})
                     </td>
                     <td>{item.dueDate ?? '—'}</td>
                     <td>
@@ -1609,112 +1915,68 @@ export function App() {
             </table>
           </div>
         ) : (
-        <ul className="task-list">
-          {activeItems.map((item) => (
-            <li
-              key={item.id}
-              className={`task-row ${
-                selectedItemId === item.id || selectedIds.has(item.id)
-                  ? 'selected'
-                  : ''
-              }`}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextMenu({ x: e.clientX, y: e.clientY, item });
-              }}
-            >
-              <input
-                type="checkbox"
-                className="circle-check"
-                checked={item.done}
-                onChange={() =>
-                  handleUpdateItem(item, {
-                    done: true,
-                    completedAtMs: Date.now(),
-                  })
-                }
-              />
-              <button
-                className="task-body"
-                onClick={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    setSelectedIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(item.id)) next.delete(item.id);
-                      else next.add(item.id);
-                      return next;
-                    });
-                    setLastSelectedId(item.id);
-                  } else if (e.shiftKey && lastSelectedId) {
-                    const idxA = activeItems.findIndex(
-                      (t) => t.id === lastSelectedId
-                    );
-                    const idxB = activeItems.findIndex((t) => t.id === item.id);
-                    if (idxA !== -1 && idxB !== -1) {
-                      const [start, end] =
-                        idxA < idxB ? [idxA, idxB] : [idxB, idxA];
-                      const rangeIds = activeItems
-                        .slice(start, end + 1)
-                        .map((t) => t.id);
-                      setSelectedIds(new Set(rangeIds));
-                    }
-                  } else {
-                    setSelectedIds(new Set());
-                    setSelectedItemId(item.id);
-                    setLastSelectedId(item.id);
-                  }
+        allViewGroups ? (
+          allViewGroups.map(({ list, items }) => {
+            const isCollapsed = collapsedLists[list.id] ?? false;
+            return (
+              <section key={list.id} className="all-section">
+                <button
+                  type="button"
+                  className="section-header"
+                  onClick={() => toggleListCollapsed(list.id)}
+                  aria-expanded={!isCollapsed}
+                >
+                  <span className="section-chevron">{isCollapsed ? '▸' : '▾'}</span>
+                  <span className="section-icon">{getListIcon({ type: 'list', id: list.id }, list.title)}</span>
+                  <span className="section-name">{list.title}</span>
+                  <span className="section-count">{items.length}</span>
+                </button>
+                {!isCollapsed && (
+                  <ul className="task-list">
+                    {items.map((item) => (
+                      <TaskRow
+                        key={item.id}
+                        item={item}
+                        lists={allLists}
+                        selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                        todayStr={todayStr}
+                        tomorrowStr={tomorrowStr}
+                        showListMeta={false}
+                        onToggleDone={handleToggleDone}
+                        onToggleImportant={handleToggleImportant}
+                        onOpen={handleOpen}
+                        onContextMenu={(e) => {
+                          setContextMenu({ x: e.clientX, y: e.clientY, item });
+                        }}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })
+        ) : (
+          <ul className="task-list">
+            {activeItems.map((item) => (
+              <TaskRow
+                key={item.id}
+                item={item}
+                lists={allLists}
+                selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                todayStr={todayStr}
+                tomorrowStr={tomorrowStr}
+                showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
+                onToggleDone={handleToggleDone}
+                onToggleImportant={handleToggleImportant}
+                onOpen={handleOpen}
+                onContextMenu={(e) => {
+                  setContextMenu({ x: e.clientX, y: e.clientY, item });
                 }}
-              >
-                <span className="task-title">{item.text}</span>
-                      {(selection.type === 'smart' || searchQuery.trim() || item.dueDate || item.reminderAtMs || (item.repeat && item.repeat !== 'none')) && (
-                        <div className="task-meta" style={{ fontSize: '0.78rem', color: 'var(--text-2)', display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
-                          {(selection.type === 'smart' || searchQuery.trim()) && (
-                            <span>{allLists.find((l) => l.id === item.listId)?.title ?? 'Tasks'}</span>
-                          )}
-                          {item.dueDate && <span>Due {item.dueDate === todayStr ? 'Today' : item.dueDate === tomorrowStr ? 'Tomorrow' : item.dueDate}</span>}
-                          {item.reminderAtMs && <span>🔔</span>}
-                          {item.repeat && item.repeat !== 'none' && <span>🔁</span>}
-                        </div>
-                      )}
-                <span className="task-meta">
-                  {item.myDayDate === todayStr && <span>☀️ My Day</span>}
-                  {item.dueDate && (
-                    <span
-                      className={
-                        item.dueDate < todayStr
-                          ? 'due-overdue'
-                          : item.dueDate === todayStr
-                            ? 'due-today'
-                            : ''
-                      }
-                    >
-                      📅 {item.dueDate}
-                    </span>
-                  )}
-                  {item.steps.length > 0 && (
-                    <span>
-                      ✓ {item.steps.filter((s) => s.done).length}/
-                      {item.steps.length}
-                    </span>
-                  )}
-                  {item.notes && <span>📝 Note</span>}
-                </span>
-              </button>
-              <button
-                className={`star-btn ${item.important ? 'active' : ''}`}
-                onClick={() =>
-                  handleUpdateItem(item, { important: !item.important })
-                }
-                title="Mark as important"
-              >
-                {item.important ? '★' : '☆'}
-              </button>
-            </li>
-          ))}
-        </ul>
+              />
+            ))}
+          </ul>
         )
-        )}
-
+        ))}
         {completedItems.length > 0 && (
           <section className="completed-section">
             <button
@@ -1727,70 +1989,21 @@ export function App() {
             {showCompleted && (
               <ul className="task-list">
                 {completedItems.map((item) => (
-                  <li key={item.id} className="task-row done">
-                    <input
-                      type="checkbox"
-                      className="circle-check"
-                      checked={item.done}
-                      onChange={() =>
-                        handleUpdateItem(item, {
-                          done: false,
-                          completedAtMs: null,
-                        })
-                      }
-                    />
-                    <button
-                      className="task-body"
-                      onClick={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    setSelectedIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(item.id)) next.delete(item.id);
-                      else next.add(item.id);
-                      return next;
-                    });
-                    setLastSelectedId(item.id);
-                  } else if (e.shiftKey && lastSelectedId) {
-                    const idxA = activeItems.findIndex(
-                      (t) => t.id === lastSelectedId
-                    );
-                    const idxB = activeItems.findIndex((t) => t.id === item.id);
-                    if (idxA !== -1 && idxB !== -1) {
-                      const [start, end] =
-                        idxA < idxB ? [idxA, idxB] : [idxB, idxA];
-                      const rangeIds = activeItems
-                        .slice(start, end + 1)
-                        .map((t) => t.id);
-                      setSelectedIds(new Set(rangeIds));
-                    }
-                  } else {
-                    setSelectedIds(new Set());
-                    setSelectedItemId(item.id);
-                    setLastSelectedId(item.id);
-                  }
-                }}
-                    >
-                      <span className="task-title">{item.text}</span>
-                      {(selection.type === 'smart' || searchQuery.trim() || item.dueDate || item.reminderAtMs || (item.repeat && item.repeat !== 'none')) && (
-                        <div className="task-meta" style={{ fontSize: '0.78rem', color: 'var(--text-2)', display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
-                          {(selection.type === 'smart' || searchQuery.trim()) && (
-                            <span>{allLists.find((l) => l.id === item.listId)?.title ?? 'Tasks'}</span>
-                          )}
-                          {item.dueDate && <span>Due {item.dueDate === todayStr ? 'Today' : item.dueDate === tomorrowStr ? 'Tomorrow' : item.dueDate}</span>}
-                          {item.reminderAtMs && <span>🔔</span>}
-                          {item.repeat && item.repeat !== 'none' && <span>🔁</span>}
-                        </div>
-                      )}
-                    </button>
-                    <button
-                      className={`star-btn ${item.important ? 'active' : ''}`}
-                      onClick={() =>
-                        handleUpdateItem(item, { important: !item.important })
-                      }
-                    >
-                      {item.important ? '★' : '☆'}
-                    </button>
-                  </li>
+                  <TaskRow
+                    key={item.id}
+                    item={item}
+                    lists={allLists}
+                    selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                    todayStr={todayStr}
+                    tomorrowStr={tomorrowStr}
+                    showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
+                    onToggleDone={handleToggleDone}
+                    onToggleImportant={handleToggleImportant}
+                    onOpen={handleOpen}
+                    onContextMenu={(e) => {
+                      setContextMenu({ x: e.clientX, y: e.clientY, item });
+                    }}
+                  />
                 ))}
               </ul>
             )}
@@ -1800,13 +2013,28 @@ export function App() {
 
         
         {!searchQuery && activeItems.length === 0 && !(selection.type === 'smart' && (selection.id === 'flagged-email' || selection.id === 'assigned-to-me')) && (
-          <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-2)' }}>
-            <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)', marginBottom: '0.25rem' }}>
+          <div className={`empty-state ${selection.type === 'smart' && selection.id === 'my-day' ? 'my-day-empty-state' : ''}`}>
+            {selection.type === 'smart' && selection.id === 'my-day' && (
+              <div className="empty-state-illustration" aria-hidden="true">
+                <svg viewBox="0 0 112 104" fill="none">
+                  <path d="M24 32 86 42 77 88 18 78Z" fill="rgba(255,255,255,.14)" />
+                  <path d="M27 25 89 35 80 81 21 71Z" fill="#e9e5df" />
+                  <path d="m27 25 62 10-3 15-62-10Z" fill="#7d8fd1" />
+                  <path d="m39 21-2 15m14-13-2 15m14-13-2 15m14-13-2 15" stroke="#ddd9d3" strokeWidth="5" strokeLinecap="round" />
+                  <circle cx="91" cy="22" r="5" fill="rgba(255,255,255,.2)" />
+                  <circle cx="91" cy="5" r="2.5" fill="rgba(255,255,255,.2)" />
+                  <circle cx="105" cy="22" r="2.5" fill="rgba(255,255,255,.2)" />
+                  <circle cx="78" cy="22" r="2.5" fill="rgba(255,255,255,.2)" />
+                  <circle cx="91" cy="39" r="2.5" fill="rgba(255,255,255,.2)" />
+                </svg>
+              </div>
+            )}
+            <div className="empty-state-title">
               {selection.type === 'smart' && selection.id === 'my-day'
                 ? 'Focus on your day'
                 : 'No tasks yet'}
             </div>
-            <div style={{ fontSize: '0.9rem' }}>
+            <div className="empty-state-copy">
               {selection.type === 'smart' && selection.id === 'my-day'
                 ? 'Get things done with My Day, a list that refreshes every day.'
                 : selection.type === 'smart' && selection.id === 'important'
@@ -1815,24 +2043,29 @@ export function App() {
                 ? 'Tasks with due dates or reminders show up here.'
                 : selection.type === 'smart' && selection.id === 'completed'
                 ? 'Tasks you complete show up here.'
-                : 'Add a task above to get started.'}
+                : 'Add a task below to get started.'}
             </div>
+            {selection.type === 'smart' && selection.id === 'my-day' && (
+              <button type="button" className="empty-state-action" onClick={() => addTaskInputRef.current?.focus()}>
+                Add task to My Day
+              </button>
+            )}
           </div>
         )}
 
         {selection.type === 'smart' &&
           selection.id === 'flagged-email' &&
           !searchQuery && (
-            <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-2)' }}>
+            <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--color-text-2)' }}>
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ marginBottom: '0.75rem' }}>
-                <rect x="2" y="4" width="20" height="16" rx="2" stroke="var(--text-3)" strokeWidth="1.5" />
-                <path d="M2 7l10 6 10-6" stroke="var(--text-3)" strokeWidth="1.5" />
-                <path d="M17 3v9m0-9h4l-1.2 2L21 7h-4" fill="#0078d4" stroke="#0078d4" strokeWidth="1.2" strokeLinejoin="round" />
+                <rect x="2" y="4" width="20" height="16" rx="2" stroke="var(--color-text-3)" strokeWidth="1.5" />
+                <path d="M2 7l10 6 10-6" stroke="var(--color-text-3)" strokeWidth="1.5" />
+                <path d="M17 3v9m0-9h4l-1.2 2L21 7h-4" fill="var(--color-accent)" stroke="var(--color-accent)" strokeWidth="1.2" strokeLinejoin="round" />
               </svg>
-              <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)', marginBottom: '0.25rem' }}>Tasks from flagged email</div>
+              <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--color-text)', marginBottom: '0.25rem' }}>Tasks from flagged email</div>
               <div style={{ fontSize: '0.9rem' }}>Messages you flag will show up as tasks here.</div>
               {!appSettings.connectedFlaggedEmail && (
-                <div style={{ fontSize: '0.85rem', marginTop: '0.5rem', color: 'var(--text-3)' }}>Turn on Flagged email in Connected apps to receive flagged messages.</div>
+                <div style={{ fontSize: '0.85rem', marginTop: '0.5rem', color: 'var(--color-text-3)' }}>Turn on Flagged email in Connected apps to receive flagged messages.</div>
               )}
             </div>
           )}
@@ -1849,51 +2082,73 @@ export function App() {
       {contextMenu && (
         <div
           className="context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x, minWidth: "220px" }}
+          style={{
+            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 500)),
+            left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 292)),
+            maxHeight: 'calc(100vh - 16px)',
+            overflowY: 'auto',
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           <button
+            type="button"
+            className="context-menu-item"
             onClick={() => {
               const isMyDay = contextMenu.item.myDayDate === todayStr;
               handleUpdateItem(contextMenu.item, { myDayDate: isMyDay ? null : todayStr });
               setContextMenu(null);
             }}
           >
+            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="sun" /></span>
             {contextMenu.item.myDayDate === todayStr ? "Remove from My Day" : "Add to My Day"}
           </button>
           <button
+            type="button"
+            className="context-menu-item"
             onClick={() => {
               handleUpdateItem(contextMenu.item, { important: !contextMenu.item.important });
               setContextMenu(null);
             }}
           >
+            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="star" /></span>
             {contextMenu.item.important ? "Remove importance" : "Mark as important"}
           </button>
           <button
+            type="button"
+            className="context-menu-item"
             onClick={() => {
               handleUpdateItem(contextMenu.item, { done: !contextMenu.item.done, completedAtMs: !contextMenu.item.done ? Date.now() : null });
               setContextMenu(null);
             }}
           >
+            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="check" /></span>
             {contextMenu.item.done ? "Mark as not completed" : "Mark as completed"}
           </button>
           <button
+            type="button"
+            className="context-menu-item"
             onClick={() => {
               handleUpdateItem(contextMenu.item, { dueDate: todayStr });
               setContextMenu(null);
             }}
           >
+            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
             Due today
           </button>
           <button
+            type="button"
+            className="context-menu-item"
             onClick={() => {
               handleUpdateItem(contextMenu.item, { dueDate: tomorrowStr });
               setContextMenu(null);
             }}
           >
+            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
             Due tomorrow
           </button>
           <button
+            type="button"
+            className="context-menu-item"
             onClick={async () => {
               if (!user) return;
               const ref = await addDoc(collection(db, "lists"), { title: contextMenu.item.text, ownerUid: user.uid, createdAt: serverTimestamp() });
@@ -1901,14 +2156,15 @@ export function App() {
               setContextMenu(null);
             }}
           >
+            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="folder" /></span>
             Create new list from this task
           </button>
-          <div style={{ position: "relative" }} onMouseEnter={() => setTaskSubmenu("move")} onMouseLeave={() => setTaskSubmenu(null)}>
-            <button type="button" style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-              <span>Move task to…</span><span>▸</span>
+          <div className="context-menu-submenu-wrap" onMouseEnter={() => setTaskSubmenu("move")} onMouseLeave={() => setTaskSubmenu(null)}>
+            <button type="button" className="context-menu-item" onClick={() => setTaskSubmenu((value) => value === "move" ? null : "move")}>
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="move" /></span><span>Move task to…</span><span className="context-menu-arrow">›</span>
             </button>
             {taskSubmenu === "move" && (
-              <div className="context-menu" style={{ position: "absolute", left: "100%", top: 0, minWidth: "180px" }}>
+              <div className="context-menu context-menu-submenu">
                 {allLists.map((l) => {
                   const isCurrent = l.id === contextMenu.item.listId;
                   return (
@@ -1920,12 +2176,12 @@ export function App() {
               </div>
             )}
           </div>
-          <div style={{ position: "relative" }} onMouseEnter={() => setTaskSubmenu("copy")} onMouseLeave={() => setTaskSubmenu(null)}>
-            <button type="button" style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-              <span>Copy task to…</span><span>▸</span>
+          <div className="context-menu-submenu-wrap" onMouseEnter={() => setTaskSubmenu("copy")} onMouseLeave={() => setTaskSubmenu(null)}>
+            <button type="button" className="context-menu-item" onClick={() => setTaskSubmenu((value) => value === "copy" ? null : "copy")}>
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="copy" /></span><span>Copy task to…</span><span className="context-menu-arrow">›</span>
             </button>
             {taskSubmenu === "copy" && (
-              <div className="context-menu" style={{ position: "absolute", left: "100%", top: 0, minWidth: "180px" }}>
+              <div className="context-menu context-menu-submenu">
                 {allLists.map((l) => (
                   <button key={l.id} onClick={async () => {
                     if (!user) return;
@@ -1945,12 +2201,14 @@ export function App() {
             )}
           </div>
           <button
+            type="button"
             className="danger"
             onClick={() => {
               handleDeleteItem(contextMenu.item);
               setContextMenu(null);
             }}
           >
+            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="trash" /></span>
             Delete task
           </button>
         </div>
@@ -2150,9 +2408,24 @@ export function App() {
           Install app
         </button>
       )}
+      {whatsNewOpen && (
+        <div className="modal-backdrop" onClick={() => setWhatsNewOpen(false)}>
+          <div className="modal-card whats-new-card" onClick={(e) => e.stopPropagation()}>
+            <div className="whats-new-heading">
+              <h2>What&apos;s new in To Do</h2>
+              <button type="button" className="icon-btn" onClick={() => setWhatsNewOpen(false)} aria-label="Close">×</button>
+            </div>
+            <ul>
+              <li>Smart lists for My Day, Important, Planned, All, Completed, and more</li>
+              <li>List sharing, groups, and custom themes</li>
+              <li>Reminders, due dates, recurrence, and task steps</li>
+            </ul>
+          </div>
+        </div>
+      )}
       {shortcutsOpen && (
         <div className="modal-backdrop" onClick={() => setShortcutsOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ padding: "1.25rem", width: "360px", background: "var(--surface)", color: "var(--text)", borderRadius: "8px", border: "1px solid var(--border)" }}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ padding: "1.25rem", width: "360px", background: "var(--color-surface)", color: "var(--color-text)", borderRadius: "8px", border: "1px solid var(--color-border)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
               <h2 style={{ margin: 0, fontSize: "1.05rem" }}>Keyboard shortcuts</h2>
               <button type="button" className="icon-btn" onClick={() => setShortcutsOpen(false)}>×</button>
