@@ -18,6 +18,9 @@ export interface TodoList {
   createdAt?: unknown;
 }
 
+export type RepeatRule = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+export type SortOption = 'created' | 'importance' | 'dueDate' | 'alphabetical';
+
 export interface TodoItem {
   id: string;
   listId: string;
@@ -27,6 +30,7 @@ export interface TodoItem {
   important: boolean;
   myDayDate: string | null; // YYYY-MM-DD
   dueDate: string | null;   // YYYY-MM-DD
+  repeat?: RepeatRule;
   notes: string;
   steps: TodoStep[];
   createdAtMs: number;

@@ -23,7 +23,15 @@ import {
 } from './lib/firebase';
 import { Sidebar } from './components/Sidebar';
 import { TaskDetail } from './components/TaskDetail';
-import { SmartListId, TodoItem, TodoList, ViewSelection } from './types/todo';
+import { playCompleteSound } from './lib/sound';
+import {
+  RepeatRule,
+  SmartListId,
+  SortOption,
+  TodoItem,
+  TodoList,
+  ViewSelection,
+} from './types/todo';
 
 function getTodayStr(): string {
   const d = new Date();
@@ -33,11 +41,28 @@ function getTodayStr(): string {
   return `${y}-${m}-${day}`;
 }
 
+function getNextRepeatDate(baseYmd: string, rule: RepeatRule): string {
+  const [y, m, d] = baseYmd.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (rule === 'daily') dt.setDate(dt.getDate() + 1);
+  else if (rule === 'weekly') dt.setDate(dt.getDate() + 7);
+  else if (rule === 'monthly') dt.setMonth(dt.getMonth() + 1);
+  else if (rule === 'yearly') dt.setFullYear(dt.getFullYear() + 1);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
 const SMART_TITLES: Record<SmartListId, string> = {
   'my-day': 'My Day',
   important: 'Important',
   planned: 'Planned',
   tasks: 'Tasks',
+};
+
+const SMART_COLORS: Record<SmartListId, string> = {
+  'my-day': '#4c6ef5',
+  important: '#e11d48',
+  planned: '#0d9488',
+  tasks: '#4f46e5',
 };
 
 export function App() {
@@ -54,6 +79,13 @@ export function App() {
   const [newItemText, setNewItemText] = useState('');
   const [showCompleted, setShowCompleted] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>('created');
+  const [darkMode, setDarkMode] = useState(
+    () => localStorage.getItem('todo-dark') === '1'
+  );
+  const [soundEnabled, setSoundEnabled] = useState(
+    () => localStorage.getItem('todo-sound') !== '0'
+  );
   const [error, setError] = useState<string | null>(null);
 
   const todayStr = getTodayStr();
@@ -112,6 +144,7 @@ export function App() {
             important: Boolean(data.important),
             myDayDate: (data.myDayDate as string | null) ?? null,
             dueDate: (data.dueDate as string | null) ?? null,
+            repeat: (data.repeat as RepeatRule) ?? 'none',
             notes: (data.notes as string) ?? '',
             steps: Array.isArray(data.steps) ? data.steps : [],
             createdAtMs: (data.createdAtMs as number) ?? Date.now(),
@@ -173,8 +206,22 @@ export function App() {
     }
   }, [allItems, searchQuery, selection, todayStr]);
 
-  const activeItems = visibleItems.filter((i) => !i.done);
-  const completedItems = visibleItems.filter((i) => i.done);
+  const sortedVisible = useMemo(() => {
+    const arr = [...visibleItems];
+    if (sortBy === 'importance') {
+      arr.sort((a, b) => Number(b.important) - Number(a.important));
+    } else if (sortBy === 'dueDate') {
+      arr.sort((a, b) =>
+        (a.dueDate ?? '9999-99-99').localeCompare(b.dueDate ?? '9999-99-99')
+      );
+    } else if (sortBy === 'alphabetical') {
+      arr.sort((a, b) => a.text.localeCompare(b.text));
+    }
+    return arr;
+  }, [visibleItems, sortBy]);
+
+  const activeItems = sortedVisible.filter((i) => !i.done);
+  const completedItems = sortedVisible.filter((i) => i.done);
   const selectedItem =
     allItems.find((i) => i.id === selectedItemId) ?? null;
 
@@ -250,6 +297,29 @@ export function App() {
     patch: Partial<TodoItem>
   ) => {
     await updateDoc(doc(db, 'lists', item.listId, 'items', item.id), patch);
+    if (patch.done === true) {
+      if (soundEnabled) playCompleteSound();
+      if (item.repeat && item.repeat !== 'none' && user) {
+        const nextDue = getNextRepeatDate(
+          item.dueDate ?? todayStr,
+          item.repeat
+        );
+        await addDoc(collection(db, 'lists', item.listId, 'items'), {
+          listId: item.listId,
+          ownerUid: user.uid,
+          text: item.text,
+          done: false,
+          important: item.important,
+          myDayDate: null,
+          dueDate: nextDue,
+          repeat: item.repeat,
+          notes: item.notes,
+          steps: item.steps.map((s) => ({ ...s, done: false })),
+          createdAtMs: Date.now(),
+          completedAtMs: null,
+        });
+      }
+    }
   };
 
   const handleDeleteItem = async (item: TodoItem) => {
@@ -325,8 +395,11 @@ export function App() {
     );
   }
 
+  const headerColor =
+    selection.type === 'smart' ? SMART_COLORS[selection.id] : '#4c6ef5';
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${darkMode ? 'dark' : ''}`}>
       <Sidebar
         user={user}
         lists={lists}
@@ -334,6 +407,20 @@ export function App() {
         searchQuery={searchQuery}
         counts={counts}
         isOpen={sidebarOpen}
+        darkMode={darkMode}
+        soundEnabled={soundEnabled}
+        onToggleDarkMode={() => {
+          setDarkMode((v) => {
+            localStorage.setItem('todo-dark', v ? '0' : '1');
+            return !v;
+          });
+        }}
+        onToggleSound={() => {
+          setSoundEnabled((v) => {
+            localStorage.setItem('todo-sound', v ? '0' : '1');
+            return !v;
+          });
+        }}
         onClose={() => setSidebarOpen(false)}
         onSelect={setSelection}
         onSearchChange={setSearchQuery}
@@ -343,7 +430,12 @@ export function App() {
         onSignOut={() => signOutUser()}
       />
 
-      <main className="main-pane">
+      <main
+        className="main-pane"
+        style={{
+          background: `linear-gradient(180deg, ${headerColor} 0%, ${headerColor} 120px, var(--bg-main) 120px)`,
+        }}
+      >
         <header className="main-header">
           <button
             className="menu-btn"
@@ -352,7 +444,7 @@ export function App() {
           >
             ☰
           </button>
-          <div>
+          <div className="header-titles">
             <h2>{currentTitle}</h2>
             {selection.type === 'smart' &&
               selection.id === 'my-day' &&
@@ -366,6 +458,17 @@ export function App() {
                 </p>
               )}
           </div>
+          <select
+            className="sort-select"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortOption)}
+            aria-label="Sort tasks"
+          >
+            <option value="created">Sort: Default</option>
+            <option value="importance">Sort: Importance</option>
+            <option value="dueDate">Sort: Due date</option>
+            <option value="alphabetical">Sort: A-Z</option>
+          </select>
         </header>
 
         {error && <p className="error">{error}</p>}

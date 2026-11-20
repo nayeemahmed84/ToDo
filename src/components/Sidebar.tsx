@@ -9,6 +9,10 @@ interface SidebarProps {
   searchQuery: string;
   counts: Record<SmartListId, number> & Record<string, number>;
   isOpen: boolean;
+  darkMode: boolean;
+  soundEnabled: boolean;
+  onToggleDarkMode: () => void;
+  onToggleSound: () => void;
   onClose: () => void;
   onSelect: (sel: ViewSelection) => void;
   onSearchChange: (q: string) => void;
@@ -32,6 +36,10 @@ export function Sidebar({
   searchQuery,
   counts,
   isOpen,
+  darkMode,
+  soundEnabled,
+  onToggleDarkMode,
+  onToggleSound,
   onClose,
   onSelect,
   onSearchChange,
@@ -148,8 +156,22 @@ export function Sidebar({
         </form>
 
         <div className="sidebar-footer">
+          <button
+            className="export-btn"
+            onClick={onToggleDarkMode}
+            title="Toggle dark mode"
+          >
+            {darkMode ? '☀️ Light' : '🌙 Dark'}
+          </button>
+          <button
+            className="export-btn"
+            onClick={onToggleSound}
+            title="Toggle completion sound"
+          >
+            {soundEnabled ? '🔊 Sound' : '🔇 Muted'}
+          </button>
           <button className="export-btn" onClick={onExportJson}>
-            Export JSON
+            Export
           </button>
         </div>
       </aside>

@@ -50,9 +50,55 @@ body {
 }
 
 .app-shell {
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --text-muted: #64748b;
   display: flex;
   height: 100%;
-  background: #f8fafc;
+  background: var(--bg-main);
+  color: var(--text);
+}
+
+.app-shell.dark {
+  --bg-main: #0f172a;
+  --bg-card: #1e293b;
+  --border: #334155;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+}
+
+.app-shell.dark .sidebar,
+.app-shell.dark .detail-panel,
+.app-shell.dark .detail-card,
+.app-shell.dark .detail-action,
+.app-shell.dark .add-task-bar,
+.app-shell.dark .task-row {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.app-shell.dark .task-title,
+.app-shell.dark .nav-item,
+.app-shell.dark .nav-item-main,
+.app-shell.dark .detail-title-input,
+.app-shell.dark .notes-input,
+.app-shell.dark .add-task-bar input {
+  color: var(--text);
+  background: transparent;
+}
+
+.app-shell.dark .sidebar-search input,
+.app-shell.dark .due-row input,
+.app-shell.dark .repeat-select,
+.app-shell.dark .chip-btn,
+.app-shell.dark .export-btn,
+.app-shell.dark .completed-toggle {
+  background: #0f172a;
+  color: var(--text);
+  border-color: var(--border);
 }
 
 .sidebar {
@@ -211,7 +257,8 @@ body {
 .sidebar-footer {
   padding-top: 0.5rem;
   display: flex;
-  justify-content: flex-end;
+  gap: 0.4rem;
+  justify-content: space-between;
 }
 
 .export-btn {
@@ -241,7 +288,46 @@ body {
   margin-bottom: 1.25rem;
 }
 
-.main-header h2 {
+.header-titles {
+  flex: 1;
+}
+
+.sort-select {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.sort-select option {
+  color: #0f172a;
+}
+
+.quick-picks {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+
+.chip-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.repeat-select {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.88rem;
+}
   margin: 0;
   font-size: 1.65rem;
 }

@@ -1,5 +1,11 @@
 import { FormEvent, useState } from 'react';
-import { TodoItem, TodoStep } from '../types/todo';
+import { RepeatRule, TodoItem, TodoStep } from '../types/todo';
+
+function addDaysStr(baseYmd: string, days: number): string {
+  const [y, m, d] = baseYmd.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
 
 interface TaskDetailProps {
   item: TodoItem;
@@ -141,6 +147,33 @@ export function TaskDetail({
       <div className="detail-card">
         <label className="detail-field-label">
           <span>📅 Due date</span>
+          <div className="quick-picks">
+            <button
+              type="button"
+              className="chip-btn"
+              onClick={() => onUpdate(item, { dueDate: todayStr })}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              className="chip-btn"
+              onClick={() =>
+                onUpdate(item, { dueDate: addDaysStr(todayStr, 1) })
+              }
+            >
+              Tomorrow
+            </button>
+            <button
+              type="button"
+              className="chip-btn"
+              onClick={() =>
+                onUpdate(item, { dueDate: addDaysStr(todayStr, 7) })
+              }
+            >
+              Next week
+            </button>
+          </div>
           <div className="due-row">
             <input
               type="date"
@@ -158,6 +191,25 @@ export function TaskDetail({
               </button>
             )}
           </div>
+        </label>
+      </div>
+
+      <div className="detail-card">
+        <label className="detail-field-label">
+          <span>🔁 Repeat</span>
+          <select
+            className="repeat-select"
+            value={item.repeat ?? 'none'}
+            onChange={(e) =>
+              onUpdate(item, { repeat: e.target.value as RepeatRule })
+            }
+          >
+            <option value="none">Never</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
         </label>
       </div>
 
