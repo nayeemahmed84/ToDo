@@ -10,6 +10,12 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/lists/$(listId)).data.ownerUid == request.auth.uid;
     }
 
+    function isListMember(listId) {
+      let listData = get(/databases/$(database)/documents/lists/$(listId)).data;
+      return isSignedIn()
+        && (listData.ownerUid == request.auth.uid || (listData.memberUids != null && request.auth.uid in listData.memberUids));
+    }
+
     match /{path=**}/items/{itemId} {
       allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
@@ -20,12 +26,13 @@ service cloud.firestore {
     }
 
     match /lists/{listId} {
-      allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow read: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || (resource.data.memberUids != null && request.auth.uid in resource.data.memberUids));
       allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow update: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || (resource.data.memberUids != null && request.auth.uid in resource.data.memberUids) || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids']));
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
 
       match /items/{itemId} {
-        allow read, write: if isListOwner(listId);
+        allow read, write: if isListMember(listId);
         allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
       }
     }

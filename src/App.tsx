@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import {
   addDoc,
+  arrayUnion,
   collection,
   collectionGroup,
   deleteDoc,
@@ -101,6 +102,7 @@ export function App() {
     item: TodoItem;
     timerId: number;
   } | null>(null);
+  const [shareToast, setShareToast] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const todayStr = getTodayStr();
@@ -130,6 +132,24 @@ export function App() {
       setAuthReady(true);
     });
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const joinListId = params.get('join');
+    if (joinListId) {
+      updateDoc(doc(db, 'lists', joinListId), {
+        memberUids: arrayUnion(user.uid),
+      })
+        .then(() => {
+          setSelection({ type: 'list', id: joinListId });
+          window.history.replaceState({}, '', window.location.pathname);
+        })
+        .catch((err) =>
+          setError(err instanceof Error ? err.message : 'Failed to join list')
+        );
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -635,6 +655,19 @@ export function App() {
             <option value="dueDate">Sort: Due date</option>
             <option value="alphabetical">Sort: A-Z</option>
           </select>
+          {selection.type === 'list' && (
+            <button
+              className="sort-select"
+              onClick={() => {
+                const url = `${window.location.origin}/?join=${selection.id}`;
+                navigator.clipboard?.writeText(url);
+                setShareToast(true);
+                window.setTimeout(() => setShareToast(false), 3000);
+              }}
+            >
+              Share
+            </button>
+          )}
         </header>
 
         {error && <p className="error">{error}</p>}
@@ -861,6 +894,12 @@ export function App() {
         <div className="undo-toast">
           <span>Deleted &ldquo;{undoToast.item.text}&rdquo;</span>
           <button onClick={handleUndoDelete}>Undo</button>
+        </div>
+      )}
+
+      {shareToast && (
+        <div className="undo-toast">
+          <span>Share link copied to clipboard!</span>
         </div>
       )}
 
