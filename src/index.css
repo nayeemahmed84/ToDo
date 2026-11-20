@@ -368,6 +368,27 @@ body {
   flex: 1;
 }
 
+.header-title-input {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1.65rem;
+  font-weight: 600;
+  outline: none;
+  width: 100%;
+  padding: 0;
+}
+
+.due-overdue {
+  color: #f87171;
+  font-weight: 500;
+}
+
+.due-today {
+  color: #60a5fa;
+  font-weight: 500;
+}
+
 .sort-select {
   background: rgba(255, 255, 255, 0.2);
   color: #fff;

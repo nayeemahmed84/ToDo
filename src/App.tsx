@@ -659,7 +659,30 @@ export function App() {
             ☰
           </button>
           <div className="header-titles">
-            <h2>{currentTitle}</h2>
+            {selection.type === 'list' && !searchQuery ? (
+              <input
+                className="header-title-input"
+                value={currentTitle}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setLists((prev) =>
+                    prev.map((l) =>
+                      l.id === selection.id ? { ...l, title: val } : l
+                    )
+                  );
+                }}
+                onBlur={(e) => {
+                  const trimmed = e.target.value.trim();
+                  if (trimmed) {
+                    updateDoc(doc(db, 'lists', selection.id), {
+                      title: trimmed,
+                    });
+                  }
+                }}
+              />
+            ) : (
+              <h2>{currentTitle}</h2>
+            )}
             {selection.type === 'smart' &&
               selection.id === 'my-day' &&
               !searchQuery && (
@@ -729,7 +752,19 @@ export function App() {
                 <span className="task-title">{item.text}</span>
                 <span className="task-meta">
                   {item.myDayDate === todayStr && <span>☀️ My Day</span>}
-                  {item.dueDate && <span>📅 {item.dueDate}</span>}
+                  {item.dueDate && (
+                    <span
+                      className={
+                        item.dueDate < todayStr
+                          ? 'due-overdue'
+                          : item.dueDate === todayStr
+                            ? 'due-today'
+                            : ''
+                      }
+                    >
+                      📅 {item.dueDate}
+                    </span>
+                  )}
                   {item.steps.length > 0 && (
                     <span>
                       ✓ {item.steps.filter((s) => s.done).length}/
