@@ -34,6 +34,7 @@ import { AppSettings, DEFAULT_SETTINGS, SettingsModal } from './components/Setti
 import { ShareDialog } from './components/ShareDialog';
 import { CustomCalendarPicker } from './components/CustomCalendarPicker';
 import { playCompleteSound } from './lib/sound';
+import { suggestEmoji } from './lib/suggestEmoji';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
 import {
   RepeatRule,
@@ -195,9 +196,28 @@ export function App() {
     if (path === '/tasks/completed') return { type: 'smart', id: 'completed' };
     if (path === '/tasks/assigned-to-me') return { type: 'smart', id: 'assigned-to-me' };
     if (path === '/tasks/inbox' || path === '/tasks/tasks') return { type: 'smart', id: 'tasks' };
+    try {
+      const saved = localStorage.getItem('todo.lastSelection');
+      if (saved) {
+        const parsed = JSON.parse(saved) as ViewSelection;
+        if (parsed && (parsed.type === 'smart' || parsed.type === 'list') && typeof parsed.id === 'string') {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore invalid stored selection
+    }
     return { type: 'smart', id: 'my-day' };
   });
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('todo.lastSelection', JSON.stringify(selection));
+    } catch {
+      // ignore storage errors
+    }
+  }, [selection]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [newItemText, setNewItemText] = useState('');
   const [showCompleted, setShowCompleted] = useState(false);
@@ -212,6 +232,7 @@ export function App() {
   const [addRepeatMenuOpen, setAddRepeatMenuOpen] = useState(false);
   const [addDueCalendarOpen, setAddDueCalendarOpen] = useState(false);
   const [addRemindCalendarOpen, setAddRemindCalendarOpen] = useState(false);
+  const [addRowExpanded, setAddRowExpanded] = useState(false);
   const [suggestionsLimit, setSuggestionsLimit] = useState(10);
 
   useEffect(() => {
@@ -229,6 +250,17 @@ export function App() {
     window.addEventListener('keydown', onGlobalKeyDown);
     return () => window.removeEventListener('keydown', onGlobalKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!addRowExpanded) return;
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement)?.closest('.add-task-row')) {
+        setAddRowExpanded(false);
+      }
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [addRowExpanded]);
 
   useEffect(() => {
     if (!addDueMenuOpen && !addRemindMenuOpen && !addRepeatMenuOpen && !addDueCalendarOpen && !addRemindCalendarOpen) return;
@@ -419,9 +451,13 @@ const [gridEditText, setGridEditText] = useState('');
   // Auto-focus the add-task input when selection changes (list opened)
   useEffect(() => {
     if (!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'flagged-email' && selection.id !== 'assigned-to-me') {
-      setTimeout(() => addTaskInputRef.current?.focus(), 100);
+      setTimeout(() => {
+        if (!document.activeElement?.closest('.sidebar-search')) {
+          addTaskInputRef.current?.focus();
+        }
+      }, 100);
     }
-  }, [selection, searchQuery, viewMode]);
+  }, [selection, viewMode]);
 
   const myDaySuggestions = useMemo(() => {
     const tmrw = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -1082,6 +1118,7 @@ const [gridEditText, setGridEditText] = useState('');
       ownerUid: user.uid,
       sortOrder: Date.now(),
       background: 'field',
+      ...(suggestEmoji(title) ? { icon: suggestEmoji(title)! } : {}),
       createdAt: serverTimestamp(),
     });
     setSelection({ type: 'list', id: ref.id });
@@ -1107,6 +1144,14 @@ const [gridEditText, setGridEditText] = useState('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete list');
     }
+  };
+
+  const handleMoveTasksToList = async (taskIds: string[], targetListId: string) => {
+    const idSet = new Set(taskIds);
+    const itemsToMove = allItems.filter((item) => idSet.has(item.id) && item.listId !== targetListId);
+    if (itemsToMove.length === 0) return;
+    await Promise.all(itemsToMove.map((item) => handleMoveToList(item, targetListId)));
+    setSelectedIds(new Set());
   };
 
   const handleMoveListToGroup = async (listId: string, groupId: string | null) => {
@@ -1325,6 +1370,45 @@ const [gridEditText, setGridEditText] = useState('');
     const draggedIndex = orderedItems.findIndex((item) => item.id === draggedItemId);
     const target = orderedItems.find((item) => item.id === targetItemId);
     if (draggedIndex < 0 || !target || orderedItems[draggedIndex].done !== target.done) return;
+
+    if (selectedIds.has(draggedItemId) && selectedIds.size > 1) {
+      if (selectedIds.has(targetItemId)) return;
+      const movingItems = orderedItems.filter(
+        (item) => selectedIds.has(item.id) && item.done === target.done
+      );
+      if (movingItems.length === 0) return;
+      const movingSet = new Set(movingItems.map((item) => item.id));
+      const previousOrder = orderedItems.map((item) => item.id);
+      const remaining = orderedItems.filter((item) => !movingSet.has(item.id));
+      const targetIndex = remaining.findIndex((item) => item.id === targetItemId);
+      if (targetIndex < 0) return;
+      remaining.splice(targetIndex + (insertAfter ? 1 : 0), 0, ...movingItems);
+      if (remaining.every((item, index) => item.id === previousOrder[index])) return;
+
+      const modifiedFields = {
+        updatedAtMs: Date.now(),
+        updatedAt: serverTimestamp(),
+        updatedByUid: user.uid,
+        updatedByName: user.displayName?.trim() || null,
+      };
+      setError(null);
+      try {
+        for (let start = 0; start < remaining.length; start += 450) {
+          const batch = writeBatch(db);
+          remaining.slice(start, start + 450).forEach((item, offset) => {
+            const fields = { sortOrder: (start + offset) * 1024 };
+            batch.update(
+              doc(db, 'lists', item.listId, 'items', item.id),
+              movingSet.has(item.id) ? { ...fields, ...modifiedFields } : fields
+            );
+          });
+          await batch.commit();
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to reorder tasks');
+      }
+      return;
+    }
 
     const previousOrder = orderedItems.map((item) => item.id);
     const [draggedItem] = orderedItems.splice(draggedIndex, 1);
@@ -1689,6 +1773,7 @@ const [gridEditText, setGridEditText] = useState('');
           onMoveListDown={handleMoveListDown}
           onReorderList={handleReorderList}
           onReorderGroup={handleReorderGroup}
+          onMoveTasksToList={handleMoveTasksToList}
           onRenameGroup={async (id, title) => {
             await updateDoc(doc(db, 'groups', id), { title });
           }}
@@ -1711,6 +1796,14 @@ const [gridEditText, setGridEditText] = useState('');
         />
 <main
           className="main-pane"
+          onClick={(e) => {
+            if (selectedIds.size === 0 && !selectedItemId) return;
+            const target = e.target as HTMLElement;
+            if (!target.closest('.task-row, .bulk-bar, .add-task-row, button, a, input, select, textarea, [role="menu"]')) {
+              if (selectedIds.size > 0) setSelectedIds(new Set());
+              if (selectedItemId) setSelectedItemId(null);
+            }
+          }}
           data-list-color={currentList ? currentList.color ?? 'blue' : 'default'}
           data-wallpaper={currentWallpaper}
           style={customBackgroundUrl ? {
@@ -1772,7 +1865,11 @@ const [gridEditText, setGridEditText] = useState('');
                     onBlur={(e) => {
                       const trimmed = e.target.value.trim();
                       if (trimmed) {
-                        updateDoc(doc(db, 'lists', selection.id), { title: trimmed });
+                        const suggestedIcon = suggestEmoji(trimmed);
+                        updateDoc(doc(db, 'lists', selection.id), {
+                          title: trimmed,
+                          ...(suggestedIcon ? { icon: suggestedIcon } : {}),
+                        });
                       }
                     }}
                   />
@@ -2180,7 +2277,9 @@ const [gridEditText, setGridEditText] = useState('');
         )}
 
 {!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'flagged-email' && selection.id !== 'assigned-to-me' && (
-          <form className="add-task-row" onSubmit={handleAddItem} ref={addTaskFormRef}>
+          <form className={`add-task-row ${addRowExpanded || addDueMenuOpen || addRemindMenuOpen || addRepeatMenuOpen || addDueCalendarOpen || addRemindCalendarOpen ? 'has-open-popover' : ''}`}
+          onFocus={() => setAddRowExpanded(true)}
+          onClick={() => setAddRowExpanded(true)} onSubmit={handleAddItem} ref={addTaskFormRef}>
             <div className="add-task-top-row">
               <span className="add-task-checkbox" aria-hidden="true" />
               <input
@@ -2225,7 +2324,7 @@ const [gridEditText, setGridEditText] = useState('');
                   <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(todayStr); setAddDueMenuOpen(false); }}>Today</button>
                   <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(tomorrowStr); setAddDueMenuOpen(false); }}>Tomorrow</button>
                   <button type="button" role="menuitem" className="account-popover-item" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 7); setAddDueDate(d.toISOString().slice(0, 10)); setAddDueMenuOpen(false); }}>Next week</button>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueMenuOpen(false); setAddDueCalendarOpen(true); }}>Pick a date</button>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={(e) => { e.stopPropagation(); setAddDueMenuOpen(false); setAddDueCalendarOpen(true); }}>Pick a date</button>
                   {addDueDate && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddDueDate(null); setAddDueMenuOpen(false); }}>Remove due date</button>}
                 </div>
               )}
@@ -2270,7 +2369,7 @@ const [gridEditText, setGridEditText] = useState('');
                     setAddReminderAtMs(d.getTime());
                     setAddRemindMenuOpen(false);
                   }}>Next week, 9 AM</button>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddRemindMenuOpen(false); setAddRemindCalendarOpen(true); }}>Pick a date & time</button>
+                  <button type="button" role="menuitem" className="account-popover-item" onClick={(e) => { e.stopPropagation(); setAddRemindMenuOpen(false); setAddRemindCalendarOpen(true); }}>Pick a date & time</button>
                   {addReminderAtMs && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddReminderAtMs(null); setAddRemindMenuOpen(false); }}>Remove reminder</button>}
                 </div>
               )}
@@ -2378,6 +2477,7 @@ const [gridEditText, setGridEditText] = useState('');
                     item={item}
                     lists={allLists}
                     selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                  selectedIds={selectedIds}
                     todayStr={todayStr}
                     tomorrowStr={tomorrowStr}
                     showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
@@ -2386,6 +2486,14 @@ const [gridEditText, setGridEditText] = useState('');
                     onToggleDone={handleToggleDone}
                     onToggleImportant={handleToggleImportant}
                     onOpen={handleOpen}
+                onLongPress={(t) => {
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(t.id)) next.delete(t.id);
+                    else next.add(t.id);
+                    return next;
+                  });
+                }}
                     onContextMenu={(e) => {
                       setContextMenu({ x: e.clientX, y: e.clientY, item });
                     }}
@@ -2513,12 +2621,21 @@ const [gridEditText, setGridEditText] = useState('');
                         item={item}
                         lists={allLists}
                         selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                  selectedIds={selectedIds}
                         todayStr={todayStr}
                         tomorrowStr={tomorrowStr}
                         showListMeta={false}
                         onToggleDone={handleToggleDone}
                         onToggleImportant={handleToggleImportant}
                         onOpen={handleOpen}
+                onLongPress={(t) => {
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(t.id)) next.delete(t.id);
+                    else next.add(t.id);
+                    return next;
+                  });
+                }}
                         onContextMenu={(e) => {
                           setContextMenu({ x: e.clientX, y: e.clientY, item });
                         }}
@@ -2537,6 +2654,7 @@ const [gridEditText, setGridEditText] = useState('');
                 item={item}
                 lists={allLists}
                 selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                  selectedIds={selectedIds}
                 todayStr={todayStr}
                 tomorrowStr={tomorrowStr}
                 showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
@@ -2545,6 +2663,14 @@ const [gridEditText, setGridEditText] = useState('');
                 onToggleDone={handleToggleDone}
                 onToggleImportant={handleToggleImportant}
                 onOpen={handleOpen}
+                onLongPress={(t) => {
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(t.id)) next.delete(t.id);
+                    else next.add(t.id);
+                    return next;
+                  });
+                }}
                 onContextMenu={(e) => {
                   setContextMenu({ x: e.clientX, y: e.clientY, item });
                 }}
@@ -2570,6 +2696,7 @@ const [gridEditText, setGridEditText] = useState('');
                     item={item}
                     lists={allLists}
                     selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                  selectedIds={selectedIds}
                     todayStr={todayStr}
                     tomorrowStr={tomorrowStr}
                     showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
@@ -2578,6 +2705,14 @@ const [gridEditText, setGridEditText] = useState('');
                     onToggleDone={handleToggleDone}
                     onToggleImportant={handleToggleImportant}
                     onOpen={handleOpen}
+                onLongPress={(t) => {
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(t.id)) next.delete(t.id);
+                    else next.add(t.id);
+                    return next;
+                  });
+                }}
                     onContextMenu={(e) => {
                       setContextMenu({ x: e.clientX, y: e.clientY, item });
                     }}

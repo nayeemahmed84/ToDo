@@ -1,4 +1,4 @@
-import { useState, MouseEvent, ChangeEvent } from 'react';
+import { useState, useRef, MouseEvent, ChangeEvent } from 'react';
 import { TodoItem, TodoList } from '../types/todo';
 import { StarIcon } from './Icons';
 
@@ -6,6 +6,7 @@ interface TaskRowProps {
   item: TodoItem;
   lists: TodoList[];
   selected: boolean;
+  selectedIds?: Set<string>;
   todayStr: string;
   tomorrowStr: string;
   showListMeta: boolean;
@@ -14,6 +15,7 @@ interface TaskRowProps {
   onToggleDone: (item: TodoItem) => void;
   onToggleImportant: (item: TodoItem) => void;
   onOpen: (e: MouseEvent<HTMLButtonElement>, item: TodoItem) => void;
+  onLongPress?: (item: TodoItem) => void;
   onContextMenu: (e: React.MouseEvent<HTMLLIElement>, item: TodoItem) => void;
 }
 
@@ -21,6 +23,7 @@ export function TaskRow({
   item,
   lists,
   selected,
+  selectedIds,
   todayStr,
   tomorrowStr,
   showListMeta,
@@ -29,11 +32,21 @@ export function TaskRow({
   onToggleDone,
   onToggleImportant,
   onOpen,
+  onLongPress,
   onContextMenu,
 }: TaskRowProps) {
   const [popping, setPopping] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressedRef = useRef(false);
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
   const listName = lists.find((list) => list.id === item.listId)?.title ?? 'Tasks';
   const hasMeta = Boolean(
     showListMeta || item.dueDate || item.reminderAtMs ||
@@ -57,12 +70,16 @@ export function TaskRow({
 
   const handleDragStart = (event: React.DragEvent<HTMLLIElement>) => {
     const target = event.target;
-    if (!reorderable || (target instanceof Element && target.closest('input, .star-btn'))) {
+    if (target instanceof Element && target.closest('input, .star-btn')) {
       event.preventDefault();
       return;
     }
+    const draggedIds = selectedIds && selectedIds.has(item.id) && selectedIds.size > 1
+      ? Array.from(selectedIds)
+      : [item.id];
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', item.id);
+    event.dataTransfer.setData('application/x-todo-items', JSON.stringify(draggedIds));
     setDragging(true);
   };
 
@@ -89,7 +106,7 @@ export function TaskRow({
   return (
     <li
       className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
-      draggable={reorderable}
+      draggable
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragLeave={(event) => {
@@ -106,6 +123,28 @@ export function TaskRow({
         event.preventDefault();
         onContextMenu(event, item);
       }}
+      onClick={(event) => {
+        const target = event.target;
+        if (target instanceof Element && target.closest('input, .star-btn, .task-body')) return;
+        if (longPressedRef.current) {
+          longPressedRef.current = false;
+          return;
+        }
+        onOpen(event as unknown as MouseEvent<HTMLButtonElement>, item);
+      }}
+      onTouchStart={(event) => {
+        const target = event.target;
+        if (target instanceof Element && target.closest('input, .star-btn')) return;
+        clearLongPress();
+        longPressedRef.current = false;
+        longPressTimerRef.current = window.setTimeout(() => {
+          longPressedRef.current = true;
+          onLongPress?.(item);
+        }, 450);
+      }}
+      onTouchMove={clearLongPress}
+      onTouchEnd={clearLongPress}
+      onTouchCancel={clearLongPress}
     >
       <input
         type="checkbox"
@@ -117,7 +156,14 @@ export function TaskRow({
       <button
         type="button"
         className="task-body"
-        onClick={(event) => onOpen(event, item)}
+        onClick={(event) => {
+          if (longPressedRef.current) {
+            longPressedRef.current = false;
+            event.preventDefault();
+            return;
+          }
+          onOpen(event, item);
+        }}
       >
         <span className="task-title" title={item.text}>{item.text}</span>
         {hasMeta && (

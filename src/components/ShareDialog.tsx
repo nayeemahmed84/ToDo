@@ -57,22 +57,21 @@ export function ShareDialog({
         className="modal-card"
         onClick={(e) => e.stopPropagation()}
         style={{
-          padding: '1.25rem',
-          width: '495px',
-          minHeight: '495px',
+          padding: '1.5rem',
+          width: '480px',
           maxWidth: '92vw',
           background: 'var(--color-surface)',
           color: 'var(--color-text)',
-          borderRadius: '8px',
+          borderRadius: '12px',
           border: '1px solid var(--color-border)',
-          boxShadow: 'var(--shadow-menu)',
+          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.45)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '1rem',
+          gap: '1.25rem',
         }}
       >
-        <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 600, textAlign: 'center' }}>Share list</h2>
+        <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '0.25rem' }}>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, letterSpacing: '-0.01em', textAlign: 'center' }}>Share list</h2>
           <button
             type="button"
             className="icon-btn"

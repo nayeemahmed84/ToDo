@@ -386,6 +386,8 @@ body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  align-self: stretch;
   gap: 0.2rem;
 }
 
@@ -463,6 +465,8 @@ body {
 .nav-group-items {
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  align-self: stretch;
   gap: 0.2rem;
 }
 
@@ -1156,6 +1160,8 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  align-self: stretch;
   gap: 0.2rem;
   color: var(--color-text);
 }
@@ -3221,9 +3227,13 @@ button.primary.small {
   min-height: 62px;
 }
 
-.task-row:hover,
-.task-row.selected {
+.task-row:hover {
   background: rgba(59, 59, 59, .97);
+}
+
+.task-row.selected {
+  background: color-mix(in srgb, var(--accent, #788cde) 18%, rgba(45, 45, 45, 0.96));
+  border-color: color-mix(in srgb, var(--accent, #788cde) 45%, transparent);
 }
 
 .task-row[draggable="true"],
@@ -3417,7 +3427,8 @@ button.primary.small {
   background: rgba(255, 255, 255, .12);
 }
 
-.add-task-row:focus-within .add-task-bottom-row {
+.add-task-row:focus-within .add-task-bottom-row,
+.add-task-row.has-open-popover .add-task-bottom-row {
   display: flex;
   min-height: 36px;
   gap: 22px;
@@ -3927,4 +3938,19 @@ button.primary.small {
   .task-row {
     padding: 8px;
   }
+}
+
+.nav-item-row.multi-selected,
+.nav-item.group-header.multi-selected {
+  background: color-mix(in srgb, var(--accent, #788cde) 24%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent, #788cde) 45%, transparent);
+  outline-offset: -1px;
+  border-radius: 6px;
+}
+
+.nav-item-row.drop-into {
+  background: var(--bg-selected, rgba(120, 140, 222, 0.28));
+  outline: 2px solid var(--accent, #788cde);
+  outline-offset: -2px;
+  border-radius: 6px;
 }

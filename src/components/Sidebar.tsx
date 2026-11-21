@@ -41,16 +41,17 @@ interface SidebarProps {
   onMoveListDown?: (listId: string) => Promise<void>;
   onReorderList: (listId: string, targetListId: string, insertBefore: boolean) => Promise<void>;
   onReorderGroup: (groupId: string, targetGroupId: string, insertBefore: boolean) => Promise<void>;
+  onMoveTasksToList?: (taskIds: string[], targetListId: string) => void | Promise<void>;
   onToggleCollapsed?: () => void;
   onOpenSettings: () => void;
   onOpenWhatsNew: () => void;
   onSignOut: () => void;
 }
 
-type SidebarDragItem = { type: 'list' | 'group'; id: string };
+type SidebarDragItem = { type: 'list' | 'group'; id: string; ids: string[] };
 type SidebarDropTarget =
   | { type: 'list' | 'group-reorder'; id: string; position: 'before' | 'after' }
-  | { type: 'group'; id: string }
+  | { type: 'group' | 'task-into-list'; id: string }
   | { type: 'root' };
 
 const SMART_LISTS: { id: SmartListId; label: string; icon: ReactNode }[] = [
@@ -93,7 +94,7 @@ export function Sidebar({
   onReorderGroup,
   onToggleCollapsed,
   onOpenSettings,
-  onOpenWhatsNew,
+  onMoveTasksToList,
   onSignOut,
 }: SidebarProps) {
   const [newListTitle, setNewListTitle] = useState('');
@@ -107,6 +108,19 @@ export function Sidebar({
   const [moveToGroupPosition, setMoveToGroupPosition] = useState<ContextSubmenuPosition | null>(null);
   const [draggedItem, setDraggedItem] = useState<SidebarDragItem | null>(null);
   const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null);
+  const [selectedListIds, setSelectedListIds] = useState<Set<string>>(() => new Set());
+  const [lastClickedListId, setLastClickedListId] = useState<string | null>(null);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(() => new Set());
+  const [lastClickedGroupId, setLastClickedGroupId] = useState<string | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressedIdRef = useRef<string | null>(null);
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     if (!sidebarMenu) return;
@@ -206,9 +220,15 @@ export function Sidebar({
     setDraggedItem(item);
   };
   const handleListDragOver = (event: ReactDragEvent<HTMLElement>, list: TodoList) => {
+    if (event.dataTransfer.types.includes('application/x-todo-items')) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      setDropTarget({ type: 'task-into-list', id: list.id });
+      return;
+    }
     if (
       draggedItem?.type !== 'list' ||
-      draggedItem.id === list.id ||
+      draggedItem.ids.includes(list.id) ||
       list.ownerUid !== userId ||
       list.isDefaultTasksList
     ) return;
@@ -221,12 +241,27 @@ export function Sidebar({
       position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
     });
   };
-  const handleListDrop = (event: ReactDragEvent<HTMLElement>, list: TodoList) => {
+  const handleListDrop = async (event: ReactDragEvent<HTMLElement>, list: TodoList) => {
     event.preventDefault();
     event.stopPropagation();
+    if (event.dataTransfer.types.includes('application/x-todo-items')) {
+      const raw = event.dataTransfer.getData('application/x-todo-items');
+      clearDragState();
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            await onMoveTasksToList?.(parsed.filter((id): id is string => typeof id === 'string'), list.id);
+          }
+        } catch {
+          // ignore malformed drag payload
+        }
+      }
+      return;
+    }
     if (
       draggedItem?.type !== 'list' ||
-      draggedItem.id === list.id ||
+      draggedItem.ids.includes(list.id) ||
       list.ownerUid !== userId ||
       list.isDefaultTasksList
     ) {
@@ -234,12 +269,12 @@ export function Sidebar({
       return;
     }
     const rect = event.currentTarget.getBoundingClientRect();
-    void onReorderList(
-      draggedItem.id,
-      list.id,
-      event.clientY < rect.top + rect.height / 2
-    );
+    const insertBefore = event.clientY < rect.top + rect.height / 2;
+    const idsToMove = insertBefore ? draggedItem.ids : [...draggedItem.ids].reverse();
     clearDragState();
+    for (const id of idsToMove) {
+      await onReorderList(id, list.id, insertBefore);
+    }
   };
   const handleGroupDragOver = (event: ReactDragEvent<HTMLElement>, group: TodoGroup) => {
     if (group.ownerUid !== userId || !draggedItem) return;
@@ -249,7 +284,7 @@ export function Sidebar({
       setDropTarget({ type: 'group', id: group.id });
       return;
     }
-    if (draggedItem.type === 'group' && draggedItem.id !== group.id) {
+    if (draggedItem.type === 'group' && !draggedItem.ids.includes(group.id)) {
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       const rect = event.currentTarget.getBoundingClientRect();
@@ -260,28 +295,32 @@ export function Sidebar({
       });
     }
   };
-  const handleGroupDrop = (event: ReactDragEvent<HTMLElement>, group: TodoGroup) => {
+  const handleGroupDrop = async (event: ReactDragEvent<HTMLElement>, group: TodoGroup) => {
     event.preventDefault();
     event.stopPropagation();
     if (
       group.ownerUid !== userId ||
       !draggedItem ||
-      (draggedItem.type === 'group' && draggedItem.id === group.id)
+      (draggedItem.type === 'group' && draggedItem.ids.includes(group.id))
     ) {
       clearDragState();
       return;
     }
     if (draggedItem.type === 'list') {
-      void onMoveListToGroup(draggedItem.id, group.id);
+      const ids = draggedItem.ids;
+      clearDragState();
+      for (const id of ids) {
+        await onMoveListToGroup(id, group.id);
+      }
     } else {
       const rect = event.currentTarget.getBoundingClientRect();
-      void onReorderGroup(
-        draggedItem.id,
-        group.id,
-        event.clientY < rect.top + rect.height / 2
-      );
+      const insertBefore = event.clientY < rect.top + rect.height / 2;
+      const idsToMove = insertBefore ? draggedItem.ids : [...draggedItem.ids].reverse();
+      clearDragState();
+      for (const id of idsToMove) {
+        await onReorderGroup(id, group.id, insertBefore);
+      }
     }
-    clearDragState();
   };
   const handleRootDragOver = (event: ReactDragEvent<HTMLElement>) => {
     if (draggedItem?.type !== 'list' || (event.target as HTMLElement).closest('.nav-item-row')) return;
@@ -289,31 +328,39 @@ export function Sidebar({
     event.dataTransfer.dropEffect = 'move';
     setDropTarget({ type: 'root' });
   };
-  const handleRootDrop = (event: ReactDragEvent<HTMLElement>) => {
+  const handleRootDrop = async (event: ReactDragEvent<HTMLElement>) => {
     if (
       draggedItem?.type !== 'list' ||
       (event.target as HTMLElement).closest('.nav-item-row')
     ) return;
     event.preventDefault();
     event.stopPropagation();
-    void onMoveListToGroup(draggedItem.id, null);
+    const ids = draggedItem.ids;
     clearDragState();
+    for (const id of ids) {
+      await onMoveListToGroup(id, null);
+    }
   };
 
   const renderList = (list: TodoList) => {
     const active = !searchQuery && selection.type === 'list' && selection.id === list.id;
+    const isMultiSelected = selectedListIds.has(list.id);
+    const isTaskDropTarget = dropTarget?.type === 'task-into-list' && dropTarget.id === list.id;
     const count = counts[list.id] ?? 0;
     return (
       <div
         key={list.id}
-        className={`nav-item-row ${list.groupId ? 'nested' : ''} ${active ? 'active' : ''} ${draggedItem?.type === 'list' && draggedItem.id === list.id ? 'dragging' : ''} ${dropTarget?.type === 'list' && dropTarget.id === list.id ? `drop-${dropTarget.position}` : ''}`}
+        className={`nav-item-row ${list.groupId ? 'nested' : ''} ${active ? 'active' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${draggedItem?.type === 'list' && draggedItem.ids.includes(list.id) ? 'dragging' : ''} ${dropTarget?.type === 'list' && dropTarget.id === list.id ? `drop-${dropTarget.position}` : ''} ${isTaskDropTarget ? 'drop-into' : ''}`}
         draggable={list.ownerUid === userId && !list.isDefaultTasksList}
         onDragStart={(event) => {
           if (list.ownerUid !== userId || list.isDefaultTasksList) {
             event.preventDefault();
             return;
           }
-          handleDragStart(event, { type: 'list', id: list.id });
+          const ids = selectedListIds.has(list.id) && selectedListIds.size > 1
+            ? lists.filter((l) => selectedListIds.has(l.id) && l.ownerUid === userId && !l.isDefaultTasksList).map((l) => l.id)
+            : [list.id];
+          handleDragStart(event, { type: 'list', id: list.id, ids });
         }}
         onDragEnd={clearDragState}
         onDragOver={(event) => handleListDragOver(event, list)}
@@ -332,7 +379,64 @@ export function Sidebar({
           data-nav-item="true"
           title={collapsed ? list.title : undefined}
           className="nav-item-main"
-          onClick={() => {
+          onTouchStart={() => {
+            clearLongPress();
+            longPressedIdRef.current = null;
+            longPressTimerRef.current = window.setTimeout(() => {
+              longPressedIdRef.current = list.id;
+              setSelectedGroupIds(new Set());
+              setSelectedListIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(list.id)) next.delete(list.id);
+                else next.add(list.id);
+                return next;
+              });
+              setLastClickedListId(list.id);
+            }, 450);
+          }}
+          onTouchMove={clearLongPress}
+          onTouchEnd={clearLongPress}
+          onTouchCancel={clearLongPress}
+          onClick={(event) => {
+            if (longPressedIdRef.current === list.id) {
+              longPressedIdRef.current = null;
+              event.preventDefault();
+              return;
+            }
+            if (event.ctrlKey || event.metaKey) {
+              event.preventDefault();
+              setSelectedGroupIds(new Set());
+              setSelectedListIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(list.id)) next.delete(list.id);
+                else next.add(list.id);
+                return next;
+              });
+              setLastClickedListId(list.id);
+              return;
+            }
+            if (event.shiftKey) {
+              event.preventDefault();
+              setSelectedGroupIds(new Set());
+              const orderedLists = [
+                ...lists.filter((l) => !l.groupId),
+                ...groups.flatMap((g) => (g.collapsed ? [] : lists.filter((l) => l.groupId === g.id))),
+              ];
+              const anchorId = lastClickedListId ?? (selection.type === 'list' ? selection.id : null);
+              const anchorIdx = anchorId ? orderedLists.findIndex((l) => l.id === anchorId) : -1;
+              const targetIdx = orderedLists.findIndex((l) => l.id === list.id);
+              if (anchorIdx >= 0 && targetIdx >= 0) {
+                const [start, end] = anchorIdx < targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx];
+                setSelectedListIds(new Set(orderedLists.slice(start, end + 1).map((l) => l.id)));
+              } else {
+                setSelectedListIds(new Set([list.id]));
+              }
+              setLastClickedListId(list.id);
+              return;
+            }
+            setSelectedListIds(new Set());
+            setSelectedGroupIds(new Set());
+            setLastClickedListId(list.id);
             onSearchChange('');
             onSelect({ type: 'list', id: list.id });
             onClose();
@@ -357,6 +461,14 @@ export function Sidebar({
         className={`sidebar ${isOpen ? 'open' : ''} ${
           collapsed ? 'collapsed' : ''
         }`}
+        onClick={(e) => {
+          if (selectedListIds.size === 0 && selectedGroupIds.size === 0) return;
+          const target = e.target as HTMLElement;
+          if (!target.closest('.nav-item-row, .group-header-wrap, button, input, [role="menu"]')) {
+            setSelectedListIds(new Set());
+            setSelectedGroupIds(new Set());
+          }
+        }}
       >
         <div className="sidebar-top">
           <div className="sidebar-account-wrap" ref={accountRef}>
@@ -391,7 +503,6 @@ export function Sidebar({
                   <span>{user.email}</span>
                 </div>
                 <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); onOpenSettings(); }}>Settings</button>
-                <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); onOpenWhatsNew(); }}>What&apos;s new</button>
                 <button type="button" role="menuitem" className="danger" onClick={() => { setAccountOpen(false); onSignOut(); }}>Sign out</button>
               </div>
             )}
@@ -465,7 +576,8 @@ export function Sidebar({
             const groupLists = lists
               .filter((list) => list.groupId === group.id)
               .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-            const groupClassName = draggedItem?.type === 'group' && draggedItem.id === group.id
+            const isGroupMultiSelected = selectedGroupIds.has(group.id);
+            const groupClassName = draggedItem?.type === 'group' && draggedItem.ids.includes(group.id)
               ? 'dragging'
               : dropTarget?.type === 'group' && dropTarget.id === group.id
                 ? 'drop-target'
@@ -478,19 +590,76 @@ export function Sidebar({
                   <button
                     type="button"
                     data-nav-item="true"
-                    className={`nav-item group-header ${groupClassName}`}
+                    className={`nav-item group-header ${isGroupMultiSelected ? 'multi-selected' : ''} ${groupClassName}`}
                     draggable={group.ownerUid === userId}
                     onDragStart={(event) => {
                       if (group.ownerUid !== userId) {
                         event.preventDefault();
                         return;
                       }
-                      handleDragStart(event, { type: 'group', id: group.id });
+                      const ids = selectedGroupIds.has(group.id) && selectedGroupIds.size > 1
+                        ? groups.filter((g) => selectedGroupIds.has(g.id) && g.ownerUid === userId).map((g) => g.id)
+                        : [group.id];
+                      handleDragStart(event, { type: 'group', id: group.id, ids });
                     }}
                     onDragEnd={clearDragState}
                     onDragOver={(event) => handleGroupDragOver(event, group)}
                     onDrop={(event) => handleGroupDrop(event, group)}
-                    onClick={() => onToggleGroup(group)}
+                    onTouchStart={() => {
+                      clearLongPress();
+                      longPressedIdRef.current = null;
+                      longPressTimerRef.current = window.setTimeout(() => {
+                        longPressedIdRef.current = group.id;
+                        setSelectedListIds(new Set());
+                        setSelectedGroupIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(group.id)) next.delete(group.id);
+                          else next.add(group.id);
+                          return next;
+                        });
+                        setLastClickedGroupId(group.id);
+                      }, 450);
+                    }}
+                    onTouchMove={clearLongPress}
+                    onTouchEnd={clearLongPress}
+                    onTouchCancel={clearLongPress}
+                    onClick={(event) => {
+                      if (longPressedIdRef.current === group.id) {
+                        longPressedIdRef.current = null;
+                        event.preventDefault();
+                        return;
+                      }
+                      if (event.ctrlKey || event.metaKey) {
+                        event.preventDefault();
+                        setSelectedListIds(new Set());
+                        setSelectedGroupIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(group.id)) next.delete(group.id);
+                          else next.add(group.id);
+                          return next;
+                        });
+                        setLastClickedGroupId(group.id);
+                        return;
+                      }
+                      if (event.shiftKey) {
+                        event.preventDefault();
+                        setSelectedListIds(new Set());
+                        const anchorIdx = lastClickedGroupId ? groups.findIndex((g) => g.id === lastClickedGroupId) : -1;
+                        const targetIdx = groups.findIndex((g) => g.id === group.id);
+                        if (anchorIdx >= 0 && targetIdx >= 0) {
+                          const [start, end] = anchorIdx < targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx];
+                          setSelectedGroupIds(new Set(groups.slice(start, end + 1).map((g) => g.id)));
+                        } else {
+                          setSelectedGroupIds(new Set([group.id]));
+                        }
+                        setLastClickedGroupId(group.id);
+                        return;
+                      }
+                      setSelectedListIds(new Set());
+                      setSelectedGroupIds(new Set());
+                      setLastClickedGroupId(group.id);
+                      onToggleGroup(group);
+                    }}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       setMoveToGroupOpen(false);

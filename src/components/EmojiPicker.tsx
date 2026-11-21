@@ -1,16 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-
-const LIST_EMOJIS = [
-  '📋', '📝', '✅', '⭐', '🌟', '📌', '📍', '💡', '🎯', '📚', '📖', '🧠',
-  '💼', '💰', '🛒', '🧾', '🍎', '🍌', '🥑', '🥕', '🥦', '🍞', '🧀', '🥛',
-  '☕', '🍵', '🍽️', '🎂', '🏠', '🏡', '🛋️', '🛏️', '🧹', '🧺', '🪴', '🌱',
-  '🌻', '🐶', '🐱', '🐰', '❤️', '💖', '🎮', '🎨', '🎵', '🎧', '🎬', '📷',
-  '💻', '📱', '⌚', '🔧', '🛠️', '🔨', '🚗', '🚲', '✈️', '🏖️', '🏋️', '⚽',
-  '🎁', '🧳', '📅', '🔔', '🚀', '🌈', '🔥', '💧', '🔑', '📦', '📧', '✉️',
-  '🏢', '🏫', '🌍', '☀️', '🌙', '🎉', '🧘', '💊', '🩺', '🪙', '🧼', '🦋',
-  '🍀', '🌸', '⛺', '🚆', '🛍️', '💬', '🗂️', '💵', '🧪', '🧵', '🧸', '🐟',
-];
+import data from '@emoji-mart/data';
+import { Picker } from 'emoji-mart';
 
 interface EmojiPickerProps {
   onSelect: (emoji: string | null) => void;
@@ -20,6 +11,7 @@ interface EmojiPickerProps {
 
 export function EmojiPicker({ onSelect, onClose, fixedPosition }: EmojiPickerProps) {
   const pickerRef = useRef<HTMLDivElement>(null);
+  const mountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -28,58 +20,81 @@ export function EmojiPicker({ onSelect, onClose, fixedPosition }: EmojiPickerPro
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
-    const handleScroll = (event: Event) => {
-      if (event.target instanceof Node && pickerRef.current?.contains(event.target)) return;
-      onClose();
-    };
     document.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('scroll', handleScroll, true);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('scroll', handleScroll, true);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [onClose]);
 
-  const picker = (
+  useEffect(() => {
+    const container = mountRef.current;
+    if (!container) return;
+    container.innerHTML = '';
+    const picker = new Picker({
+      data,
+      set: 'native',
+      theme: 'auto',
+      previewPosition: 'none',
+      skinTonePosition: 'search',
+      onEmojiSelect: (emoji: { native?: string }) => {
+        if (emoji.native) {
+          onSelect(emoji.native);
+          onClose();
+        }
+      },
+    });
+    container.appendChild(picker as unknown as Node);
+    return () => {
+      container.innerHTML = '';
+    };
+  }, [onSelect, onClose]);
+
+  const content = (
     <div
       ref={pickerRef}
-      className="emoji-picker"
+      className="emoji-picker-popover"
       role="dialog"
-      aria-label="Choose an icon emoji"
-      style={fixedPosition ? {
-        position: 'fixed',
-        top: fixedPosition.top,
-        left: fixedPosition.left,
-        zIndex: 1100,
-      } : undefined}
+      aria-label="Choose list icon"
+      style={
+        fixedPosition
+          ? {
+              position: 'fixed',
+              top: Math.min(fixedPosition.top, window.innerHeight - 440),
+              left: Math.min(fixedPosition.left, window.innerWidth - 360),
+              zIndex: 1000,
+              padding: 0,
+              overflow: 'hidden',
+              width: 'max-content',
+            }
+          : {
+              position: 'absolute',
+              top: 'calc(100% + 6px)',
+              left: 0,
+              zIndex: 1000,
+              padding: 0,
+              overflow: 'hidden',
+              width: 'max-content',
+            }
+      }
+      onClick={(e) => e.stopPropagation()}
     >
-      <div className="emoji-picker-header">
-        <strong>Choose an emoji</strong>
-        <button type="button" className="emoji-picker-close" onClick={onClose} aria-label="Close emoji picker">
-          ×
+      <div ref={mountRef} />
+      <div style={{ padding: '6px 10px', borderTop: '1px solid var(--color-border)' }}>
+        <button
+          type="button"
+          className="emoji-clear-btn"
+          onClick={() => {
+            onSelect(null);
+            onClose();
+          }}
+        >
+          Remove emoji
         </button>
       </div>
-      <div className="emoji-picker-grid" role="group" aria-label="Available emojis">
-        {LIST_EMOJIS.map((emoji) => (
-          <button
-            key={emoji}
-            type="button"
-            className="emoji-picker-option"
-            onClick={() => onSelect(emoji)}
-            aria-label={`Use ${emoji}`}
-            title={emoji}
-          >
-            {emoji}
-          </button>
-        ))}
-      </div>
-      <button type="button" className="emoji-picker-reset" onClick={() => onSelect(null)}>
-        Use default icon
-      </button>
     </div>
   );
 
-  return fixedPosition ? createPortal(picker, document.body) : picker;
+  return fixedPosition ? createPortal(content, document.body) : content;
 }
