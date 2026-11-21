@@ -165,6 +165,12 @@ export function TaskDetail({
             value={title}
             rows={Math.min(4, Math.max(1, Math.ceil(title.length / 20)))}
             onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
+            }}
             onBlur={handleTitleBlur}
           />
           <button

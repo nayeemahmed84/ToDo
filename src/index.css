@@ -386,8 +386,6 @@ body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-self: stretch;
   gap: 0.2rem;
 }
 
@@ -1158,6 +1156,7 @@ body {
   text-align: left;
   cursor: pointer;
   padding: 0;
+  outline: none;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -3310,7 +3309,7 @@ button.primary.small {
   z-index: 8;
   right: clamp(34px, 3.8vw, 56px);
   bottom: clamp(26px, 5.5vh, 58px);
-  left: clamp(34px, 3.4vw, 50px);
+  left: clamp(24px, 2.6vw, 40px);
   display: block;
   min-height: 50px;
   padding: 0 14px;
@@ -3568,6 +3567,7 @@ button.primary.small {
 }
 
 .detail-panel textarea.detail-title-input {
+  font-family: inherit;
   width: 0;
   min-width: 0;
   min-height: 1.3em;
@@ -3953,4 +3953,19 @@ button.primary.small {
   outline: 2px solid var(--accent, #788cde);
   outline-offset: -2px;
   border-radius: 6px;
+}
+
+.main-pane {
+  padding-bottom: 72px;
+}
+
+.main-pane,
+.main-pane * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.main-pane::-webkit-scrollbar,
+.main-pane *::-webkit-scrollbar {
+  display: none;
 }
