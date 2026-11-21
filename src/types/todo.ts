@@ -66,6 +66,7 @@ export interface TodoItem {
   category: CategoryColor | null;
   notes: string;
   steps: TodoStep[];
+  sortOrder?: number;
   createdAtMs: number;
   updatedAtMs?: number | null;
   updatedByUid?: string | null;

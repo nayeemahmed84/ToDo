@@ -53,6 +53,10 @@ function getTodayStr(): string {
   return `${y}-${m}-${day}`;
 }
 
+function getTaskSortOrder(item: TodoItem): number {
+  return item.sortOrder ?? -item.createdAtMs;
+}
+
 function getNextRepeatDate(baseYmd: string, rule: RepeatRule): string {
   const [y, m, d] = baseYmd.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
@@ -610,6 +614,7 @@ const [gridEditText, setGridEditText] = useState('');
         const nextItems: TodoItem[] = snap.docs.map((d) => {
           const data = d.data();
           const listId = d.ref.parent.parent?.id ?? (data.listId as string) ?? '';
+          const createdAtMs = (data.createdAtMs as number) ?? Date.now();
           return {
             id: d.id,
             listId,
@@ -630,7 +635,8 @@ const [gridEditText, setGridEditText] = useState('');
             category: (data.category as any) ?? null,
             notes: (data.notes as string) ?? '',
             steps: Array.isArray(data.steps) ? data.steps : [],
-            createdAtMs: (data.createdAtMs as number) ?? Date.now(),
+            sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : -createdAtMs,
+            createdAtMs,
             completedAtMs: (data.completedAtMs as number | null) ?? null,
           };
         });
@@ -766,7 +772,9 @@ const [gridEditText, setGridEditText] = useState('');
   const sortedVisible = useMemo(() => {
     const arr = [...visibleItems];
     const dir = sortAsc ? 1 : -1;
-    if (sortBy === 'importance') {
+    if (sortBy === 'position') {
+      arr.sort((a, b) => getTaskSortOrder(a) - getTaskSortOrder(b));
+    } else if (sortBy === 'importance') {
       arr.sort((a, b) => (Number(b.important) - Number(a.important)) * dir || a.createdAtMs - b.createdAtMs);
     } else if (sortBy === 'dueDate') {
       arr.sort((a, b) => {
@@ -791,6 +799,18 @@ const [gridEditText, setGridEditText] = useState('');
 
   const activeItems = sortedVisible.filter((i) => !i.done);
   const completedItems = sortedVisible.filter((i) => i.done);
+  const reorderListId =
+    selection.type === 'list'
+      ? selection.id
+      : selection.id === 'tasks'
+        ? defaultTasksList?.id ?? null
+        : null;
+  const canReorderItems =
+    reorderListId !== null &&
+    sortBy === 'position' &&
+    !groupByCategory &&
+    !searchQuery.trim() &&
+    viewMode === 'list';
 
   const tomorrowStr = useMemo(() => {
     const [y, m, d] = todayStr.split('-').map(Number);
@@ -1279,6 +1299,87 @@ const [gridEditText, setGridEditText] = useState('');
     }
   };
 
+  const handleReorderItems = async (
+    draggedItemId: string,
+    targetItemId: string,
+    insertAfter: boolean
+  ) => {
+    const listId =
+      selection.type === 'list'
+        ? selection.id
+        : selection.id === 'tasks'
+          ? defaultTasksList?.id ?? null
+          : null;
+    if (
+      !user ||
+      !listId ||
+      sortBy !== 'position' ||
+      groupByCategory ||
+      searchQuery.trim() ||
+      viewMode !== 'list'
+    ) return;
+
+    const orderedItems = allItems
+      .filter((item) => item.listId === listId)
+      .sort((a, b) => getTaskSortOrder(a) - getTaskSortOrder(b));
+    const draggedIndex = orderedItems.findIndex((item) => item.id === draggedItemId);
+    const target = orderedItems.find((item) => item.id === targetItemId);
+    if (draggedIndex < 0 || !target || orderedItems[draggedIndex].done !== target.done) return;
+
+    const previousOrder = orderedItems.map((item) => item.id);
+    const [draggedItem] = orderedItems.splice(draggedIndex, 1);
+    const targetIndex = orderedItems.findIndex((item) => item.id === targetItemId);
+    const insertionIndex = targetIndex + (insertAfter ? 1 : 0);
+    orderedItems.splice(insertionIndex, 0, draggedItem);
+    if (orderedItems.every((item, index) => item.id === previousOrder[index])) return;
+
+    const previous = orderedItems[insertionIndex - 1];
+    const next = orderedItems[insertionIndex + 1];
+    const previousSortOrder = previous ? getTaskSortOrder(previous) : null;
+    const nextSortOrder = next ? getTaskSortOrder(next) : null;
+    const needsReindex =
+      previousSortOrder !== null &&
+      nextSortOrder !== null &&
+      nextSortOrder - previousSortOrder <= 1;
+    const sortOrder = needsReindex
+      ? null
+      : previousSortOrder === null
+        ? (nextSortOrder ?? 0) - 1024
+        : nextSortOrder === null
+          ? previousSortOrder + 1024
+          : previousSortOrder + (nextSortOrder - previousSortOrder) / 2;
+    const modifiedFields = {
+      updatedAtMs: Date.now(),
+      updatedAt: serverTimestamp(),
+      updatedByUid: user.uid,
+      updatedByName: user.displayName?.trim() || null,
+    };
+
+    setError(null);
+    try {
+      if (needsReindex) {
+        for (let start = 0; start < orderedItems.length; start += 450) {
+          const batch = writeBatch(db);
+          orderedItems.slice(start, start + 450).forEach((item, offset) => {
+            const fields = { sortOrder: (start + offset) * 1024 };
+            batch.update(
+              doc(db, 'lists', item.listId, 'items', item.id),
+              item.id === draggedItemId ? { ...fields, ...modifiedFields } : fields
+            );
+          });
+          await batch.commit();
+        }
+      } else {
+        await updateDoc(
+          doc(db, 'lists', draggedItem.listId, 'items', draggedItem.id),
+          { sortOrder, ...modifiedFields }
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reorder tasks');
+    }
+  };
+
   const handleMoveToList = async (item: TodoItem, targetListId: string) => {
     if (!user || targetListId === item.listId) return;
     const ref = await addDoc(collection(db, 'lists', targetListId, 'items'), {
@@ -1331,6 +1432,7 @@ const [gridEditText, setGridEditText] = useState('');
           category: i.category ?? null,
           notes: i.notes,
           steps: i.steps,
+          sortOrder: i.sortOrder ?? -i.createdAtMs,
           createdAtMs: Date.now(),
           completedAtMs: i.completedAtMs ?? null,
         })
@@ -1371,6 +1473,7 @@ const [gridEditText, setGridEditText] = useState('');
           category: item.category ?? null,
       notes: item.notes,
       steps: item.steps,
+          sortOrder: item.sortOrder ?? -item.createdAtMs,
       createdAtMs: item.createdAtMs,
       updatedAtMs: item.updatedAtMs ?? null,
       updatedByUid: item.updatedByUid ?? null,
@@ -2278,6 +2381,8 @@ const [gridEditText, setGridEditText] = useState('');
                     todayStr={todayStr}
                     tomorrowStr={tomorrowStr}
                     showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
+                    reorderable={canReorderItems}
+                    onReorder={handleReorderItems}
                     onToggleDone={handleToggleDone}
                     onToggleImportant={handleToggleImportant}
                     onOpen={handleOpen}
@@ -2435,6 +2540,8 @@ const [gridEditText, setGridEditText] = useState('');
                 todayStr={todayStr}
                 tomorrowStr={tomorrowStr}
                 showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
+                reorderable={canReorderItems}
+                onReorder={handleReorderItems}
                 onToggleDone={handleToggleDone}
                 onToggleImportant={handleToggleImportant}
                 onOpen={handleOpen}
@@ -2466,6 +2573,8 @@ const [gridEditText, setGridEditText] = useState('');
                     todayStr={todayStr}
                     tomorrowStr={tomorrowStr}
                     showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
+                    reorderable={canReorderItems}
+                    onReorder={handleReorderItems}
                     onToggleDone={handleToggleDone}
                     onToggleImportant={handleToggleImportant}
                     onOpen={handleOpen}

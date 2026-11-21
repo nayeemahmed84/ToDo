@@ -9,6 +9,8 @@ interface TaskRowProps {
   todayStr: string;
   tomorrowStr: string;
   showListMeta: boolean;
+  reorderable?: boolean;
+  onReorder?: (draggedItemId: string, targetItemId: string, insertAfter: boolean) => void | Promise<void>;
   onToggleDone: (item: TodoItem) => void;
   onToggleImportant: (item: TodoItem) => void;
   onOpen: (e: MouseEvent<HTMLButtonElement>, item: TodoItem) => void;
@@ -22,12 +24,16 @@ export function TaskRow({
   todayStr,
   tomorrowStr,
   showListMeta,
+  reorderable = false,
+  onReorder,
   onToggleDone,
   onToggleImportant,
   onOpen,
   onContextMenu,
 }: TaskRowProps) {
   const [popping, setPopping] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
   const listName = lists.find((list) => list.id === item.listId)?.title ?? 'Tasks';
   const hasMeta = Boolean(
     showListMeta || item.dueDate || item.reminderAtMs ||
@@ -49,9 +55,53 @@ export function TaskRow({
     onToggleDone(item);
   };
 
+  const handleDragStart = (event: React.DragEvent<HTMLLIElement>) => {
+    const target = event.target;
+    if (!reorderable || (target instanceof Element && target.closest('input, .star-btn'))) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', item.id);
+    setDragging(true);
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLLIElement>) => {
+    if (!reorderable) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setDropPosition(event.clientY >= bounds.top + bounds.height / 2 ? 'after' : 'before');
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLLIElement>) => {
+    if (!reorderable) return;
+    event.preventDefault();
+    const draggedItemId = event.dataTransfer.getData('text/plain');
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const insertAfter = event.clientY >= bounds.top + bounds.height / 2;
+    setDropPosition(null);
+    if (draggedItemId && draggedItemId !== item.id) {
+      void onReorder?.(draggedItemId, item.id, insertAfter);
+    }
+  };
+
   return (
     <li
-      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''}`}
+      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      draggable={reorderable}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={(event) => {
+        const relatedTarget = event.relatedTarget;
+        if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) return;
+        setDropPosition(null);
+      }}
+      onDrop={handleDrop}
+      onDragEnd={() => {
+        setDragging(false);
+        setDropPosition(null);
+      }}
       onContextMenu={(event) => {
         event.preventDefault();
         onContextMenu(event, item);
