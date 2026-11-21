@@ -8,10 +8,13 @@ import {
   collectionGroup,
   deleteDoc,
   doc,
+  DocumentData,
   onSnapshot,
   orderBy,
   query,
+  QueryDocumentSnapshot,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -186,7 +189,16 @@ export function App() {
   );
   const [sharedLists, setSharedLists] = useState<TodoList[]>([]);
   const [groups, setGroups] = useState<TodoGroup[]>([]);
-  const [allItems, setAllItems] = useState<TodoItem[]>([]);
+  const [ownedItems, setOwnedItems] = useState<TodoItem[]>([]);
+  const [sharedItemsByList, setSharedItemsByList] = useState<Record<string, TodoItem[]>>({});
+  const allItems = useMemo(() => {
+    const byId = new Map<string, TodoItem>();
+    for (const item of ownedItems) byId.set(item.id, item);
+    for (const listItems of Object.values(sharedItemsByList)) {
+      for (const item of listItems) byId.set(item.id, item);
+    }
+    return Array.from(byId.values()).sort((a, b) => b.createdAtMs - a.createdAtMs);
+  }, [ownedItems, sharedItemsByList]);
   const [selection, setSelection] = useState<ViewSelection>(() => {
     const path = window.location.pathname.toLowerCase();
     if (path === '/tasks/flagged' || path === '/tasks/flagged-email') return { type: 'smart', id: 'flagged-email' };
@@ -582,29 +594,100 @@ const [gridEditText, setGridEditText] = useState('');
   }, []);
 
   useEffect(() => {
-    if (!user) return;
     const params = new URLSearchParams(window.location.search);
-    const joinListId = params.get('join') || params.get('share');
-    if (joinListId) {
-      updateDoc(doc(db, 'lists', joinListId), {
-        memberUids: arrayUnion(user.uid),
-      })
-        .then(() => {
-          setSelection({ type: 'list', id: joinListId });
-          window.history.replaceState({}, '', window.location.pathname);
-        })
-        .catch((err) =>
-          setError(err instanceof Error ? err.message : 'Failed to join list')
-        );
+    const paramListId = params.get('join') || params.get('share');
+    if (paramListId) {
+      try {
+        sessionStorage.setItem('todo.pendingShareListId', paramListId);
+      } catch {
+        // ignore storage errors
+      }
     }
+
+    if (!user) return;
+    let joinListId = paramListId;
+    if (!joinListId) {
+      try {
+        joinListId = sessionStorage.getItem('todo.pendingShareListId');
+      } catch {
+        joinListId = null;
+      }
+    }
+    if (!joinListId) return;
+
+    updateDoc(doc(db, 'lists', joinListId), {
+      memberUids: arrayUnion(user.uid),
+    })
+      .then(() => {
+        try {
+          sessionStorage.removeItem('todo.pendingShareListId');
+        } catch {
+          // ignore storage errors
+        }
+        setSelection({ type: 'list', id: joinListId });
+        if (paramListId) {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      })
+      .catch((err) => {
+        try {
+          sessionStorage.removeItem('todo.pendingShareListId');
+        } catch {
+          // ignore storage errors
+        }
+        setError(err instanceof Error ? err.message : 'Failed to join list');
+      });
   }, [user]);
+
+  const mapItemDoc = (d: QueryDocumentSnapshot<DocumentData>, fallbackOwnerUid: string): TodoItem => {
+    const data = d.data();
+    const listId = d.ref.parent.parent?.id ?? (data.listId as string) ?? '';
+    const createdAtMs = (data.createdAtMs as number) ?? Date.now();
+    return {
+      id: d.id,
+      listId,
+      ownerUid: (data.ownerUid as string) ?? fallbackOwnerUid,
+      text: (data.text as string) ?? '',
+      done: Boolean(data.done),
+      important: Boolean(data.important),
+      myDayDate: (data.myDayDate as string | null) ?? null,
+      dueDate: (data.dueDate as string | null) ?? null,
+      repeat: (data.repeat as RepeatRule) ?? 'none',
+      repeatCustom: (data.repeatCustom as TodoItem['repeatCustom']) ?? null,
+      reminderAtMs: (data.reminderAtMs as number | null) ?? null,
+      assignedTo: (data.assignedTo as string | null) ?? null,
+      attachments: Array.isArray(data.attachments) ? data.attachments : [],
+      updatedAtMs: (data.updatedAtMs as number | null) ?? null,
+      updatedByUid: typeof data.updatedByUid === 'string' ? data.updatedByUid : null,
+      updatedByName: typeof data.updatedByName === 'string' ? data.updatedByName : null,
+      category: (data.category as any) ?? null,
+      notes: (data.notes as string) ?? '',
+      steps: Array.isArray(data.steps) ? data.steps : [],
+      sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : -createdAtMs,
+      createdAtMs,
+      completedAtMs: (data.completedAtMs as number | null) ?? null,
+    };
+  };
 
   useEffect(() => {
     if (!user) {
       setLists([]);
-      setAllItems([]);
+      setSharedLists([]);
+      setOwnedItems([]);
+      setSharedItemsByList({});
       return;
     }
+
+    setDoc(
+      doc(db, 'users', user.uid),
+      {
+        displayName: user.displayName || null,
+        email: user.email || null,
+        photoURL: user.photoURL || null,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ).catch(() => {});
 
     const listsQuery = query(
       collection(db, 'lists'),
@@ -647,37 +730,7 @@ const [gridEditText, setGridEditText] = useState('');
     const unsubItems = onSnapshot(
       itemsQuery,
       (snap) => {
-        const nextItems: TodoItem[] = snap.docs.map((d) => {
-          const data = d.data();
-          const listId = d.ref.parent.parent?.id ?? (data.listId as string) ?? '';
-          const createdAtMs = (data.createdAtMs as number) ?? Date.now();
-          return {
-            id: d.id,
-            listId,
-            ownerUid: (data.ownerUid as string) ?? user.uid,
-            text: (data.text as string) ?? '',
-            done: Boolean(data.done),
-            important: Boolean(data.important),
-            myDayDate: (data.myDayDate as string | null) ?? null,
-            dueDate: (data.dueDate as string | null) ?? null,
-            repeat: (data.repeat as RepeatRule) ?? 'none',
-            repeatCustom: (data.repeatCustom as TodoItem['repeatCustom']) ?? null,
-            reminderAtMs: (data.reminderAtMs as number | null) ?? null,
-            assignedTo: (data.assignedTo as string | null) ?? null,
-            attachments: Array.isArray(data.attachments) ? data.attachments : [],
-            updatedAtMs: (data.updatedAtMs as number | null) ?? null,
-            updatedByUid: typeof data.updatedByUid === 'string' ? data.updatedByUid : null,
-            updatedByName: typeof data.updatedByName === 'string' ? data.updatedByName : null,
-            category: (data.category as any) ?? null,
-            notes: (data.notes as string) ?? '',
-            steps: Array.isArray(data.steps) ? data.steps : [],
-            sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : -createdAtMs,
-            createdAtMs,
-            completedAtMs: (data.completedAtMs as number | null) ?? null,
-          };
-        });
-        nextItems.sort((a, b) => b.createdAtMs - a.createdAtMs);
-        setAllItems(nextItems);
+        setOwnedItems(snap.docs.map((d) => mapItemDoc(d, user.uid)));
       },
       (err) => setError(err.message)
     );
@@ -899,6 +952,39 @@ const [gridEditText, setGridEditText] = useState('');
     for (const l of sharedLists) map.set(l.id, l);
     return Array.from(map.values()).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   }, [lists, sharedLists]);
+
+  useEffect(() => {
+    if (!user) {
+      setSharedItemsByList({});
+      return;
+    }
+    const sharedListIds = allLists
+      .filter((l) => l.ownerUid !== user.uid || (l.memberUids && l.memberUids.length > 0))
+      .map((l) => l.id);
+
+    setSharedItemsByList((prev) => {
+      const next: Record<string, TodoItem[]> = {};
+      for (const id of sharedListIds) {
+        if (prev[id]) next[id] = prev[id];
+      }
+      return next;
+    });
+
+    const unsubs = sharedListIds.map((listId) =>
+      onSnapshot(
+        collection(db, 'lists', listId, 'items'),
+        (snap) => {
+          const items = snap.docs.map((d) => mapItemDoc(d, user.uid));
+          setSharedItemsByList((prev) => ({ ...prev, [listId]: items }));
+        },
+        (err) => setError(err.message)
+      )
+    );
+
+    return () => {
+      for (const unsub of unsubs) unsub();
+    };
+  }, [user, allLists]);
 
   const toggleListCollapsed = (listId: string) => {
     setCollapsedLists((prev) => ({ ...prev, [listId]: !prev[listId] }));
@@ -3180,8 +3266,10 @@ const [gridEditText, setGridEditText] = useState('');
               });
             }}
             onRemoveMember={async (uid) => {
-              const existing = (targetList as TodoList & { memberIds?: string[] }).memberIds ?? [];
-              await updateDoc(doc(db, "lists", targetList.id), { memberIds: existing.filter((m) => m !== uid) });
+              const existing = targetList.memberUids ?? [];
+              await updateDoc(doc(db, 'lists', targetList.id), {
+                memberUids: existing.filter((m) => m !== uid),
+              });
             }}
             onClose={() => setShareListId(null)}
           />

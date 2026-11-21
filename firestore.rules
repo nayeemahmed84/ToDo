@@ -25,6 +25,11 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
     }
 
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
     match /lists/{listId} {
       allow read: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || (resource.data.memberUids != null && request.auth.uid in resource.data.memberUids));
       allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
@@ -34,6 +39,10 @@ service cloud.firestore {
       match /items/{itemId} {
         allow read, write: if isListMember(listId);
         allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      }
+
+      match /shares/{shareId} {
+        allow read, write: if isListMember(listId);
       }
     }
   }

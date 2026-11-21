@@ -1,6 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { User } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { TodoList } from '../types/todo';
+
+interface UserProfile {
+  displayName?: string | null;
+  email?: string | null;
+}
 
 interface ShareDialogProps {
   list: TodoList;
@@ -21,8 +28,48 @@ export function ShareDialog({
   const [copied, setCopied] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
 
   const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  const isOwner = list.ownerUid === user.uid;
+  const members = (list.memberUids ?? []).filter((mid) => mid !== list.ownerUid);
+
+  useEffect(() => {
+    const uidsToFetch = [list.ownerUid, ...members].filter((uid) => uid && uid !== user.uid);
+    if (uidsToFetch.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      uidsToFetch.map(async (uid) => {
+        try {
+          const snap = await getDoc(doc(db, 'users', uid));
+          if (snap.exists()) {
+            const data = snap.data();
+            return [uid, { displayName: data.displayName ?? null, email: data.email ?? null }] as const;
+          }
+        } catch {
+          // ignore profile fetch errors
+        }
+        return [uid, {}] as const;
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setProfiles((prev) => {
+        const next = { ...prev };
+        for (const [uid, profile] of entries) next[uid] = profile;
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [list.ownerUid, members.join(','), user.uid]);
+
+  const getDisplayName = (uid: string) => {
+    if (uid === user.uid) return user.displayName || user.email || uid;
+    const p = profiles[uid];
+    return p?.displayName || p?.email || uid;
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -101,11 +148,13 @@ export function ShareDialog({
                 flexShrink: 0,
               }}
             >
-              {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+              {(isOwner ? (user.displayName || user.email || 'U') : getDisplayName(list.ownerUid)).charAt(0).toUpperCase()}
             </span>
-            <span>{user.displayName || user.email} (Owner)</span>
+            <span>{isOwner ? `${user.displayName || user.email} (Owner)` : `${getDisplayName(list.ownerUid)} (Owner)`}</span>
           </div>
-          {((list as TodoList & { memberIds?: string[] }).memberIds ?? []).map((mid) => (
+          {members.map((mid) => {
+            const name = getDisplayName(mid);
+            return (
             <div key={mid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.88rem', padding: '4px 0' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
                 <span
@@ -123,15 +172,18 @@ export function ShareDialog({
                     flexShrink: 0,
                   }}
                 >
-                  {mid.charAt(0).toUpperCase()}
+                  {name.charAt(0).toUpperCase()}
                 </span>
-                {mid}
+                {mid === user.uid ? `${name} (You)` : name}
               </span>
-              <button type="button" className="chip-btn" onClick={() => onRemoveMember(mid)}>
-                Remove
-              </button>
+              {(isOwner || mid === user.uid) && (
+                <button type="button" className="chip-btn" onClick={() => onRemoveMember(mid)}>
+                  {mid === user.uid ? 'Leave' : 'Remove'}
+                </button>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <div>
@@ -208,25 +260,30 @@ export function ShareDialog({
           <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem', fontSize: '0.85rem' }}>
             <div style={{ fontWeight: 600, marginBottom: '6px' }}>Manage access</div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-              <span>{user.displayName || user.email}</span>
+              <span>{getDisplayName(list.ownerUid)}</span>
               <span style={{ color: 'var(--color-text-2)' }}>Owner</span>
             </div>
-            {((list as TodoList & { memberIds?: string[] }).memberIds ?? []).map((mid) => (
+            {members.map((mid) => {
+              const name = getDisplayName(mid);
+              return (
               <div key={mid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
-                <span>{mid}</span>
-                <button
-                  type="button"
-                  className="chip-btn"
-                  onClick={() => {
-                    if (window.confirm(`Remove ${mid} from '${list.title}'? They will no longer see this list.`)) {
-                      onRemoveMember(mid);
-                    }
-                  }}
-                >
-                  Remove
-                </button>
+                <span>{mid === user.uid ? `${name} (You)` : name}</span>
+                {(isOwner || mid === user.uid) && (
+                  <button
+                    type="button"
+                    className="chip-btn"
+                    onClick={() => {
+                      if (window.confirm(`Remove ${name} from '${list.title}'? They will no longer see this list.`)) {
+                        onRemoveMember(mid);
+                      }
+                    }}
+                  >
+                    {mid === user.uid ? 'Leave' : 'Remove'}
+                  </button>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
