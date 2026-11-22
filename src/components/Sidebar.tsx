@@ -63,6 +63,18 @@ const SMART_LISTS: { id: SmartListId; label: string; icon: ReactNode }[] = [
   { id: 'tasks', label: 'Tasks', icon: <HomeIcon /> },
   { id: 'planned', label: 'Planned', icon: <CalendarIcon /> },
   { id: 'assigned-to-me', label: 'Assigned to me', icon: <UserIcon size={20} /> },
+  {
+    id: 'trash',
+    label: 'Trash',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polyline points="3 6 5 6 21 6" />
+        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+        <path d="M10 11v6M14 11v6" />
+        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+      </svg>
+    ),
+  },
 ];
 
 export function Sidebar({
@@ -531,7 +543,7 @@ export function Sidebar({
           onKeyDown={handleNavKeyDown}
         >
           {SMART_LISTS.filter((item) => {
-            if (item.id === 'my-day' || item.id === 'tasks') return true;
+            if (item.id === 'my-day' || item.id === 'tasks' || item.id === 'trash') return true;
             if (item.id === 'important' && !settings.smartImportant) return false;
             if (item.id === 'planned' && !settings.smartPlanned) return false;
             if (item.id === 'all' && !settings.smartAll) return false;

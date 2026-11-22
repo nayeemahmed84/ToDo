@@ -71,6 +71,8 @@ function getNextRepeatDate(baseYmd: string, rule: RepeatRule): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
 const SMART_TITLES: Record<SmartListId, string> = {
   'my-day': 'My Day',
   important: 'Important',
@@ -80,6 +82,7 @@ const SMART_TITLES: Record<SmartListId, string> = {
   tasks: 'Tasks',
   all: 'All',
   completed: 'Completed',
+  trash: 'Trash',
 };
 
 function getListIcon(selection: ViewSelection, customIcon?: string | null): React.ReactNode {
@@ -127,6 +130,15 @@ function getListIcon(selection: ViewSelection, customIcon?: string | null): Reac
           return (
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />
+            </svg>
+          );
+        case 'trash':
+          return (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6M14 11v6" />
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
             </svg>
           );
         default:
@@ -191,7 +203,7 @@ export function App() {
   const [groups, setGroups] = useState<TodoGroup[]>([]);
   const [ownedItems, setOwnedItems] = useState<TodoItem[]>([]);
   const [sharedItemsByList, setSharedItemsByList] = useState<Record<string, TodoItem[]>>({});
-  const allItems = useMemo(() => {
+  const rawItems = useMemo(() => {
     const byId = new Map<string, TodoItem>();
     for (const item of ownedItems) byId.set(item.id, item);
     for (const listItems of Object.values(sharedItemsByList)) {
@@ -199,6 +211,36 @@ export function App() {
     }
     return Array.from(byId.values()).sort((a, b) => b.createdAtMs - a.createdAtMs);
   }, [ownedItems, sharedItemsByList]);
+
+  const allItems = useMemo(
+    () => rawItems.filter((item) => !item.deletedAtMs),
+    [rawItems]
+  );
+
+  const trashedItems = useMemo(() => {
+    const now = Date.now();
+    return rawItems
+      .filter((item) => Boolean(item.deletedAtMs) && now - (item.deletedAtMs ?? 0) <= TRASH_RETENTION_MS)
+      .sort((a, b) => (b.deletedAtMs ?? 0) - (a.deletedAtMs ?? 0));
+  }, [rawItems]);
+
+  const purgedIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user) return;
+    const now = Date.now();
+    for (const item of rawItems) {
+      if (
+        item.deletedAtMs &&
+        now - item.deletedAtMs > TRASH_RETENTION_MS &&
+        !purgedIdsRef.current.has(item.id)
+      ) {
+        purgedIdsRef.current.add(item.id);
+        deleteDoc(doc(db, 'lists', item.listId, 'items', item.id)).catch(() => {
+          purgedIdsRef.current.delete(item.id);
+        });
+      }
+    }
+  }, [rawItems, user]);
 
   const [sandExitingIds, setSandExitingIds] = useState<Set<string>>(() => new Set());
   const [sandEnteringIds, setSandEnteringIds] = useState<Set<string>>(() => new Set());
@@ -234,7 +276,7 @@ export function App() {
           copy.delete(id);
           return copy;
         });
-      }, 560);
+      }, 440);
       sandTimersRef.current.set(id, timerId);
     };
 
@@ -309,7 +351,27 @@ export function App() {
   }, [selection]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [newItemText, setNewItemText] = useState('');
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [completedExpandedByView, setCompletedExpandedByView] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('todo.completedExpandedByView');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') return parsed as Record<string, boolean>;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return {};
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('todo.completedExpandedByView', JSON.stringify(completedExpandedByView));
+    } catch {
+      // ignore storage errors
+    }
+  }, [completedExpandedByView]);
+  const currentViewKey = `${selection.type}:${selection.id}`;
+  const showCompleted = Boolean(completedExpandedByView[currentViewKey]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -744,6 +806,9 @@ const [gridEditText, setGridEditText] = useState('');
       sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : -createdAtMs,
       createdAtMs,
       completedAtMs: (data.completedAtMs as number | null) ?? null,
+      deletedAtMs: (data.deletedAtMs as number | null) ?? null,
+      deletedByUid: typeof data.deletedByUid === 'string' ? data.deletedByUid : null,
+      deletedByName: typeof data.deletedByName === 'string' ? data.deletedByName : null,
     };
   };
 
@@ -885,6 +950,7 @@ const [gridEditText, setGridEditText] = useState('');
       tasks: 0,
       all: 0,
       completed: 0,
+      trash: trashedItems.length,
     };
     for (const item of allItems) {
       if (item.done) {
@@ -899,7 +965,7 @@ const [gridEditText, setGridEditText] = useState('');
       result[item.listId] = (result[item.listId] ?? 0) + 1;
     }
     return result as Record<SmartListId, number> & Record<string, number>;
-  }, [allItems, todayStr]);
+  }, [allItems, trashedItems.length, todayStr]);
 
   const visibleItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -927,6 +993,8 @@ const [gridEditText, setGridEditText] = useState('');
         return allItems;
       case 'completed':
         return allItems.filter((i) => i.done);
+      case 'trash':
+        return [];
       case 'tasks':
         return defaultTasksList
           ? allItems.filter((i) => i.listId === defaultTasksList.id)
@@ -1693,7 +1761,11 @@ const [gridEditText, setGridEditText] = useState('');
   const handleDeleteItem = async (item: TodoItem) => {
     setError(null);
     try {
-      await deleteDoc(doc(db, 'lists', item.listId, 'items', item.id));
+      await updateDoc(doc(db, 'lists', item.listId, 'items', item.id), {
+        deletedAtMs: Date.now(),
+        deletedByUid: user?.uid ?? item.ownerUid,
+        deletedByName: user?.displayName?.trim() || user?.email?.trim() || null,
+      });
       if (selectedItemId === item.id) {
         setSelectedItemId(null);
       }
@@ -1701,7 +1773,7 @@ const [gridEditText, setGridEditText] = useState('');
       const timerId = window.setTimeout(() => setUndoToast(null), 5000);
       setUndoToast({ item, timerId });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete task');
+      setError(err instanceof Error ? err.message : 'Failed to move task to trash');
     }
   };
 
@@ -1710,25 +1782,44 @@ const [gridEditText, setGridEditText] = useState('');
     window.clearTimeout(undoToast.timerId);
     const { item } = undoToast;
     setUndoToast(null);
-    await addDoc(collection(db, 'lists', item.listId, 'items'), {
-      listId: item.listId,
-      ownerUid: user.uid,
-      text: item.text,
-      done: item.done,
-      important: item.important,
-      myDayDate: item.myDayDate,
-      dueDate: item.dueDate,
-      repeat: item.repeat ?? 'none',
-          category: item.category ?? null,
-      notes: item.notes,
-      steps: item.steps,
-          sortOrder: item.sortOrder ?? -item.createdAtMs,
-      createdAtMs: item.createdAtMs,
-      updatedAtMs: item.updatedAtMs ?? null,
-      updatedByUid: item.updatedByUid ?? null,
-      updatedByName: item.updatedByName ?? null,
-      completedAtMs: item.completedAtMs ?? null,
-    });
+    await handleRestoreItem(item);
+  };
+
+  const handleRestoreItem = async (item: TodoItem) => {
+    setError(null);
+    try {
+      await updateDoc(doc(db, 'lists', item.listId, 'items', item.id), {
+        deletedAtMs: null,
+        deletedByUid: null,
+        deletedByName: null,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to restore task');
+    }
+  };
+
+  const handlePermanentDeleteItem = async (item: TodoItem) => {
+    setError(null);
+    try {
+      await deleteDoc(doc(db, 'lists', item.listId, 'items', item.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to permanently delete task');
+    }
+  };
+
+  const handleEmptyTrash = async () => {
+    if (trashedItems.length === 0) return;
+    if (!window.confirm(`Permanently delete all ${trashedItems.length} item(s) in Trash? This cannot be undone.`)) {
+      return;
+    }
+    setError(null);
+    try {
+      await Promise.all(
+        trashedItems.map((item) => deleteDoc(doc(db, 'lists', item.listId, 'items', item.id)))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to empty trash');
+    }
   };
 
   const handleCreateGroup = async (title: string) => {
@@ -2441,7 +2532,7 @@ const [gridEditText, setGridEditText] = useState('');
           </div>
         )}
 
-{!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'flagged-email' && selection.id !== 'assigned-to-me' && (
+{!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'flagged-email' && selection.id !== 'assigned-to-me' && selection.id !== 'trash' && (
           <form className={`add-task-row ${addRowExpanded || addDueMenuOpen || addRemindMenuOpen || addRepeatMenuOpen || addDueCalendarOpen || addRemindCalendarOpen ? 'has-open-popover' : ''}`}
           onFocus={() => setAddRowExpanded(true)}
           onClick={() => setAddRowExpanded(true)} onSubmit={handleAddItem} ref={addTaskFormRef}>
@@ -2631,7 +2722,68 @@ const [gridEditText, setGridEditText] = useState('');
           );
         })()}
 
-        {(plannedGroups ?? categoryGroups) ? (
+        {selection.type === 'smart' && selection.id === 'trash' && !searchQuery ? (
+          <section className="trash-view">
+            <div className="trash-banner">
+              <span className="trash-banner-text">
+                <span aria-hidden="true">🗑️</span>
+                <span>Items in Trash are kept for 30 days before being permanently deleted.</span>
+              </span>
+              {trashedItems.length > 0 && (
+                <button type="button" className="trash-btn trash-btn-danger" onClick={handleEmptyTrash}>
+                  <span aria-hidden="true">🧹</span>
+                  <span>Empty trash</span>
+                </button>
+              )}
+            </div>
+            {trashedItems.length === 0 ? (
+              <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--color-text-2)' }}>
+                <div style={{ fontSize: '2.2rem', marginBottom: '0.5rem' }} aria-hidden="true">✨</div>
+                <div className="empty-state-title">Trash is empty</div>
+                <div className="empty-state-copy">Deleted tasks will stay here for 30 days so you can restore them anytime.</div>
+              </div>
+            ) : (
+              <ul className="task-list">
+                {trashedItems.map((item) => {
+                  const listTitle = allLists.find((l) => l.id === item.listId)?.title ?? 'Tasks';
+                  const deletedAtMs = item.deletedAtMs ?? Date.now();
+                  const daysLeft = Math.max(1, Math.ceil((TRASH_RETENTION_MS - (Date.now() - deletedAtMs)) / (24 * 60 * 60 * 1000)));
+                  const deletedDateStr = new Date(deletedAtMs).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  const deletedByLabel = item.deletedByUid === user?.uid
+                    ? 'You'
+                    : item.deletedByName || null;
+                  return (
+                    <li key={item.id} className="task-row has-meta" style={{ justifyContent: 'space-between' }}>
+                      <div className="task-body" style={{ minWidth: 0 }}>
+                        <span className="task-title" style={{ textDecoration: item.done ? 'line-through' : 'none', opacity: item.done ? 0.7 : 1 }}>
+                          {item.text}
+                        </span>
+                        <div className="task-meta">
+                          <span>{listTitle}</span>
+                          <span> · Deleted {deletedDateStr}{deletedByLabel ? ` by ${deletedByLabel}` : ''} · {daysLeft}d left</span>
+                        </div>
+                      </div>
+                      <div className="trash-actions">
+                        <button type="button" className="trash-btn trash-btn-restore" onClick={() => handleRestoreItem(item)}>
+                          <span aria-hidden="true">♻️</span>
+                          <span>Restore</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="trash-btn trash-btn-danger"
+                          onClick={() => handlePermanentDeleteItem(item)}
+                        >
+                          <span aria-hidden="true">🗑️</span>
+                          <span>Delete forever</span>
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        ) : (plannedGroups ?? categoryGroups) ? (
           (plannedGroups ?? categoryGroups)!.map((group) => (
             <section key={group.label} className="completed-section">
               <div className="completed-toggle">{group.label} ({group.items.length})</div>
@@ -2851,7 +3003,7 @@ const [gridEditText, setGridEditText] = useState('');
           <section className="completed-section">
             <button
               className="completed-toggle"
-              onClick={() => setShowCompleted((v) => !v)}
+              onClick={() => setCompletedExpandedByView((prev) => ({ ...prev, [currentViewKey]: !prev[currentViewKey] }))}
             >
               <span>{showCompleted ? '▾' : '▸'}</span>
               <span>Completed ({completedItems.length})</span>
@@ -2893,7 +3045,7 @@ const [gridEditText, setGridEditText] = useState('');
         </div>
 
         
-        {!searchQuery && activeItems.length === 0 && selection.type !== 'list' && !(selection.type === 'smart' && (selection.id === 'flagged-email' || selection.id === 'assigned-to-me')) && (
+        {!searchQuery && activeItems.length === 0 && selection.type !== 'list' && !(selection.type === 'smart' && (selection.id === 'flagged-email' || selection.id === 'assigned-to-me' || selection.id === 'trash')) && (
           <div className={`empty-state ${selection.type === 'smart' && selection.id === 'my-day' ? 'my-day-empty-state' : ''}`}>
             {selection.type === 'smart' && selection.id === 'my-day' && (
               <div className="empty-state-illustration" aria-hidden="true">

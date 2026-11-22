@@ -6,7 +6,8 @@ export type SmartListId =
   | 'flagged-email'
   | 'tasks'
   | 'all'
-  | 'completed';
+  | 'completed'
+  | 'trash';
 
 export type ViewSelection =
   | { type: 'smart'; id: SmartListId }
@@ -73,4 +74,7 @@ export interface TodoItem {
   updatedByUid?: string | null;
   updatedByName?: string | null;
   completedAtMs?: number | null;
+  deletedAtMs?: number | null;
+  deletedByUid?: string | null;
+  deletedByName?: string | null;
 }

@@ -3976,11 +3976,15 @@ button.primary.small {
 
 .task-row.sand-dissolve {
   pointer-events: none;
-  animation: sandRowDissolve 560ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  backdrop-filter: none;
+  will-change: transform, opacity;
+  animation: sandRowDissolve 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .task-row.sand-materialize {
-  animation: sandRowMaterialize 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  backdrop-filter: none;
+  will-change: transform, opacity;
+  animation: sandRowMaterialize 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .sand-particles {
@@ -3994,82 +3998,67 @@ button.primary.small {
 .sand-grain {
   position: absolute;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--color-text, #f5f5f5) 75%, var(--color-accent, #788cde));
-  box-shadow: 0 0 2px rgba(255, 255, 255, 0.25);
+  background: color-mix(in srgb, var(--color-text, #f5f5f5) 80%, var(--color-accent, #788cde));
   will-change: transform, opacity;
 }
 
 .task-row.sand-dissolve .sand-grain {
-  animation: sandGrainScatter 520ms ease-out var(--sd, 0ms) both;
+  animation: sandGrainScatter 420ms cubic-bezier(0.16, 1, 0.3, 1) var(--sd, 0ms) both;
 }
 
 .task-row.sand-materialize .sand-grain {
-  animation: sandGrainGather 520ms ease-in var(--sd, 0ms) both;
+  animation: sandGrainGather 420ms cubic-bezier(0.16, 1, 0.3, 1) var(--sd, 0ms) both;
 }
 
 @keyframes sandRowDissolve {
   0% {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0px);
-  }
-  45% {
-    opacity: 0.72;
-    transform: translateX(6px) scale(0.99);
-    filter: blur(1px);
+    transform: translate3d(0, 0, 0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translateX(22px) scale(0.96);
-    filter: blur(4px);
+    transform: translate3d(18px, 0, 0) scale(0.97);
   }
 }
 
 @keyframes sandRowMaterialize {
   0% {
     opacity: 0;
-    transform: translateX(22px) scale(0.96);
-    filter: blur(4px);
-  }
-  55% {
-    opacity: 0.75;
-    transform: translateX(5px) scale(0.99);
-    filter: blur(1px);
+    transform: translate3d(18px, 0, 0) scale(0.97);
   }
   100% {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0px);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
 @keyframes sandGrainScatter {
   0% {
     opacity: 0;
-    transform: translate(0, 0) scale(0.6);
+    transform: translate3d(0, 0, 0) scale(0.6);
   }
   20% {
-    opacity: 0.95;
-    transform: translate(calc(var(--sx) * 0.22), calc(var(--sy) * 0.22)) scale(1.1);
+    opacity: 0.9;
+    transform: translate3d(calc(var(--sx) * 0.22), calc(var(--sy) * 0.22), 0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translate(var(--sx), var(--sy)) scale(0.25);
+    transform: translate3d(var(--sx), var(--sy), 0) scale(0.2);
   }
 }
 
 @keyframes sandGrainGather {
   0% {
     opacity: 0;
-    transform: translate(var(--sx), var(--sy)) scale(0.25);
+    transform: translate3d(var(--sx), var(--sy), 0) scale(0.2);
   }
-  30% {
-    opacity: 0.95;
-    transform: translate(calc(var(--sx) * 0.55), calc(var(--sy) * 0.55)) scale(1.05);
+  25% {
+    opacity: 0.9;
+    transform: translate3d(calc(var(--sx) * 0.55), calc(var(--sy) * 0.55), 0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translate(0, 0) scale(0.5);
+    transform: translate3d(0, 0, 0) scale(0.5);
   }
 }
 
@@ -4080,4 +4069,97 @@ button.primary.small {
   .task-row.sand-materialize .sand-grain {
     animation-duration: 1ms;
   }
+}
+
+.trash-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--color-task-row-bg);
+  border: 1px solid var(--color-task-border);
+  font-size: 0.85rem;
+  color: var(--color-text-2);
+}
+
+.trash-banner-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trash-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.trash-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 120ms ease, box-shadow 150ms ease;
+}
+
+.trash-btn:hover {
+  transform: translateY(-1px);
+}
+
+.trash-btn:active {
+  transform: scale(0.97);
+}
+
+.trash-btn-restore {
+  background: rgba(120, 140, 222, 0.16);
+  border-color: rgba(120, 140, 222, 0.4);
+  color: #c7d2fe;
+}
+
+.trash-btn-restore:hover {
+  background: rgba(120, 140, 222, 0.28);
+  border-color: rgba(120, 140, 222, 0.65);
+  box-shadow: 0 2px 8px rgba(120, 140, 222, 0.2);
+}
+
+.trash-btn-danger {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.36);
+  color: #fca5a5;
+}
+
+.trash-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.6);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+}
+
+[data-theme="light"] .trash-btn-restore {
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.28);
+  color: #1d4ed8;
+}
+
+[data-theme="light"] .trash-btn-restore:hover {
+  background: rgba(37, 99, 235, 0.18);
+}
+
+[data-theme="light"] .trash-btn-danger {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.28);
+  color: #dc2626;
+}
+
+[data-theme="light"] .trash-btn-danger:hover {
+  background: rgba(220, 38, 38, 0.15);
 }
