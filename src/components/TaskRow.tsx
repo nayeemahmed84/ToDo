@@ -1,6 +1,16 @@
-import { useState, useRef, MouseEvent, ChangeEvent } from 'react';
+import { useState, useRef, MouseEvent, ChangeEvent, CSSProperties } from 'react';
 import { TodoItem, TodoList } from '../types/todo';
 import { StarIcon } from './Icons';
+
+const SAND_GRAINS = Array.from({ length: 40 }, (_, i) => {
+  const xPct = ((i * 23 + 7) % 94) + 3;
+  const yPct = ((i * 37 + 11) % 76) + 12;
+  const dx = 28 + ((i * 19) % 58);
+  const dy = ((i % 2 === 0 ? -1 : 1) * (10 + ((i * 13) % 28)));
+  const delay = Math.round((xPct / 100) * 180);
+  const size = 2 + (i % 3);
+  return { xPct, yPct, dx, dy, delay, size };
+});
 
 interface TaskRowProps {
   item: TodoItem;
@@ -11,6 +21,7 @@ interface TaskRowProps {
   tomorrowStr: string;
   showListMeta: boolean;
   reorderable?: boolean;
+  sandState?: 'dissolve' | 'materialize' | null;
   onReorder?: (draggedItemId: string, targetItemId: string, insertAfter: boolean) => void | Promise<void>;
   onToggleDone: (item: TodoItem) => void;
   onToggleImportant: (item: TodoItem) => void;
@@ -28,6 +39,7 @@ export function TaskRow({
   tomorrowStr,
   showListMeta,
   reorderable = false,
+  sandState = null,
   onReorder,
   onToggleDone,
   onToggleImportant,
@@ -105,7 +117,7 @@ export function TaskRow({
 
   return (
     <li
-      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''}`}
       draggable
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
@@ -220,6 +232,25 @@ export function TaskRow({
       >
         {item.important ? <StarIcon filled size={20} className="star-icon" /> : <StarIcon size={20} className="star-icon" />}
       </button>
+      {sandState && (
+        <span className="sand-particles" aria-hidden="true">
+          {SAND_GRAINS.map((g, idx) => (
+            <span
+              key={idx}
+              className="sand-grain"
+              style={{
+                left: `${g.xPct}%`,
+                top: `${g.yPct}%`,
+                width: `${g.size}px`,
+                height: `${g.size}px`,
+                '--sx': `${g.dx}px`,
+                '--sy': `${g.dy}px`,
+                '--sd': `${g.delay}ms`,
+              } as CSSProperties}
+            />
+          ))}
+        </span>
+      )}
     </li>
   );
 }

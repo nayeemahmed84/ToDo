@@ -69,6 +69,7 @@ export interface TodoItem {
   sortOrder?: number;
   createdAtMs: number;
   updatedAtMs?: number | null;
+  createdByName?: string | null;
   updatedByUid?: string | null;
   updatedByName?: string | null;
   completedAtMs?: number | null;

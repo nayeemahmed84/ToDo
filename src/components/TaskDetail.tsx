@@ -1,4 +1,6 @@
-import { FormEvent, useRef, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { CustomCalendarPicker } from './CustomCalendarPicker';
 import {
   AlarmClockIcon,
@@ -56,12 +58,64 @@ export function TaskDetail({
   const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newStep, setNewStep] = useState('');
+  const [ownerDisplayName, setOwnerDisplayName] = useState<string | null>(
+    item.createdByName?.trim() || null
+  );
+  const lastModifiedByUid = item.updatedByUid ?? item.ownerUid;
+  const [modifierDisplayName, setModifierDisplayName] = useState<string | null>(
+    item.updatedByName?.trim() || null
+  );
+
+  useEffect(() => {
+    setOwnerDisplayName(item.createdByName?.trim() || null);
+    setModifierDisplayName(item.updatedByName?.trim() || null);
+
+    const uidsToFetch = new Set<string>();
+    if (item.ownerUid && item.ownerUid !== currentUserId && !item.createdByName?.trim()) {
+      uidsToFetch.add(item.ownerUid);
+    }
+    if (lastModifiedByUid && lastModifiedByUid !== currentUserId && !item.updatedByName?.trim()) {
+      uidsToFetch.add(lastModifiedByUid);
+    }
+    if (uidsToFetch.size === 0) return;
+
+    let cancelled = false;
+    Promise.all(
+      Array.from(uidsToFetch).map(async (uid) => {
+        try {
+          const snap = await getDoc(doc(db, 'users', uid));
+          if (!snap.exists()) return [uid, null] as const;
+          const data = snap.data();
+          const name = (typeof data.displayName === 'string' && data.displayName.trim())
+            || (typeof data.email === 'string' && data.email.trim())
+            || null;
+          return [uid, name] as const;
+        } catch {
+          return [uid, null] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      for (const [uid, name] of entries) {
+        if (!name) continue;
+        if (uid === item.ownerUid) setOwnerDisplayName(name);
+        if (uid === lastModifiedByUid) setModifierDisplayName(name);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.ownerUid, item.createdByName, lastModifiedByUid, item.updatedByName, currentUserId]);
 
   const isMyDay = item.myDayDate === todayStr;
-  const lastModifiedByUid = item.updatedByUid ?? item.ownerUid;
+  const createdBy = item.ownerUid === currentUserId
+    ? 'You'
+    : ownerDisplayName || 'a collaborator';
   const lastModifiedBy = lastModifiedByUid === currentUserId
     ? 'You'
-    : item.updatedByName?.trim() || 'a collaborator';
+    : modifierDisplayName
+      || (lastModifiedByUid === item.ownerUid ? ownerDisplayName : null)
+      || 'a collaborator';
   const lastModifiedAt = new Date(item.updatedAtMs ?? item.createdAtMs);
   const lastModifiedDate = lastModifiedAt.toLocaleDateString('en-US', {
     weekday: 'short',
@@ -515,7 +569,7 @@ export function TaskDetail({
               hour: 'numeric',
               minute: '2-digit',
             });
-            return `Created by You on ${dateStr} at ${timeStr}`;
+            return `Created by ${createdBy} on ${dateStr} at ${timeStr}`;
           })()}
           <span>
             Last modified by {lastModifiedBy} on {lastModifiedDate} at {lastModifiedTime}

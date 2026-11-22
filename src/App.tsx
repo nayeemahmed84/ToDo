@@ -199,6 +199,83 @@ export function App() {
     }
     return Array.from(byId.values()).sort((a, b) => b.createdAtMs - a.createdAtMs);
   }, [ownedItems, sharedItemsByList]);
+
+  const [sandExitingIds, setSandExitingIds] = useState<Set<string>>(() => new Set());
+  const [sandEnteringIds, setSandEnteringIds] = useState<Set<string>>(() => new Set());
+  const prevDoneByIdRef = useRef<Map<string, boolean>>(new Map());
+  const sandTimersRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    const prev = prevDoneByIdRef.current;
+    const next = new Map<string, boolean>();
+    const newlyChecked: string[] = [];
+    const newlyUnchecked: string[] = [];
+
+    for (const item of allItems) {
+      next.set(item.id, item.done);
+      if (prev.has(item.id)) {
+        const wasDone = prev.get(item.id);
+        if (!wasDone && item.done) newlyChecked.push(item.id);
+        else if (wasDone && !item.done) newlyUnchecked.push(item.id);
+      }
+    }
+    prevDoneByIdRef.current = next;
+
+    if (newlyChecked.length === 0 && newlyUnchecked.length === 0) return;
+
+    const scheduleClear = (id: string, setter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+      const existing = sandTimersRef.current.get(id);
+      if (existing !== undefined) window.clearTimeout(existing);
+      const timerId = window.setTimeout(() => {
+        sandTimersRef.current.delete(id);
+        setter((s) => {
+          if (!s.has(id)) return s;
+          const copy = new Set(s);
+          copy.delete(id);
+          return copy;
+        });
+      }, 560);
+      sandTimersRef.current.set(id, timerId);
+    };
+
+    if (newlyChecked.length > 0) {
+      setSandEnteringIds((s) => {
+        const copy = new Set(s);
+        for (const id of newlyChecked) copy.delete(id);
+        return copy;
+      });
+      setSandExitingIds((s) => {
+        const copy = new Set(s);
+        for (const id of newlyChecked) {
+          copy.add(id);
+          scheduleClear(id, setSandExitingIds);
+        }
+        return copy;
+      });
+    }
+
+    if (newlyUnchecked.length > 0) {
+      setSandExitingIds((s) => {
+        const copy = new Set(s);
+        for (const id of newlyUnchecked) copy.delete(id);
+        return copy;
+      });
+      setSandEnteringIds((s) => {
+        const copy = new Set(s);
+        for (const id of newlyUnchecked) {
+          copy.add(id);
+          scheduleClear(id, setSandEnteringIds);
+        }
+        return copy;
+      });
+    }
+  }, [allItems]);
+
+  const getSandState = (id: string): 'dissolve' | 'materialize' | null => {
+    if (sandExitingIds.has(id)) return 'dissolve';
+    if (sandEnteringIds.has(id)) return 'materialize';
+    return null;
+  };
   const [selection, setSelection] = useState<ViewSelection>(() => {
     const path = window.location.pathname.toLowerCase();
     if (path === '/tasks/flagged' || path === '/tasks/flagged-email') return { type: 'smart', id: 'flagged-email' };
@@ -658,6 +735,7 @@ const [gridEditText, setGridEditText] = useState('');
       assignedTo: (data.assignedTo as string | null) ?? null,
       attachments: Array.isArray(data.attachments) ? data.attachments : [],
       updatedAtMs: (data.updatedAtMs as number | null) ?? null,
+      createdByName: typeof data.createdByName === 'string' ? data.createdByName : null,
       updatedByUid: typeof data.updatedByUid === 'string' ? data.updatedByUid : null,
       updatedByName: typeof data.updatedByName === 'string' ? data.updatedByName : null,
       category: (data.category as any) ?? null,
@@ -886,8 +964,8 @@ const [gridEditText, setGridEditText] = useState('');
     return arr;
   }, [visibleItems, sortBy, sortAsc, todayStr]);
 
-  const activeItems = sortedVisible.filter((i) => !i.done);
-  const completedItems = sortedVisible.filter((i) => i.done);
+  const activeItems = sortedVisible.filter((i) => !i.done || sandExitingIds.has(i.id));
+  const completedItems = sortedVisible.filter((i) => i.done && !sandExitingIds.has(i.id));
   const reorderListId =
     selection.type === 'list'
       ? selection.id
@@ -1368,6 +1446,7 @@ const [gridEditText, setGridEditText] = useState('');
       await addDoc(collection(db, 'lists', targetListId, 'items'), {
         listId: targetListId,
         ownerUid: user.uid,
+        createdByName: user.displayName?.trim() || user.email?.trim() || null,
         text: newItemText.trim(),
         done: false,
         important: selection.type === 'smart' && selection.id === 'important',
@@ -1402,7 +1481,7 @@ const [gridEditText, setGridEditText] = useState('');
       updatedAtMs: Date.now(),
       updatedAt: serverTimestamp(),
       updatedByUid: user?.uid ?? item.ownerUid,
-      updatedByName: user?.displayName?.trim() || null,
+      updatedByName: user?.displayName?.trim() || user?.email?.trim() || null,
     });
     if (patch.done === true) {
       if (soundEnabled) playCompleteSound();
@@ -2568,6 +2647,7 @@ const [gridEditText, setGridEditText] = useState('');
                     tomorrowStr={tomorrowStr}
                     showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
                     reorderable={canReorderItems}
+                    sandState={getSandState(item.id)}
                     onReorder={handleReorderItems}
                     onToggleDone={handleToggleDone}
                     onToggleImportant={handleToggleImportant}
@@ -2711,6 +2791,7 @@ const [gridEditText, setGridEditText] = useState('');
                         todayStr={todayStr}
                         tomorrowStr={tomorrowStr}
                         showListMeta={false}
+                        sandState={getSandState(item.id)}
                         onToggleDone={handleToggleDone}
                         onToggleImportant={handleToggleImportant}
                         onOpen={handleOpen}
@@ -2745,6 +2826,7 @@ const [gridEditText, setGridEditText] = useState('');
                 tomorrowStr={tomorrowStr}
                 showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
                 reorderable={canReorderItems}
+                sandState={getSandState(item.id)}
                 onReorder={handleReorderItems}
                 onToggleDone={handleToggleDone}
                 onToggleImportant={handleToggleImportant}
