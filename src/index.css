@@ -437,6 +437,27 @@ body {
   text-overflow: ellipsis;
 }
 
+.nav-label-with-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.nav-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-shared-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-text-2);
+  opacity: 0.78;
+}
+
 .nav-count {
   font-size: 0.78rem;
   color: var(--color-count);
@@ -1959,20 +1980,8 @@ button.primary.small {
 }
 
 .task-row {
-  animation: taskRowEnter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
   transition: background 150ms var(--ease-out), border-color 150ms var(--ease-out), box-shadow 180ms var(--ease-out), opacity 180ms var(--ease-out), transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-
-.task-row:nth-child(1) { animation-delay: 0ms; }
-.task-row:nth-child(2) { animation-delay: 16ms; }
-.task-row:nth-child(3) { animation-delay: 32ms; }
-.task-row:nth-child(4) { animation-delay: 48ms; }
-.task-row:nth-child(5) { animation-delay: 64ms; }
-.task-row:nth-child(6) { animation-delay: 80ms; }
-.task-row:nth-child(7) { animation-delay: 96ms; }
-.task-row:nth-child(8) { animation-delay: 112ms; }
-.task-row:nth-child(9) { animation-delay: 128ms; }
-.task-row:nth-child(10) { animation-delay: 144ms; }
 
 .task-row:hover {
   transform: translateY(-1px);
@@ -4824,13 +4833,13 @@ button.primary.small {
   pointer-events: none;
   backdrop-filter: none;
   will-change: transform, opacity;
-  animation: sandRowDissolve 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: sandRowDissolve 280ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .task-row.sand-materialize {
   backdrop-filter: none;
   will-change: transform, opacity;
-  animation: sandRowMaterialize 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: sandRowMaterialize 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .sand-particles {
@@ -4849,11 +4858,11 @@ button.primary.small {
 }
 
 .task-row.sand-dissolve .sand-grain {
-  animation: sandGrainScatter 420ms cubic-bezier(0.16, 1, 0.3, 1) var(--sd, 0ms) both;
+  animation: sandGrainScatter 280ms cubic-bezier(0.16, 1, 0.3, 1) calc(var(--sd, 0ms) * 0.5) both;
 }
 
 .task-row.sand-materialize .sand-grain {
-  animation: sandGrainGather 420ms cubic-bezier(0.16, 1, 0.3, 1) var(--sd, 0ms) both;
+  animation: sandGrainGather 280ms cubic-bezier(0.16, 1, 0.3, 1) calc(var(--sd, 0ms) * 0.5) both;
 }
 
 @keyframes sandRowDissolve {

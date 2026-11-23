@@ -281,7 +281,7 @@ export function App() {
           copy.delete(id);
           return copy;
         });
-      }, 440);
+      }, 300);
       sandTimersRef.current.set(id, timerId);
     };
 

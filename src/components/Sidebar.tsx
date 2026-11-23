@@ -367,6 +367,7 @@ export function Sidebar({
     const isMultiSelected = selectedListIds.has(list.id);
     const isTaskDropTarget = dropTarget?.type === 'task-into-list' && dropTarget.id === list.id;
     const count = counts[list.id] ?? 0;
+    const isShared = (list.memberUids?.length ?? 0) > 0 || list.ownerUid !== userId;
     return (
       <div
         key={list.id}
@@ -467,7 +468,21 @@ export function Sidebar({
               <span className="list-emoji" aria-hidden="true">{list.icon}</span>
             ) : <ListIcon />}
           </span>
-          {!collapsed && <span className="nav-label">{list.title}</span>}
+          {!collapsed && (
+            <span className="nav-label nav-label-with-meta">
+              <span className="nav-label-text">{list.title}</span>
+              {isShared && (
+                <span className="nav-shared-icon" title="Shared list" aria-label="Shared list">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="3.5" />
+                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a3.5 3.5 0 0 1 0 6.74" />
+                  </svg>
+                </span>
+              )}
+            </span>
+          )}
           {!collapsed && count > 0 && <span className="nav-count">{count}</span>}
         </button>
       </div>
