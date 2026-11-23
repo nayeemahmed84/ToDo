@@ -4043,6 +4043,7 @@ const [gridEditText, setGridEditText] = useState('');
                   });
                 }}
                     onContextMenu={(e) => {
+                      if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
                       setContextMenu({ x: e.clientX, y: e.clientY, item });
                     }}
                   />
@@ -4187,6 +4188,7 @@ const [gridEditText, setGridEditText] = useState('');
                   });
                 }}
                         onContextMenu={(e) => {
+                          if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
                           setContextMenu({ x: e.clientX, y: e.clientY, item });
                         }}
                       />
@@ -4224,6 +4226,7 @@ const [gridEditText, setGridEditText] = useState('');
                   });
                 }}
                 onContextMenu={(e) => {
+                  if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
                   setContextMenu({ x: e.clientX, y: e.clientY, item });
                 }}
               />
@@ -4293,6 +4296,7 @@ const [gridEditText, setGridEditText] = useState('');
                   });
                 }}
                     onContextMenu={(e) => {
+                      if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
                       setContextMenu({ x: e.clientX, y: e.clientY, item });
                     }}
                   />
@@ -4570,7 +4574,23 @@ const [gridEditText, setGridEditText] = useState('');
 
       </main>
 
-      {contextMenu && (
+      {contextMenu && (() => {
+        const isMultiSelection = selectedIds.has(contextMenu.item.id) && selectedIds.size > 1;
+        const targetItems = isMultiSelection
+          ? sortedVisible.filter((i) => selectedIds.has(i.id))
+          : [contextMenu.item];
+        const effectiveItems = targetItems.length > 0 ? targetItems : [contextMenu.item];
+        const isMulti = effectiveItems.length > 1;
+        const allInMyDay = effectiveItems.every((i) => i.myDayDate === todayStr);
+        const allImportant = effectiveItems.every((i) => i.important);
+        const allDone = effectiveItems.every((i) => i.done);
+        const closeContextMenu = (clearMulti = false) => {
+          setContextMenu(null);
+          setTaskSubmenu(null);
+          setTaskDatePickerOpen(false);
+          if (clearMulti && isMulti) setSelectedIds(new Set());
+        };
+        return (
         <div
           className="context-menu"
           style={{
@@ -4584,45 +4604,52 @@ const [gridEditText, setGridEditText] = useState('');
           <button
             type="button"
             className="context-menu-item"
-            onClick={() => {
-              const isMyDay = contextMenu.item.myDayDate === todayStr;
-              handleUpdateItem(contextMenu.item, { myDayDate: isMyDay ? null : todayStr });
-              setContextMenu(null);
+            onClick={async () => {
+              const snapshot = [...effectiveItems];
+              const nextMyDay = allInMyDay ? null : todayStr;
+              closeContextMenu(true);
+              await Promise.all(snapshot.map((i) => handleUpdateItem(i, { myDayDate: nextMyDay })));
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="sun" /></span>
-            <span>{contextMenu.item.myDayDate === todayStr ? "Remove from My Day" : "Add to My Day"}</span>
+            <span>{allInMyDay ? "Remove from My Day" : "Add to My Day"}</span>
             <span className="context-menu-shortcut">Ctrl+T</span>
           </button>
           <button
             type="button"
             className="context-menu-item"
-            onClick={() => {
-              handleUpdateItem(contextMenu.item, { important: !contextMenu.item.important });
-              setContextMenu(null);
+            onClick={async () => {
+              const snapshot = [...effectiveItems];
+              const nextImportant = !allImportant;
+              closeContextMenu(true);
+              await Promise.all(snapshot.map((i) => handleUpdateItem(i, { important: nextImportant })));
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="star" /></span>
-            {contextMenu.item.important ? "Remove importance" : "Mark as important"}
+            {allImportant ? "Remove importance" : "Mark as important"}
           </button>
           <button
             type="button"
             className="context-menu-item"
-            onClick={() => {
-              handleUpdateItem(contextMenu.item, { done: !contextMenu.item.done, completedAtMs: !contextMenu.item.done ? Date.now() : null });
-              setContextMenu(null);
+            onClick={async () => {
+              const snapshot = [...effectiveItems];
+              const nextDone = !allDone;
+              const completedAt = nextDone ? Date.now() : null;
+              closeContextMenu(true);
+              await Promise.all(snapshot.map((i) => handleUpdateItem(i, { done: nextDone, completedAtMs: completedAt })));
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="check" /></span>
-            <span>{contextMenu.item.done ? "Mark as not completed" : "Mark as completed"}</span>
+            <span>{allDone ? "Mark as not completed" : "Mark as completed"}</span>
           </button>
           <div className="account-popover-divider" />
           <button
             type="button"
             className="context-menu-item"
-            onClick={() => {
-              handleUpdateItem(contextMenu.item, { dueDate: todayStr });
-              setContextMenu(null);
+            onClick={async () => {
+              const snapshot = [...effectiveItems];
+              closeContextMenu(true);
+              await Promise.all(snapshot.map((i) => handleUpdateItem(i, { dueDate: todayStr })));
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
@@ -4631,9 +4658,10 @@ const [gridEditText, setGridEditText] = useState('');
           <button
             type="button"
             className="context-menu-item"
-            onClick={() => {
-              handleUpdateItem(contextMenu.item, { dueDate: tomorrowStr });
-              setContextMenu(null);
+            onClick={async () => {
+              const snapshot = [...effectiveItems];
+              closeContextMenu(true);
+              await Promise.all(snapshot.map((i) => handleUpdateItem(i, { dueDate: tomorrowStr })));
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
@@ -4672,10 +4700,10 @@ const [gridEditText, setGridEditText] = useState('');
                 <CustomCalendarPicker
                   initialDate={contextMenu.item.dueDate ?? todayStr}
                   todayStr={todayStr}
-                  onSave={(dateStr) => {
-                    handleUpdateItem(contextMenu.item, { dueDate: dateStr });
-                    setContextMenu(null);
-                    setTaskDatePickerOpen(false);
+                  onSave={async (dateStr) => {
+                    const snapshot = [...effectiveItems];
+                    closeContextMenu(true);
+                    await Promise.all(snapshot.map((i) => handleUpdateItem(i, { dueDate: dateStr })));
                   }}
                   onCancel={() => setTaskDatePickerOpen(false)}
                 />
@@ -4688,13 +4716,15 @@ const [gridEditText, setGridEditText] = useState('');
             className="context-menu-item"
             onClick={async () => {
               if (!user) return;
-              const ref = await addDoc(collection(db, "lists"), { title: contextMenu.item.text, ownerUid: user.uid, createdAt: serverTimestamp() });
-              await handleMoveToList(contextMenu.item, ref.id);
-              setContextMenu(null);
+              const snapshot = [...effectiveItems];
+              const listTitle = contextMenu.item.text;
+              closeContextMenu(true);
+              const ref = await addDoc(collection(db, "lists"), { title: listTitle, ownerUid: user.uid, createdAt: serverTimestamp() });
+              await Promise.all(snapshot.map((i) => handleMoveToList(i, ref.id)));
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="move" /></span>
-            Create new list from this task
+            {isMulti ? `Create new list from ${effectiveItems.length} tasks` : "Create new list from this task"}
           </button>
           <div className="context-menu-submenu-wrap" onMouseEnter={(event) => openTaskSubmenu("move", event.currentTarget)} onMouseLeave={() => setTaskSubmenu(null)}>
             <button
@@ -4702,14 +4732,18 @@ const [gridEditText, setGridEditText] = useState('');
               className="context-menu-item"
               onClick={(event) => openTaskSubmenu("move", event.currentTarget)}
             >
-              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="move" /></span><span>Move task to…</span><span className="context-menu-arrow">›</span>
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="move" /></span><span>{isMulti ? "Move tasks to…" : "Move task to…"}</span><span className="context-menu-arrow">›</span>
             </button>
             {taskSubmenu === "move" && (
               <div className="context-menu context-menu-submenu" style={taskSubmenuPosition ?? undefined}>
                 {allLists.map((l) => {
-                  const isCurrent = l.id === contextMenu.item.listId;
+                  const isCurrent = effectiveItems.every((i) => i.listId === l.id);
                   return (
-                    <button key={l.id} className="context-menu-item" disabled={isCurrent} onClick={async () => { await handleMoveToList(contextMenu.item, l.id); setContextMenu(null); setTaskSubmenu(null); }}>
+                    <button key={l.id} className="context-menu-item" disabled={isCurrent} onClick={async () => {
+                      const snapshot = [...effectiveItems];
+                      closeContextMenu(true);
+                      await Promise.all(snapshot.map((i) => handleMoveToList(i, l.id)));
+                    }}>
                       <span className="context-menu-icon" aria-hidden="true">
                         {l.icon ? <span style={{ fontSize: '15px', lineHeight: 1 }}>{l.icon}</span> : <ContextMenuIcon kind="move" />}
                       </span>
@@ -4727,14 +4761,15 @@ const [gridEditText, setGridEditText] = useState('');
               className="context-menu-item"
               onClick={(event) => openTaskSubmenu("copy", event.currentTarget)}
             >
-              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="copy" /></span><span>Copy task to…</span><span className="context-menu-arrow">›</span>
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="copy" /></span><span>{isMulti ? "Copy tasks to…" : "Copy task to…"}</span><span className="context-menu-arrow">›</span>
             </button>
             {taskSubmenu === "copy" && (
               <div className="context-menu context-menu-submenu" style={taskSubmenuPosition ?? undefined}>
                 {allLists.map((l) => (
                   <button key={l.id} className="context-menu-item" onClick={async () => {
-                    await handleCopyItemToList(contextMenu.item, l.id);
-                    setContextMenu(null); setTaskSubmenu(null);
+                    const snapshot = [...effectiveItems];
+                    closeContextMenu(true);
+                    await Promise.all(snapshot.map((i) => handleCopyItemToList(i, l.id)));
                   }}>
                     <span className="context-menu-icon" aria-hidden="true">
                       {l.icon ? <span style={{ fontSize: '15px', lineHeight: 1 }}>{l.icon}</span> : <ContextMenuIcon kind="move" />}
@@ -4749,17 +4784,30 @@ const [gridEditText, setGridEditText] = useState('');
           <button
             type="button"
             className="context-menu-item danger"
-            onClick={() => {
-              handleDeleteItem(contextMenu.item);
-              setContextMenu(null);
+            onClick={async () => {
+              const snapshot = [...effectiveItems];
+              closeContextMenu(true);
+              if (
+                snapshot.length > 1 &&
+                !(await appConfirm({
+                  title: 'Delete tasks',
+                  message: `Delete ${snapshot.length} selected tasks?`,
+                  confirmLabel: 'Delete',
+                  danger: true,
+                }))
+              ) {
+                return;
+              }
+              await Promise.all(snapshot.map((i) => handleDeleteItem(i)));
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="trash" /></span>
-            <span>Delete task</span>
+            <span>{isMulti ? `Delete ${effectiveItems.length} tasks` : "Delete task"}</span>
             <span className="context-menu-shortcut">Delete</span>
           </button>
         </div>
-      )}
+        );
+      })()}
 
       {completedMenu && completedItems.length > 0 && (() => {
         const allInMyDay = completedItems.every((i) => i.myDayDate === todayStr);

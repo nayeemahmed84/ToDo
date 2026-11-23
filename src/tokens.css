@@ -124,6 +124,34 @@
   --list-accent-teal: #4DD0E1;
 }
 
+/* ============ Typography (theme-independent) ============ */
+:root {
+  --font-sans: "Inter Variable", "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+
+  /* Type scale */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-base: 15px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --text-display: 28px;
+
+  /* Line heights */
+  --leading-tight: 1.2;
+  --leading-snug: 1.3;
+  --leading-normal: 1.45;
+  --leading-relaxed: 1.55;
+
+  /* Letter spacing */
+  --tracking-tight: -0.02em;
+  --tracking-snug: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.015em;
+}
+
 /* ============ Timing / easing (theme-independent) ============ */
 :root {
   --dur-fast: 120ms;
