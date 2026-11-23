@@ -60,6 +60,7 @@ export function useFlipList(
 ): void {
   const prevRectsRef = useRef<Map<string, DOMRect>>(new Map());
   const prevDepsRef = useRef<string>(depsKey);
+  const activeAnimsRef = useRef<WeakMap<HTMLElement, Animation>>(new WeakMap());
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -69,33 +70,46 @@ export function useFlipList(
     const nextRects = new Map<string, DOMRect>();
     for (const el of children) {
       const id = el.dataset.flipId;
-      if (id) nextRects.set(id, el.getBoundingClientRect());
+      if (!id || el.classList.contains('sand-dissolve')) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        nextRects.set(id, rect);
+      }
     }
 
     if (prevDepsRef.current !== depsKey && !prefersReducedMotion()) {
       for (const el of children) {
         const id = el.dataset.flipId;
         if (!id) continue;
-        if (el.classList.contains('dragging') || el.classList.contains('sand-dissolve')) continue;
+        if (
+          el.classList.contains('dragging') ||
+          el.classList.contains('sand-dissolve') ||
+          el.classList.contains('sand-materialize')
+        ) {
+          continue;
+        }
         const prev = prevRectsRef.current.get(id);
         const next = nextRects.get(id);
         if (!prev || !next) continue;
+
         const dx = prev.left - next.left;
         const dy = prev.top - next.top;
         if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
 
-        el.style.transition = 'none';
-        el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
-        el.getBoundingClientRect();
-        el.style.transition = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
-        el.style.transform = 'translate3d(0, 0, 0)';
-
-        const cleanup = () => {
-          el.style.transition = '';
-          el.style.transform = '';
-          el.removeEventListener('transitionend', cleanup);
-        };
-        el.addEventListener('transitionend', cleanup);
+        activeAnimsRef.current.get(el)?.cancel();
+        if (typeof el.animate === 'function') {
+          const anim = el.animate(
+            [
+              { transform: `translate3d(${dx}px, ${dy}px, 0)` },
+              { transform: 'translate3d(0, 0, 0)' },
+            ],
+            {
+              duration: 240,
+              easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            }
+          );
+          activeAnimsRef.current.set(el, anim);
+        }
       }
     }
 

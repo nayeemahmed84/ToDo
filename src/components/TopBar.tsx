@@ -1,8 +1,11 @@
+export type SyncStatus = 'online' | 'offline' | 'syncing' | 'synced';
+
 interface TopBarProps {
   onToggleSidebar: () => void;
+  syncStatus?: SyncStatus;
 }
 
-export function TopBar({ onToggleSidebar }: TopBarProps) {
+export function TopBar({ onToggleSidebar, syncStatus = 'online' }: TopBarProps) {
   return (
     <header className="top-bar">
       <button
@@ -24,6 +27,29 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
         </span>
         <span className="top-bar-wordmark">To Do</span>
       </div>
+      {syncStatus !== 'online' && (
+        <div
+          className={`top-bar-sync-pill status-${syncStatus}`}
+          role="status"
+          aria-live="polite"
+          title={
+            syncStatus === 'offline'
+              ? 'You are offline. Changes are saved locally and will sync when you reconnect.'
+              : syncStatus === 'syncing'
+                ? 'Syncing offline changes…'
+                : 'All changes synced'
+          }
+        >
+          <span className="top-bar-sync-dot" aria-hidden="true" />
+          <span>
+            {syncStatus === 'offline'
+              ? 'Offline · Saved locally'
+              : syncStatus === 'syncing'
+                ? 'Syncing…'
+                : 'Synced'}
+          </span>
+        </div>
+      )}
     </header>
   );
 }

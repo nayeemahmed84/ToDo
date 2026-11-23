@@ -16,6 +16,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  waitForPendingWrites,
   where,
   writeBatch,
 } from 'firebase/firestore';
@@ -32,7 +33,7 @@ import { TaskRow } from './components/TaskRow';
 import { Sidebar } from './components/Sidebar';
 import { EmojiPicker } from './components/EmojiPicker';
 import { TaskDetail } from './components/TaskDetail';
-import { TopBar } from './components/TopBar';
+import { SyncStatus, TopBar } from './components/TopBar';
 import { AppSettings, DEFAULT_SETTINGS, SettingsModal } from './components/SettingsModal';
 import { ShareDialog } from './components/ShareDialog';
 import { CustomCalendarPicker } from './components/CustomCalendarPicker';
@@ -250,6 +251,46 @@ export function App() {
 
   const [sandExitingIds, setSandExitingIds] = useState<Set<string>>(() => new Set());
   const [sandEnteringIds, setSandEnteringIds] = useState<Set<string>>(() => new Set());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() =>
+    typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'online'
+  );
+
+  useEffect(() => {
+    let syncedTimer: number | undefined;
+    let active = true;
+
+    const handleOffline = () => {
+      if (syncedTimer !== undefined) window.clearTimeout(syncedTimer);
+      setSyncStatus('offline');
+    };
+
+    const handleOnline = () => {
+      if (syncedTimer !== undefined) window.clearTimeout(syncedTimer);
+      setSyncStatus('syncing');
+      void waitForPendingWrites(db)
+        .then(() => {
+          if (!active || !navigator.onLine) return;
+          setSyncStatus('synced');
+          syncedTimer = window.setTimeout(() => {
+            if (active && navigator.onLine) {
+              setSyncStatus((prev) => (prev === 'synced' ? 'online' : prev));
+            }
+          }, 2500);
+        })
+        .catch(() => {
+          if (active && navigator.onLine) setSyncStatus('online');
+        });
+    };
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      active = false;
+      if (syncedTimer !== undefined) window.clearTimeout(syncedTimer);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
   const prevDoneByIdRef = useRef<Map<string, boolean>>(new Map());
   const sandTimersRef = useRef<Map<string, number>>(new Map());
 
@@ -1323,7 +1364,35 @@ const [gridEditText, setGridEditText] = useState('');
   };
 
   const handleToggleDone = (item: TodoItem) => {
-    handleUpdateItem(item, { done: !item.done, completedAtMs: !item.done ? Date.now() : null });
+    const nextDone = !item.done;
+    if (nextDone) {
+      setSandEnteringIds((s) => {
+        if (!s.has(item.id)) return s;
+        const copy = new Set(s);
+        copy.delete(item.id);
+        return copy;
+      });
+      setSandExitingIds((s) => {
+        if (s.has(item.id)) return s;
+        const copy = new Set(s);
+        copy.add(item.id);
+        return copy;
+      });
+    } else {
+      setSandExitingIds((s) => {
+        if (!s.has(item.id)) return s;
+        const copy = new Set(s);
+        copy.delete(item.id);
+        return copy;
+      });
+      setSandEnteringIds((s) => {
+        if (s.has(item.id)) return s;
+        const copy = new Set(s);
+        copy.add(item.id);
+        return copy;
+      });
+    }
+    handleUpdateItem(item, { done: nextDone, completedAtMs: nextDone ? Date.now() : null });
   };
 
   const handleToggleImportant = (item: TodoItem) => {
@@ -1345,6 +1414,10 @@ const [gridEditText, setGridEditText] = useState('');
   };
   const handleUploadListBackground = async (file: File) => {
     if (!user || !currentList || currentList.ownerUid !== user.uid) return;
+    if (!navigator.onLine) {
+      setError('You are offline. Reconnect to upload a custom background.');
+      return;
+    }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       setError('Choose a JPG, PNG, or WebP image.');
       return;
@@ -2854,6 +2927,10 @@ const [gridEditText, setGridEditText] = useState('');
   if (!user) {
     const handleSignIn = async () => {
       setError(null);
+      if (!navigator.onLine) {
+        setError('You are offline. Connect to the internet to sign in.');
+        return;
+      }
       try {
         await signInWithGoogle();
       } catch (err: unknown) {
@@ -2890,6 +2967,7 @@ const [gridEditText, setGridEditText] = useState('');
     <>
     <div className="app-shell" data-mobile-view={mobileView}>
       <TopBar
+        syncStatus={syncStatus}
         onToggleSidebar={() => {
           if (window.innerWidth < 1024) {
             setSidebarOpen((v) => !v);

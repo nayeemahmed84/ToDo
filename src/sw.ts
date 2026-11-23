@@ -1,6 +1,10 @@
 /// <reference lib="webworker" />
 import { clientsClaim } from 'workbox-core';
-import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
+import { CacheableResponsePlugin } from 'workbox-cacheable-response';
+import { ExpirationPlugin } from 'workbox-expiration';
+import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
+import { NavigationRoute, registerRoute } from 'workbox-routing';
+import { CacheFirst } from 'workbox-strategies';
 
 declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<{ url: string; revision: string | null }>;
@@ -11,6 +15,31 @@ clientsClaim();
 
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
+
+// SPA navigation fallback so deep links (e.g. /tasks/important, /tasks/planned) boot offline.
+registerRoute(
+  new NavigationRoute(createHandlerBoundToURL('/index.html'), {
+    denylist: [/^\/__/, /\/[^/?]+\.[^/]+$/],
+  })
+);
+
+// Cache Firebase Storage / uploaded background & attachment images for offline viewing.
+registerRoute(
+  ({ request, url }) =>
+    request.destination === 'image' ||
+    url.hostname.includes('firebasestorage.googleapis.com') ||
+    url.hostname.includes('storage.googleapis.com'),
+  new CacheFirst({
+    cacheName: 'todo-images-cache',
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
+      new ExpirationPlugin({
+        maxEntries: 80,
+        maxAgeSeconds: 30 * 24 * 60 * 60,
+      }),
+    ],
+  })
+);
 
 interface PushPayloadData {
   title?: string;

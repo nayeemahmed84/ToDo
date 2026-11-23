@@ -10,7 +10,7 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg'],
+      includeAssets: ['icon.svg', 'backgrounds/*.jpg'],
       manifest: {
         name: 'ToDo PWA',
         short_name: 'ToDo',

@@ -85,6 +85,10 @@ export function ShareDialog({
   const handleInvite = async (e: FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
+    if (!navigator.onLine) {
+      setStatusMsg('You are offline. Reconnect to send an invitation.');
+      return;
+    }
     setStatusMsg(null);
     try {
       await onInviteEmail(email.trim());
