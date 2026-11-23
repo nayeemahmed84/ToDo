@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import {
   addDoc,
   arrayUnion,
@@ -45,6 +45,7 @@ import { suggestEmoji } from './lib/suggestEmoji';
 import { parseTaskInput } from './lib/parseTaskInput';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
 import { runViewTransition, useAnimatedPresence, useFlipList, useRetainedValue } from './lib/motion';
+import { blobToDataUrl, compressBackgroundImage, isSupportedImageFile } from './lib/imageCompression';
 import {
   notifyListCollaborators,
   registerDevicePushToken,
@@ -580,8 +581,19 @@ export function App() {
   const [listMenuOpen, setListMenuOpen] = useState(false);
   const [listOptionsSortOpen, setListOptionsSortOpen] = useState(false);
   const [listOptionsSortPosition, setListOptionsSortPosition] = useState<ContextSubmenuPosition | null>(null);
-  const [backgroundImageDeleteMenuPosition, setBackgroundImageDeleteMenuPosition] = useState<ContextSubmenuPosition | null>(null);
+  const [themeDeleteTarget, setThemeDeleteTarget] = useState<{
+    top: number;
+    left: number;
+    kind: 'custom-bg' | 'wallpaper' | 'color';
+    id: string;
+    label: string;
+  } | null>(null);
   const [backgroundUploadInProgress, setBackgroundUploadInProgress] = useState(false);
+  const [backgroundUploadStatus, setBackgroundUploadStatus] = useState<{
+    stage: 'preparing' | 'uploading' | 'saving' | 'done' | 'error';
+    progress: number;
+    message: string;
+  } | null>(null);
   const [taskSubmenu, setTaskSubmenu] = useState<"move" | "copy" | null>(null);
   const [taskSubmenuPosition, setTaskSubmenuPosition] = useState<ContextSubmenuPosition | null>(null);
   const headerTitleInputRef = useRef<HTMLInputElement>(null);
@@ -602,7 +614,7 @@ export function App() {
     if (!listMenuOpen) {
       setListOptionsSortOpen(false);
       setListOptionsSortPosition(null);
-      setBackgroundImageDeleteMenuPosition(null);
+      setThemeDeleteTarget(null);
     }
   }, [listMenuOpen]);
 
@@ -1418,42 +1430,132 @@ const [gridEditText, setGridEditText] = useState('');
       setError('You are offline. Reconnect to upload a custom background.');
       return;
     }
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setError('Choose a JPG, PNG, or WebP image.');
+    if (!isSupportedImageFile(file)) {
+      setError('Choose an image file (JPG, PNG, WebP, HEIC, HEIF, AVIF, etc.).');
       return;
     }
-    if (file.size > 8 * 1024 * 1024) {
-      setError('Background images must be 8 MB or smaller.');
+    if (file.size > 25 * 1024 * 1024) {
+      setError('Background images must be 25 MB or smaller.');
       return;
     }
 
     setError(null);
     setBackgroundUploadInProgress(true);
+    setBackgroundUploadStatus({
+      stage: 'preparing',
+      progress: 12,
+      message: 'Preparing & compressing image…',
+    });
     let backgroundStorage: ReturnType<typeof getFirebaseStorage> | null = null;
     let uploadedPath: string | null = null;
     let uploadCompleted = false;
     let listUpdated = false;
     try {
-      backgroundStorage = getFirebaseStorage();
-      uploadedPath = `list-backgrounds/${user.uid}/${currentList.id}/${crypto.randomUUID()}`;
-      const imageRef = ref(backgroundStorage, uploadedPath);
-      await uploadBytes(imageRef, file, { contentType: file.type });
-      uploadCompleted = true;
-      const backgroundImageUrl = await getDownloadURL(imageRef);
+      const { blob, contentType } = await compressBackgroundImage(file);
+      const sizeKb = Math.max(1, Math.round(blob.size / 1024));
+      let backgroundImageUrl: string;
+      let nextImagePath: string | null = null;
+
+      try {
+        backgroundStorage = getFirebaseStorage();
+        uploadedPath = `list-backgrounds/${user.uid}/${currentList.id}/${crypto.randomUUID()}`;
+        const imageRef = ref(backgroundStorage, uploadedPath);
+
+        setBackgroundUploadStatus({
+          stage: 'uploading',
+          progress: 20,
+          message: `Uploading (${sizeKb} KB)… 0%`,
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          const task = uploadBytesResumable(imageRef, blob, { contentType });
+          let settled = false;
+          const stallTimer = window.setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              task.cancel();
+              reject(new Error('Storage upload timed out at 0%'));
+            }
+          }, 6000);
+
+          task.on(
+            'state_changed',
+            (snapshot) => {
+              if (snapshot.bytesTransferred > 0) {
+                window.clearTimeout(stallTimer);
+              }
+              const ratio = snapshot.totalBytes > 0 ? snapshot.bytesTransferred / snapshot.totalBytes : 0;
+              const pct = Math.round(ratio * 100);
+              setBackgroundUploadStatus({
+                stage: 'uploading',
+                progress: Math.max(20, Math.min(92, 20 + Math.round(ratio * 72))),
+                message: `Uploading (${sizeKb} KB)… ${pct}%`,
+              });
+            },
+            (uploadErr) => {
+              window.clearTimeout(stallTimer);
+              if (!settled) {
+                settled = true;
+                reject(uploadErr);
+              }
+            },
+            () => {
+              window.clearTimeout(stallTimer);
+              if (!settled) {
+                settled = true;
+                resolve();
+              }
+            }
+          );
+        });
+
+        uploadCompleted = true;
+        setBackgroundUploadStatus({
+          stage: 'saving',
+          progress: 96,
+          message: 'Applying background…',
+        });
+        backgroundImageUrl = await getDownloadURL(imageRef);
+        nextImagePath = uploadedPath;
+      } catch {
+        // Fallback when Firebase Storage isn't enabled/reachable: store compressed image directly in Firestore.
+        setBackgroundUploadStatus({
+          stage: 'saving',
+          progress: 85,
+          message: `Saving compressed image (${sizeKb} KB)…`,
+        });
+        const dataUrl = await blobToDataUrl(blob);
+        if (dataUrl.length > 750_000) {
+          throw new Error('Compressed image is too large to save without Firebase Storage.');
+        }
+        backgroundImageUrl = dataUrl;
+        nextImagePath = null;
+        uploadedPath = null;
+        uploadCompleted = false;
+      }
+
       await updateDoc(doc(db, 'lists', currentList.id), {
         backgroundImageUrl,
-        backgroundImagePath: uploadedPath,
+        backgroundImagePath: nextImagePath,
         customBackgroundActive: true,
       });
       listUpdated = true;
 
-      if (currentList.backgroundImagePath) {
+      if (currentList.backgroundImagePath && currentList.backgroundImagePath !== nextImagePath && backgroundStorage) {
         try {
           await deleteObject(ref(backgroundStorage, currentList.backgroundImagePath));
         } catch (cleanupErr) {
           setError(`Background updated, but the previous image could not be removed: ${cleanupErr instanceof Error ? cleanupErr.message : 'Unknown error'}`);
         }
       }
+      setBackgroundUploadStatus({
+        stage: 'done',
+        progress: 100,
+        message: `Background updated (${sizeKb} KB)`,
+      });
+      window.setTimeout(() => {
+        setBackgroundUploadStatus((prev) => (prev?.stage === 'done' ? null : prev));
+      }, 2600);
       setListMenuOpen(false);
     } catch (err) {
       let message = err instanceof Error ? err.message : 'Failed to upload background image';
@@ -1465,6 +1567,11 @@ const [gridEditText, setGridEditText] = useState('');
         }
       }
       setError(message);
+      setBackgroundUploadStatus({
+        stage: 'error',
+        progress: 0,
+        message,
+      });
     } finally {
       setBackgroundUploadInProgress(false);
     }
@@ -1573,6 +1680,7 @@ const [gridEditText, setGridEditText] = useState('');
     if (!user) return;
     setError(null);
     try {
+      const targetList = allLists.find((l) => l.id === listId);
       const listItems = allItems.filter((i) => i.listId === listId);
       await Promise.all(
         listItems.map((i) =>
@@ -1580,6 +1688,13 @@ const [gridEditText, setGridEditText] = useState('');
         )
       );
       await deleteDoc(doc(db, 'lists', listId));
+      if (targetList?.backgroundImagePath) {
+        try {
+          await deleteObject(ref(getFirebaseStorage(), targetList.backgroundImagePath));
+        } catch {
+          // Best-effort cleanup of deleted list's Storage background
+        }
+      }
       if (selection.type === 'list' && selection.id === listId) {
         setSelection({ type: 'smart', id: 'my-day' });
       }
@@ -2304,53 +2419,125 @@ const [gridEditText, setGridEditText] = useState('');
     }
   };
 
-  const handleImportJson = async (file: File) => {
-    if (!user) return;
+  const handleImportJson = async (
+    file: File
+  ): Promise<{ lists: number; items: number; groups: number }> => {
+    if (!user) throw new Error('Sign in to import a backup.');
     setError(null);
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as {
-        lists?: { id?: string; title?: string }[];
-        items?: Partial<TodoItem>[];
+        groups?: Array<Partial<TodoGroup> & { id?: string }>;
+        lists?: Array<Partial<TodoList> & { id?: string }>;
+        items?: Array<Partial<TodoItem>>;
+        settings?: Partial<AppSettings>;
       };
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        (!Array.isArray(parsed.lists) &&
+          !Array.isArray(parsed.items) &&
+          !Array.isArray(parsed.groups) &&
+          !parsed.settings)
+      ) {
+        throw new Error('Invalid backup file format.');
+      }
+
+      const groupIdMap = new Map<string, string>();
+      let importedGroups = 0;
+      for (const g of parsed.groups ?? []) {
+        const ref = await addDoc(collection(db, 'groups'), {
+          title: g.title || 'Imported Group',
+          ownerUid: user.uid,
+          collapsed: Boolean(g.collapsed),
+          sortOrder: typeof g.sortOrder === 'number' ? g.sortOrder : Date.now(),
+          createdAt: serverTimestamp(),
+          ...(g.icon ? { icon: g.icon } : {}),
+        });
+        if (g.id) groupIdMap.set(g.id, ref.id);
+        importedGroups += 1;
+      }
+
       const idMap = new Map<string, string>();
+      let importedLists = 0;
       for (const l of parsed.lists ?? []) {
+        const mappedGroupId =
+          l.groupId && groupIdMap.has(l.groupId) ? groupIdMap.get(l.groupId)! : null;
         const ref = await addDoc(collection(db, 'lists'), {
           title: l.title || 'Imported List',
           ownerUid: user.uid,
           createdAt: serverTimestamp(),
+          ...(l.icon ? { icon: l.icon } : {}),
+          ...(l.color ? { color: l.color } : {}),
+          ...(l.background ? { background: l.background } : {}),
+          ...(typeof l.sortOrder === 'number' ? { sortOrder: l.sortOrder } : {}),
+          ...(mappedGroupId ? { groupId: mappedGroupId } : {}),
         });
         if (l.id) idMap.set(l.id, ref.id);
+        importedLists += 1;
       }
-      const fallbackListId = await ensureDefaultList();
-      for (const item of parsed.items ?? []) {
-        const targetListId =
-          (item.listId && idMap.get(item.listId)) || fallbackListId;
-        await addDoc(collection(db, 'lists', targetListId, 'items'), {
-          listId: targetListId,
-          ownerUid: user.uid,
-          text: item.text || 'Untitled task',
-          done: Boolean(item.done),
-          important: Boolean(item.important),
-          myDayDate: item.myDayDate ?? null,
-          dueDate: item.dueDate ?? null,
-          repeat: item.repeat ?? 'none',
-          category: item.category ?? null,
-          notes: item.notes ?? '',
-          steps: Array.isArray(item.steps) ? item.steps : [],
-          createdAtMs: item.createdAtMs ?? Date.now(),
-          completedAtMs: item.completedAtMs ?? null,
-        });
+
+      let importedItems = 0;
+      const itemsToImport = parsed.items ?? [];
+      if (itemsToImport.length > 0) {
+        const fallbackListId = await ensureDefaultList();
+        for (const item of itemsToImport) {
+          const targetListId =
+            (item.listId && idMap.get(item.listId)) || fallbackListId;
+          await addDoc(collection(db, 'lists', targetListId, 'items'), {
+            listId: targetListId,
+            ownerUid: user.uid,
+            text: item.text || 'Untitled task',
+            done: Boolean(item.done),
+            important: Boolean(item.important),
+            myDayDate: item.myDayDate ?? null,
+            dueDate: item.dueDate ?? null,
+            reminderAtMs: item.reminderAtMs ?? null,
+            repeat: item.repeat ?? 'none',
+            category: item.category ?? null,
+            notes: item.notes ?? '',
+            steps: Array.isArray(item.steps) ? item.steps : [],
+            attachments: Array.isArray(item.attachments) ? item.attachments : [],
+            sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : Date.now(),
+            createdAtMs: item.createdAtMs ?? Date.now(),
+            completedAtMs: item.completedAtMs ?? null,
+            deletedAtMs: item.deletedAtMs ?? null,
+          });
+          importedItems += 1;
+        }
       }
+
+      if (parsed.settings && typeof parsed.settings === 'object') {
+        updateAppSettings(parsed.settings);
+      }
+
+      return { lists: importedLists, items: importedItems, groups: importedGroups };
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to import JSON');
+      const msg = err instanceof Error ? err.message : 'Failed to import JSON';
+      setError(msg);
+      throw new Error(msg);
     }
   };
 
   const handleExportJson = () => {
     const payload = {
+      version: '0.1.0',
       exportedAt: new Date().toISOString(),
-      lists,
+      account: user
+        ? {
+            uid: user.uid,
+            displayName: user.displayName ?? null,
+            email: user.email ?? null,
+          }
+        : null,
+      settings: appSettings,
+      uiState: {
+        completedExpandedByView,
+        collapsedLists,
+        printOptions,
+      },
+      groups,
+      lists: allLists,
       items: allItems,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -3364,8 +3551,8 @@ const [gridEditText, setGridEditText] = useState('');
               style={{ position: "relative" }}
               onClick={(event) => {
                 const target = event.target;
-                if (!(target instanceof Element) || !target.closest('.background-image-delete-menu, .wallpaper-custom')) {
-                  setBackgroundImageDeleteMenuPosition(null);
+                if (!(target instanceof Element) || !target.closest('.background-image-delete-menu, .list-theme-tile')) {
+                  setThemeDeleteTarget(null);
                 }
               }}
             >
@@ -3410,7 +3597,19 @@ const [gridEditText, setGridEditText] = useState('');
                     <span className="list-options-sort-arrow" aria-hidden="true">›</span>
                   </button>
                   <div className="list-theme-section">
-                    <div className="list-theme-heading">Theme</div>
+                    <div className="list-theme-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Theme</span>
+                      {((appSettings.hiddenThemeColors?.length ?? 0) > 0 || (appSettings.hiddenBackgrounds?.length ?? 0) > 0) && (
+                        <button
+                          type="button"
+                          className="chip-btn"
+                          style={{ fontSize: '11px', padding: '2px 7px' }}
+                          onClick={() => updateAppSettings({ hiddenThemeColors: [], hiddenBackgrounds: [] })}
+                        >
+                          Restore
+                        </button>
+                      )}
+                    </div>
                     <div className="list-theme-grid">
                       {[
                         { key: "blue", var: "var(--swatch-blue)" },
@@ -3418,7 +3617,9 @@ const [gridEditText, setGridEditText] = useState('');
                         { key: "red", var: "var(--swatch-red)" },
                         { key: "green", var: "var(--swatch-green)" },
                         { key: "teal", var: "var(--swatch-teal)" },
-                      ].map((swatch) => {
+                      ]
+                        .filter((swatch) => !(appSettings.hiddenThemeColors ?? []).includes(swatch.key))
+                        .map((swatch) => {
                         const activeColor = selection.type === 'list'
                           ? (currentList?.color ?? 'blue')
                           : (smartTheme?.color ?? 'blue');
@@ -3428,8 +3629,10 @@ const [gridEditText, setGridEditText] = useState('');
                             type="button"
                             aria-label={`List color ${swatch.key}`}
                             aria-pressed={activeColor === swatch.key}
+                            title={`Color: ${swatch.key} (right-click to delete)`}
                             className="list-theme-tile"
                             onClick={async () => {
+                              setThemeDeleteTarget(null);
                               if (selection.type === 'list') {
                                 await updateDoc(doc(db, "lists", selection.id), { color: swatch.key });
                               } else {
@@ -3442,6 +3645,19 @@ const [gridEditText, setGridEditText] = useState('');
                               }
                               setListMenuOpen(false);
                             }}
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              const padding = 8;
+                              const menuWidth = Math.min(190, window.innerWidth - padding * 2);
+                              const menuHeight = 44;
+                              setThemeDeleteTarget({
+                                top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
+                                left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
+                                kind: 'color',
+                                id: swatch.key,
+                                label: `${swatch.key} theme`,
+                              });
+                            }}
                             style={{ background: swatch.var }}
                           />
                         );
@@ -3451,7 +3667,9 @@ const [gridEditText, setGridEditText] = useState('');
                         { id: 'coast', label: 'Coast at sunset' },
                         { id: 'plain', label: 'Solid background' },
                         { id: 'none', label: 'No background' },
-                      ] as const).map((wallpaper) => {
+                      ] as const)
+                        .filter((wallpaper) => !(appSettings.hiddenBackgrounds ?? []).includes(wallpaper.id))
+                        .map((wallpaper) => {
                         const isPressed = selection.type === 'list'
                           ? !currentList?.customBackgroundActive && (currentList?.background ?? 'field') === wallpaper.id
                           : currentWallpaper === wallpaper.id;
@@ -3462,8 +3680,9 @@ const [gridEditText, setGridEditText] = useState('');
                             className={`list-theme-tile wallpaper-${wallpaper.id}`}
                             aria-label={wallpaper.label}
                             aria-pressed={isPressed}
-                            title={wallpaper.label}
+                            title={`${wallpaper.label} (right-click to delete)`}
                             onClick={async () => {
+                              setThemeDeleteTarget(null);
                               if (selection.type === 'list') {
                                 await updateDoc(doc(db, 'lists', selection.id), {
                                   background: wallpaper.id,
@@ -3479,6 +3698,19 @@ const [gridEditText, setGridEditText] = useState('');
                               }
                               setListMenuOpen(false);
                             }}
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              const padding = 8;
+                              const menuWidth = Math.min(190, window.innerWidth - padding * 2);
+                              const menuHeight = 44;
+                              setThemeDeleteTarget({
+                                top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
+                                left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
+                                kind: 'wallpaper',
+                                id: wallpaper.id,
+                                label: wallpaper.label,
+                              });
+                            }}
                           />
                         );
                       })}
@@ -3488,10 +3720,10 @@ const [gridEditText, setGridEditText] = useState('');
                           className="list-theme-tile wallpaper-custom"
                           aria-label="Uploaded background"
                           aria-pressed={Boolean(currentList.customBackgroundActive)}
-                          title="Right-click to remove uploaded background"
+                          title="Right-click to delete uploaded background"
                           style={{ backgroundImage: `url(${JSON.stringify(currentList.backgroundImageUrl)})` }}
                           onClick={async () => {
-                            setBackgroundImageDeleteMenuPosition(null);
+                            setThemeDeleteTarget(null);
                             await updateDoc(doc(db, 'lists', selection.id), { customBackgroundActive: true });
                             setListMenuOpen(false);
                           }}
@@ -3501,9 +3733,12 @@ const [gridEditText, setGridEditText] = useState('');
                             const padding = 8;
                             const menuWidth = Math.min(190, window.innerWidth - padding * 2);
                             const menuHeight = 44;
-                            setBackgroundImageDeleteMenuPosition({
+                            setThemeDeleteTarget({
                               top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
                               left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
+                              kind: 'custom-bg',
+                              id: 'custom-bg',
+                              label: 'uploaded background',
                             });
                           }}
                         />
@@ -3513,7 +3748,7 @@ const [gridEditText, setGridEditText] = useState('');
                           <input
                             ref={backgroundImageInputRef}
                             type="file"
-                            accept="image/jpeg,image/png,image/webp"
+                            accept="image/*,.heic,.heif"
                             hidden
                             onChange={(event) => {
                               const file = event.currentTarget.files?.[0];
@@ -3537,6 +3772,31 @@ const [gridEditText, setGridEditText] = useState('');
                         </>
                       )}
                     </div>
+                    {backgroundUploadStatus && (
+                      <div className={`theme-upload-status stage-${backgroundUploadStatus.stage}`} role="status" aria-live="polite">
+                        <div className="theme-upload-status-row">
+                          <span className="theme-upload-status-text">{backgroundUploadStatus.message}</span>
+                          {backgroundUploadStatus.stage === 'error' && (
+                            <button
+                              type="button"
+                              className="theme-upload-dismiss"
+                              onClick={() => setBackgroundUploadStatus(null)}
+                              aria-label="Dismiss upload error"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                        {backgroundUploadStatus.stage !== 'error' && (
+                          <div className="theme-upload-bar-track">
+                            <div
+                              className="theme-upload-bar-fill"
+                              style={{ width: `${backgroundUploadStatus.progress}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); setPrintListId('__current__'); }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -3682,15 +3942,15 @@ const [gridEditText, setGridEditText] = useState('');
                   )}
                 </div>
               )}
-              {backgroundImageDeleteMenuPosition && currentList?.ownerUid === user.uid && (
+              {themeDeleteTarget && (
                 <div
                   className="top-bar-popover background-image-delete-menu"
                   role="menu"
-                  aria-label="Uploaded background options"
+                  aria-label={`Delete ${themeDeleteTarget.label}`}
                   style={{
                     position: 'fixed',
-                    top: backgroundImageDeleteMenuPosition.top,
-                    left: backgroundImageDeleteMenuPosition.left,
+                    top: themeDeleteTarget.top,
+                    left: themeDeleteTarget.left,
                     right: 'auto',
                   }}
                 >
@@ -3699,12 +3959,46 @@ const [gridEditText, setGridEditText] = useState('');
                     role="menuitem"
                     className="account-popover-item danger"
                     disabled={backgroundUploadInProgress}
-                    onClick={() => {
-                      setBackgroundImageDeleteMenuPosition(null);
-                      void handleRemoveListBackground();
+                    onClick={async () => {
+                      const target = themeDeleteTarget;
+                      setThemeDeleteTarget(null);
+                      if (target.kind === 'custom-bg') {
+                        await handleRemoveListBackground();
+                        return;
+                      }
+                      if (target.kind === 'color') {
+                        const nextHidden = Array.from(new Set([...(appSettings.hiddenThemeColors ?? []), target.id]));
+                        updateAppSettings({ hiddenThemeColors: nextHidden });
+                        if (selection.type === 'list' && currentList?.color === target.id && currentList.ownerUid === user.uid) {
+                          await updateDoc(doc(db, 'lists', selection.id), { color: 'default' });
+                        } else if (selection.type === 'smart' && smartTheme?.color === target.id) {
+                          updateAppSettings({
+                            hiddenThemeColors: nextHidden,
+                            smartThemes: {
+                              ...(appSettings.smartThemes ?? {}),
+                              [selection.id]: { ...(smartTheme ?? {}), color: 'default' },
+                            },
+                          });
+                        }
+                        return;
+                      }
+                      const nextHiddenBgs = Array.from(new Set([...(appSettings.hiddenBackgrounds ?? []), target.id]));
+                      const fallbackBg = target.id === 'none' ? 'plain' : 'none';
+                      updateAppSettings({ hiddenBackgrounds: nextHiddenBgs });
+                      if (selection.type === 'list' && currentList?.background === target.id && currentList.ownerUid === user.uid) {
+                        await updateDoc(doc(db, 'lists', selection.id), { background: fallbackBg });
+                      } else if (selection.type === 'smart' && currentWallpaper === target.id) {
+                        updateAppSettings({
+                          hiddenBackgrounds: nextHiddenBgs,
+                          smartThemes: {
+                            ...(appSettings.smartThemes ?? {}),
+                            [selection.id]: { ...(smartTheme ?? {}), background: fallbackBg },
+                          },
+                        });
+                      }
                     }}
                   >
-                    Delete uploaded background
+                    Delete
                   </button>
                 </div>
               )}
@@ -5314,6 +5608,27 @@ const [gridEditText, setGridEditText] = useState('');
         </div>
       )}
 
+      {backgroundUploadStatus && !listMenuOpen && (
+        <div className={`undo-toast upload-progress-toast stage-${backgroundUploadStatus.stage}`} role="status" aria-live="polite">
+          <div className="upload-toast-inner">
+            <span>{backgroundUploadStatus.message}</span>
+            {backgroundUploadStatus.stage !== 'error' && (
+              <div className="theme-upload-bar-track">
+                <div
+                  className="theme-upload-bar-fill"
+                  style={{ width: `${backgroundUploadStatus.progress}%` }}
+                />
+              </div>
+            )}
+          </div>
+          {backgroundUploadStatus.stage === 'error' && (
+            <button type="button" onClick={() => setBackgroundUploadStatus(null)}>
+              Dismiss
+            </button>
+          )}
+        </div>
+      )}
+
       {listPickerPresence.shouldRender && renderedListPicker && (
         <div className={`modal-backdrop ${listPickerPresence.isExiting ? 'exiting' : ''}`} onClick={() => setListPickerMenu(null)}>
           <div
@@ -5553,7 +5868,6 @@ const [gridEditText, setGridEditText] = useState('');
       )}
       {settingsOpen && (
         <SettingsModal
-          user={user}
           settings={appSettings}
           onUpdateSettings={updateAppSettings}
           onExportJson={handleExportJson}

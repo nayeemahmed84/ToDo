@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { User } from 'firebase/auth';
 import { isIosNonStandalone, isNotificationApiSupported } from '../lib/notifications';
 
 export interface AppSettings {
@@ -17,10 +16,10 @@ export interface AppSettings {
   smartAssignedToMe: boolean;
   autoHideEmptySmartLists: boolean;
   showDueTodayInMyDay: boolean;
-  connectedPlanner: boolean;
-  notifyEmailShare: boolean;
   mutedListIds: string[];
   smartThemes?: Record<string, { color?: string; background?: string }>;
+  hiddenThemeColors?: string[];
+  hiddenBackgrounds?: string[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -38,18 +37,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   smartAssignedToMe: false,
   autoHideEmptySmartLists: true,
   showDueTodayInMyDay: true,
-  connectedPlanner: true,
-  notifyEmailShare: true,
   mutedListIds: [],
   smartThemes: {},
 };
 
 interface SettingsModalProps {
-  user: User;
   settings: AppSettings;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
   onExportJson: () => void;
-  onImportJson: (file: File) => Promise<void>;
+  onImportJson: (file: File) => Promise<{ lists: number; items: number; groups: number }>;
   onClose: () => void;
 }
 
@@ -81,7 +77,6 @@ function SettingBlock({ label, children }: { label: string; children: React.Reac
 }
 
 export function SettingsModal({
-  user,
   settings,
   onUpdateSettings,
   onExportJson,
@@ -89,7 +84,8 @@ export function SettingsModal({
   onClose,
 }: SettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [copiedId, setCopiedId] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [backupFeedback, setBackupFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -191,44 +187,46 @@ export function SettingsModal({
           </SettingBlock>
         </section>
 
-        <section style={{ display: 'flex', flexDirection: 'column' }}>
-          <h3 style={{ margin: '1rem 0 0', fontSize: '1.25rem', fontWeight: 700 }}>Connected apps</h3>
-          <SettingBlock label="Planner">
-            <Toggle label="Planner" checked={settings.connectedPlanner} onChange={(v) => onUpdateSettings({ connectedPlanner: v })} />
-          </SettingBlock>
-        </section>
-
-        <section style={{ display: 'flex', flexDirection: 'column' }}>
-          <h3 style={{ margin: '1rem 0 0', fontSize: '1.25rem', fontWeight: 700 }}>Notifications</h3>
-          <SettingBlock label="Email">
-            <Toggle label="Email notifications" checked={settings.notifyEmailShare} onChange={(v) => onUpdateSettings({ notifyEmailShare: v })} />
-          </SettingBlock>
-        </section>
-
-        <section style={{ display: 'flex', flexDirection: 'column' }}>
-          <h3 style={{ margin: '1rem 0 0', fontSize: '1.25rem', fontWeight: 700 }}>About</h3>
-          <div style={{ fontSize: '0.85rem', color: 'var(--color-text-2)', padding: '12px 0' }}>
+        <section className="settings-about-section">
+          <h3 className="settings-about-title">About</h3>
+          <div className="settings-about-version">
             Version: ToDo PWA v0.1.0
           </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', padding: '12px 0' }}>
-            <button type="button" className="chip-btn" onClick={onExportJson}>
-              Export your info
-            </button>
-            <button type="button" className="chip-btn" onClick={() => fileInputRef.current?.click()}>
-              Import JSON backup
+          <div className="settings-about-actions">
+            <button
+              type="button"
+              className="settings-action-btn primary"
+              onClick={() => {
+                onExportJson();
+                setBackupFeedback({ kind: 'success', text: 'Full backup exported.' });
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span>Export everything</span>
             </button>
             <button
               type="button"
-              className="chip-btn"
-              onClick={() => {
-                navigator.clipboard?.writeText(JSON.stringify({ sessionId: 'local-session', userId: user.uid }));
-                setCopiedId(true);
-                setTimeout(() => setCopiedId(false), 2000);
-              }}
+              className="settings-action-btn"
+              disabled={importing}
+              onClick={() => fileInputRef.current?.click()}
             >
-              {copiedId ? 'Copied!' : 'Copy Session and User ID'}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <span>{importing ? 'Importing…' : 'Import JSON backup'}</span>
             </button>
           </div>
+          {backupFeedback && (
+            <div className={`settings-backup-feedback ${backupFeedback.kind}`} role="status">
+              {backupFeedback.text}
+            </div>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -236,8 +234,22 @@ export function SettingsModal({
             style={{ display: 'none' }}
             onChange={async (e) => {
               const f = e.target.files?.[0];
-              if (f) {
-                await onImportJson(f);
+              if (!f) return;
+              setImporting(true);
+              setBackupFeedback(null);
+              try {
+                const summary = await onImportJson(f);
+                setBackupFeedback({
+                  kind: 'success',
+                  text: `Imported ${summary.lists} list${summary.lists === 1 ? '' : 's'} and ${summary.items} task${summary.items === 1 ? '' : 's'}.`,
+                });
+              } catch (err) {
+                setBackupFeedback({
+                  kind: 'error',
+                  text: err instanceof Error ? err.message : 'Failed to import backup.',
+                });
+              } finally {
+                setImporting(false);
                 e.target.value = '';
               }
             }}

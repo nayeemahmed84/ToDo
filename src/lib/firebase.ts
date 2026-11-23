@@ -42,7 +42,10 @@ export const getFirebaseStorage = () => {
   if (!firebaseConfig.storageBucket) {
     throw new Error('Firebase Storage is not configured. Set VITE_FIREBASE_STORAGE_BUCKET.');
   }
-  return getStorage(app);
+  const storage = getStorage(app);
+  storage.maxUploadRetryTime = 8000;
+  storage.maxOperationRetryTime = 8000;
+  return storage;
 };
 
 const googleProvider = new GoogleAuthProvider();
