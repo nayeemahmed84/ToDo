@@ -354,6 +354,7 @@ export function App() {
   }, [selection]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [newItemText, setNewItemText] = useState('');
+  const [duplicateDismissed, setDuplicateDismissed] = useState(false);
   const [completedExpandedByView, setCompletedExpandedByView] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('todo.completedExpandedByView');
@@ -654,6 +655,30 @@ const [gridEditText, setGridEditText] = useState('');
       }, 100);
     }
   }, [selection, viewMode]);
+
+  const duplicateMatches = useMemo(() => {
+    const q = newItemText.trim().toLowerCase();
+    if (q.length < 2 || duplicateDismissed) return [];
+    const targetListId =
+      selection.type === 'list'
+        ? selection.id
+        : selection.id === 'tasks'
+          ? defaultTasksList?.id ?? null
+          : null;
+    return allItems
+      .filter((item) => {
+        if (targetListId && item.listId !== targetListId) return false;
+        return item.text.toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        const aExact = a.text.trim().toLowerCase() === q ? 0 : 1;
+        const bExact = b.text.trim().toLowerCase() === q ? 0 : 1;
+        if (aExact !== bExact) return aExact - bExact;
+        if (a.done !== b.done) return a.done ? 1 : -1;
+        return b.createdAtMs - a.createdAtMs;
+      })
+      .slice(0, 5);
+  }, [allItems, defaultTasksList?.id, duplicateDismissed, newItemText, selection]);
 
   const myDaySuggestions = useMemo(() => {
     const tmrw = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -1541,25 +1566,35 @@ const [gridEditText, setGridEditText] = useState('');
     }
   };
 
-  const handleMoveListDown = async (listId: string) => {
+  const handleMoveListStep = async (listId: string, delta: -1 | 1) => {
     if (!user) return;
     const list = allLists.find((candidate) => candidate.id === listId);
     if (!list || list.ownerUid !== user.uid) return;
-    const siblings = allLists.filter((candidate) =>
-      candidate.ownerUid === user.uid &&
-      candidate.id !== defaultTasksList?.id &&
-      candidate.groupId === list.groupId
-    );
+    const targetGroupId = list.groupId ?? null;
+    const siblings = allLists
+      .filter((candidate) =>
+        candidate.ownerUid === user.uid &&
+        !candidate.isDefaultTasksList &&
+        candidate.id !== defaultTasksList?.id &&
+        (candidate.groupId ?? null) === targetGroupId
+      )
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     const index = siblings.findIndex((candidate) => candidate.id === listId);
-    if (index < 0 || index >= siblings.length - 1) return;
-    const next = siblings[index + 1];
-    const currentOrder = list.sortOrder ?? index;
-    const nextOrder = next.sortOrder ?? index + 1;
-    await Promise.all([
-      updateDoc(doc(db, 'lists', list.id), { sortOrder: nextOrder }),
-      updateDoc(doc(db, 'lists', next.id), { sortOrder: currentOrder }),
-    ]);
+    const swapIndex = index + delta;
+    if (index < 0 || swapIndex < 0 || swapIndex >= siblings.length) return;
+    const reordered = [...siblings];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(swapIndex, 0, moved);
+    const batch = writeBatch(db);
+    reordered.forEach((sibling, idx) => {
+      batch.update(doc(db, 'lists', sibling.id), { sortOrder: idx + 1 });
+    });
+    await batch.commit();
   };
+
+  const handleMoveListUp = (listId: string) => handleMoveListStep(listId, -1);
+
+  const handleMoveListDown = (listId: string) => handleMoveListStep(listId, 1);
 
   const isSharedList = (listId: string) => {
     const list = allLists.find((l) => l.id === listId);
@@ -2812,6 +2847,7 @@ const [gridEditText, setGridEditText] = useState('');
           onDuplicateList={(id) => handleDuplicateList(id)}
           onPrintList={(id) => setPrintListId(id)}
           onMoveListToGroup={handleMoveListToGroup}
+          onMoveListUp={handleMoveListUp}
           onMoveListDown={handleMoveListDown}
           onReorderList={handleReorderList}
           onReorderGroup={handleReorderGroup}
@@ -3541,8 +3577,20 @@ const [gridEditText, setGridEditText] = useState('');
                 value={newItemText}
                 onFocus={() => setAddInputFocused(true)}
                 onBlur={() => setAddInputFocused(false)}
-                onChange={(e) => setNewItemText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Escape" && !newItemText.trim()) (e.target as HTMLInputElement).blur(); }}
+                onChange={(e) => {
+                  setNewItemText(e.target.value);
+                  setDuplicateDismissed(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    if (duplicateMatches.length > 0) {
+                      e.stopPropagation();
+                      setDuplicateDismissed(true);
+                      return;
+                    }
+                    if (!newItemText.trim()) (e.target as HTMLInputElement).blur();
+                  }
+                }}
                 onPaste={async (e) => {
                   const text = e.clipboardData.getData("text");
                   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -3686,6 +3734,67 @@ const [gridEditText, setGridEditText] = useState('');
               </div>
             </div>
           </form>
+        )}
+
+        {!searchQuery && viewMode === 'list' && addInputFocused && duplicateMatches.length > 0 && (
+          <div className="duplicate-hint-dropdown" role="region" aria-label="Similar items already in list">
+            <div className="duplicate-hint-header">
+              <span>Already in this list ({duplicateMatches.length}) — press Enter to add anyway</span>
+              <button
+                type="button"
+                className="duplicate-hint-close"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setDuplicateDismissed(true)}
+                aria-label="Dismiss suggestions"
+              >
+                ×
+              </button>
+            </div>
+            <ul className="duplicate-hint-list">
+              {duplicateMatches.map((match) => (
+                <li key={match.id} className={`duplicate-hint-item ${match.done ? 'is-done' : ''}`}>
+                  <span className="duplicate-hint-status" aria-hidden="true">
+                    {match.done ? '✓' : '○'}
+                  </span>
+                  <span className="duplicate-hint-text" title={match.text}>
+                    {match.text}
+                  </span>
+                  <span className="duplicate-hint-badge">
+                    {match.done ? 'Completed' : 'Active'}
+                  </span>
+                  {match.done ? (
+                    <button
+                      type="button"
+                      className="duplicate-hint-action"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        void handleUpdateItem(match, { done: false, completedAtMs: null });
+                        setNewItemText('');
+                        setDuplicateDismissed(false);
+                        showClipboardToast(`Unmarked "${match.text}"`);
+                      }}
+                    >
+                      Unmark
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="duplicate-hint-action"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setSelectedItemId(match.id);
+                        setLastSelectedId(match.id);
+                        setNewItemText('');
+                        setDuplicateDismissed(false);
+                      }}
+                    >
+                      Open
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {error && <p className="error">{error}</p>}
@@ -4464,7 +4573,7 @@ const [gridEditText, setGridEditText] = useState('');
               setContextMenu(null);
             }}
           >
-            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="folder" /></span>
+            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="move" /></span>
             Create new list from this task
           </button>
           <div className="context-menu-submenu-wrap" onMouseEnter={(event) => openTaskSubmenu("move", event.currentTarget)} onMouseLeave={() => setTaskSubmenu(null)}>
@@ -4480,8 +4589,12 @@ const [gridEditText, setGridEditText] = useState('');
                 {allLists.map((l) => {
                   const isCurrent = l.id === contextMenu.item.listId;
                   return (
-                    <button key={l.id} disabled={isCurrent} onClick={async () => { await handleMoveToList(contextMenu.item, l.id); setContextMenu(null); setTaskSubmenu(null); }}>
-                      {isCurrent ? "✓ " : ""}{l.title}
+                    <button key={l.id} className="context-menu-item" disabled={isCurrent} onClick={async () => { await handleMoveToList(contextMenu.item, l.id); setContextMenu(null); setTaskSubmenu(null); }}>
+                      <span className="context-menu-icon" aria-hidden="true">
+                        {l.icon ? <span style={{ fontSize: '15px', lineHeight: 1 }}>{l.icon}</span> : <ContextMenuIcon kind="move" />}
+                      </span>
+                      <span>{l.title}</span>
+                      {isCurrent && <span style={{ marginLeft: 'auto', opacity: 0.7 }}>✓</span>}
                     </button>
                   );
                 })}
@@ -4499,11 +4612,14 @@ const [gridEditText, setGridEditText] = useState('');
             {taskSubmenu === "copy" && (
               <div className="context-menu context-menu-submenu" style={taskSubmenuPosition ?? undefined}>
                 {allLists.map((l) => (
-                  <button key={l.id} onClick={async () => {
+                  <button key={l.id} className="context-menu-item" onClick={async () => {
                     await handleCopyItemToList(contextMenu.item, l.id);
                     setContextMenu(null); setTaskSubmenu(null);
                   }}>
-                    {l.title}
+                    <span className="context-menu-icon" aria-hidden="true">
+                      {l.icon ? <span style={{ fontSize: '15px', lineHeight: 1 }}>{l.icon}</span> : <ContextMenuIcon kind="move" />}
+                    </span>
+                    <span>{l.title}</span>
                   </button>
                 ))}
               </div>
@@ -4675,13 +4791,18 @@ const [gridEditText, setGridEditText] = useState('');
                     return (
                       <button
                         key={l.id}
+                        className="context-menu-item"
                         disabled={isCurrent}
                         onClick={async () => {
                           closeCompletedMenu();
                           await Promise.all(completedItems.map((item) => handleMoveToList(item, l.id)));
                         }}
                       >
-                        {isCurrent ? '✓ ' : ''}{l.title}
+                        <span className="context-menu-icon" aria-hidden="true">
+                          {l.icon ? <span style={{ fontSize: '15px', lineHeight: 1 }}>{l.icon}</span> : <ContextMenuIcon kind="move" />}
+                        </span>
+                        <span>{l.title}</span>
+                        {isCurrent && <span style={{ marginLeft: 'auto', opacity: 0.7 }}>✓</span>}
                       </button>
                     );
                   })}
@@ -4770,7 +4891,12 @@ const [gridEditText, setGridEditText] = useState('');
                         setSelectedIds(new Set());
                       }}
                     >
-                      {l.title}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="context-menu-icon" aria-hidden="true">
+                          {l.icon ? <span style={{ fontSize: '15px', lineHeight: 1 }}>{l.icon}</span> : <ContextMenuIcon kind="move" />}
+                        </span>
+                        <span>{l.title}</span>
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -4917,7 +5043,12 @@ const [gridEditText, setGridEditText] = useState('');
                         }
                       }}
                     >
-                      <span>{l.icon ? `${l.icon} ` : ''}{l.title}</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="context-menu-icon" aria-hidden="true">
+                          {l.icon ? <span style={{ fontSize: '15px', lineHeight: 1 }}>{l.icon}</span> : <ContextMenuIcon kind="move" />}
+                        </span>
+                        <span>{l.title}</span>
+                      </span>
                       {allInThisList && <span style={{ opacity: 0.6, fontSize: "0.78rem" }}>Current</span>}
                     </button>
                   );

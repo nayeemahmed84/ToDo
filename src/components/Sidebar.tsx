@@ -41,6 +41,7 @@ interface SidebarProps {
   onRenameGroup?: (groupId: string, name: string) => Promise<void>;
   onUngroupLists?: (groupId: string) => Promise<void>;
   onMoveListToGroup: (listId: string, groupId: string | null) => Promise<void>;
+  onMoveListUp?: (listId: string) => Promise<void>;
   onMoveListDown?: (listId: string) => Promise<void>;
   onReorderList: (listId: string, targetListId: string, insertBefore: boolean) => Promise<void>;
   onReorderGroup: (groupId: string, targetGroupId: string, insertBefore: boolean) => Promise<void>;
@@ -106,6 +107,7 @@ export function Sidebar({
   onRenameGroup,
   onUngroupLists,
   onMoveListToGroup,
+  onMoveListUp,
   onMoveListDown,
   onReorderList,
   onReorderGroup,
@@ -925,10 +927,16 @@ export function Sidebar({
           ) : (() => {
             const list = lists.find((candidate) => candidate.id === sidebarMenu.id);
             if (!list) return null;
-            const siblings = lists.filter((candidate) =>
-              candidate.ownerUid === userId && candidate.groupId === list.groupId
-            );
+            const targetGroupId = list.groupId ?? null;
+            const siblings = lists
+              .filter((candidate) =>
+                candidate.ownerUid === userId &&
+                !candidate.isDefaultTasksList &&
+                (candidate.groupId ?? null) === targetGroupId
+              )
+              .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
             const listIndex = siblings.findIndex((candidate) => candidate.id === list.id);
+            const canMoveUp = list.ownerUid === userId && listIndex > 0;
             const canMoveDown = list.ownerUid === userId && listIndex >= 0 && listIndex < siblings.length - 1;
             const canManage = list.ownerUid === userId;
             const stopMenu = () => {
@@ -963,7 +971,14 @@ export function Sidebar({
                         </button>
                         {orderedGroups.map((group) => (
                           <button key={group.id} type="button" role="menuitem" className="context-menu-item" disabled={group.id === list.groupId} onClick={() => { void onMoveListToGroup(list.id, group.id); stopMenu(); }}>
-                            <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h7l2 2h9v11H3z" /></svg></span>{group.title}
+                            <span className="context-menu-icon" aria-hidden="true">
+                              {group.icon ? (
+                                <span style={{ fontSize: '15px', lineHeight: 1 }}>{group.icon}</span>
+                              ) : (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h7l2 2h9v11H3z" /></svg>
+                              )}
+                            </span>
+                            {group.title}
                           </button>
                         ))}
                       </div>
@@ -973,6 +988,11 @@ export function Sidebar({
                 {list.groupId && canManage && (
                   <button type="button" role="menuitem" className="context-menu-item" onClick={() => { void onMoveListToGroup(list.id, null); stopMenu(); }}>
                     <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h7l2 2h9v11H3z" /></svg></span>Remove from group
+                  </button>
+                )}
+                {canMoveUp && (
+                  <button type="button" role="menuitem" className="context-menu-item" onClick={() => { const id = list.id; stopMenu(); void onMoveListUp?.(id); }}>
+                    <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21V5m-6 6 6-6 6 6" /></svg></span>Move up
                   </button>
                 )}
                 {canMoveDown && (
