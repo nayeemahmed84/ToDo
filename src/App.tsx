@@ -2839,6 +2839,7 @@ const [gridEditText, setGridEditText] = useState('');
   }
 
   return (
+    <>
     <div className="app-shell" data-mobile-view={mobileView}>
       <TopBar
         onToggleSidebar={() => {
@@ -3489,22 +3490,6 @@ const [gridEditText, setGridEditText] = useState('');
                       <rect x="6" y="14" width="12" height="8" />
                     </svg>
                     <span>Print list</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="account-popover-item list-menu-item"
-                    onClick={() => {
-                      setListMenuOpen(false);
-                      const bodyLines = visibleItems.map((i) => `${i.done ? '[x]' : '[ ]'} ${i.text}`).join('\n');
-                      window.location.href = `mailto:?subject=${encodeURIComponent(currentTitle)}&body=${encodeURIComponent(bodyLines)}`;
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect x="2" y="4" width="20" height="16" rx="2" />
-                      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                    </svg>
-                    <span>Email list</span>
                   </button>
                   {selection.type === 'list' && (
                     <>
@@ -5355,55 +5340,56 @@ const [gridEditText, setGridEditText] = useState('');
           />
         );
       })()}
-      {(() => {
-        const targetList =
-          printListId && printListId !== '__current__'
-            ? allLists.find((l) => l.id === printListId) ?? null
-            : null;
-        const pTitle = targetList ? targetList.title : currentTitle;
-        const pIcon = targetList ? targetList.icon ?? null : currentList?.icon ?? null;
-        const pItems = targetList
-          ? allItems
-              .filter((i) => i.listId === targetList.id)
-              .sort((a, b) => getTaskSortOrder(a) - getTaskSortOrder(b))
-          : null;
-        const pActive = pItems ? pItems.filter((i) => !i.done) : activeItems;
-        const pCompleted = pItems ? pItems.filter((i) => i.done) : completedItems;
-        const pShowListName = !targetList && (selection.type === 'smart' || searchQuery.trim() !== '');
-        return (
-          <>
-            <div className="print-sheet-root" aria-hidden="true">
-              <PrintSheet
-                title={pTitle}
-                icon={pIcon}
-                activeItems={pActive}
-                completedItems={pCompleted}
-                lists={allLists}
-                showListName={pShowListName}
-                todayStr={todayStr}
-                options={printOptions}
-              />
-            </div>
-            {printListId && (
-              <PrintModal
-                title={pTitle}
-                icon={pIcon}
-                activeItems={pActive}
-                completedItems={pCompleted}
-                lists={allLists}
-                showListName={pShowListName}
-                todayStr={todayStr}
-                options={printOptions}
-                onChangeOptions={setPrintOptions}
-                onPrint={() => window.print()}
-                onClose={() => setPrintListId(null)}
-              />
-            )}
-          </>
-        );
-      })()}
       <AppDialogModal />
     </div>
+    {(() => {
+      const targetList =
+        printListId && printListId !== '__current__'
+          ? allLists.find((l) => l.id === printListId) ?? null
+          : null;
+      const pTitle = targetList ? targetList.title : currentTitle;
+      const pIcon = targetList ? targetList.icon ?? null : currentList?.icon ?? null;
+      const pItems = targetList
+        ? allItems
+            .filter((i) => i.listId === targetList.id)
+            .sort((a, b) => getTaskSortOrder(a) - getTaskSortOrder(b))
+        : null;
+      const pActive = pItems ? pItems.filter((i) => !i.done) : activeItems;
+      const pCompleted = pItems ? pItems.filter((i) => i.done) : completedItems;
+      const pShowListName = !targetList && (selection.type === 'smart' || searchQuery.trim() !== '');
+      return (
+        <>
+          <div className="print-sheet-root">
+            <PrintSheet
+              title={pTitle}
+              icon={pIcon}
+              activeItems={pActive}
+              completedItems={pCompleted}
+              lists={allLists}
+              showListName={pShowListName}
+              todayStr={todayStr}
+              options={printOptions}
+            />
+          </div>
+          {printListId && (
+            <PrintModal
+              title={pTitle}
+              icon={pIcon}
+              activeItems={pActive}
+              completedItems={pCompleted}
+              lists={allLists}
+              showListName={pShowListName}
+              todayStr={todayStr}
+              options={printOptions}
+              onChangeOptions={setPrintOptions}
+              onPrint={() => window.print()}
+              onClose={() => setPrintListId(null)}
+            />
+          )}
+        </>
+      );
+    })()}
+    </>
   );
 }
 
