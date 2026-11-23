@@ -2108,6 +2108,63 @@ button.primary.small {
   opacity: 0.92;
 }
 
+.smart-parse-banner {
+  margin-top: 6px;
+  margin-bottom: 6px;
+  padding: 6px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.8rem;
+  animation: menuPop 150ms var(--ease-spring);
+}
+
+.smart-parse-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.smart-parse-title {
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.smart-parse-chip {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(122, 184, 245, 0.16);
+  color: var(--color-accent);
+  font-weight: 500;
+  font-size: 0.76rem;
+}
+
+.smart-parse-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--color-text-2);
+  font-size: 0.76rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.smart-parse-dismiss:hover {
+  color: var(--color-text);
+  background: var(--color-hover, rgba(128, 128, 128, 0.14));
+}
+
 .primary,
 .chip-btn,
 .toolbar-btn {

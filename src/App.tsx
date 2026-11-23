@@ -41,6 +41,7 @@ import { DEFAULT_PRINT_OPTIONS, PrintModal, PrintOptions, PrintSheet } from './c
 import { appConfirm, appPrompt } from './lib/appDialog';
 import { playCompleteSound } from './lib/sound';
 import { suggestEmoji } from './lib/suggestEmoji';
+import { parseTaskInput } from './lib/parseTaskInput';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
 import {
   notifyListCollaborators,
@@ -355,6 +356,7 @@ export function App() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [newItemText, setNewItemText] = useState('');
   const [duplicateDismissed, setDuplicateDismissed] = useState(false);
+  const [smartParseEnabled, setSmartParseEnabled] = useState(true);
   const [completedExpandedByView, setCompletedExpandedByView] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('todo.completedExpandedByView');
@@ -656,8 +658,14 @@ const [gridEditText, setGridEditText] = useState('');
     }
   }, [selection, viewMode]);
 
+  const parsedNewTask = useMemo(
+    () => (smartParseEnabled ? parseTaskInput(newItemText) : null),
+    [newItemText, smartParseEnabled]
+  );
+
   const duplicateMatches = useMemo(() => {
-    const q = newItemText.trim().toLowerCase();
+    const rawQ = parsedNewTask?.hasMatch ? parsedNewTask.title : newItemText;
+    const q = rawQ.trim().toLowerCase();
     if (q.length < 2 || duplicateDismissed) return [];
     const targetListId =
       selection.type === 'list'
@@ -678,7 +686,7 @@ const [gridEditText, setGridEditText] = useState('');
         return b.createdAtMs - a.createdAtMs;
       })
       .slice(0, 5);
-  }, [allItems, defaultTasksList?.id, duplicateDismissed, newItemText, selection]);
+  }, [allItems, defaultTasksList?.id, duplicateDismissed, newItemText, parsedNewTask, selection]);
 
   const myDaySuggestions = useMemo(() => {
     const tmrw = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -1610,7 +1618,14 @@ const [gridEditText, setGridEditText] = useState('');
     setError(null);
     try {
       const targetListId = await ensureDefaultList();
-      const addedText = newItemText.trim();
+      const parsed = smartParseEnabled ? parseTaskInput(newItemText) : null;
+      const addedText = parsed?.hasMatch ? parsed.title : newItemText.trim();
+      const resolvedDueDate =
+        addDueDate ??
+        parsed?.dueDate ??
+        (selection.type === 'smart' && selection.id === 'planned' ? todayStr : null);
+      const resolvedReminderAtMs = addReminderAtMs ?? parsed?.reminderAtMs ?? null;
+      const resolvedRepeat = addRepeat !== 'none' ? addRepeat : (parsed?.repeat ?? 'none');
       const addedRef = await addDoc(collection(db, 'lists', targetListId, 'items'), {
         listId: targetListId,
         ownerUid: user.uid,
@@ -1622,10 +1637,10 @@ const [gridEditText, setGridEditText] = useState('');
           selection.type === 'smart' && selection.id === 'my-day'
             ? todayStr
             : null,
-        dueDate: addDueDate ?? (selection.type === 'smart' && selection.id === 'planned' ? todayStr : null),
-        reminderAtMs: addReminderAtMs,
+        dueDate: resolvedDueDate,
+        reminderAtMs: resolvedReminderAtMs,
         reminderNotified: false,
-        repeat: addRepeat,
+        repeat: resolvedRepeat,
         notes: '',
         category: null,
         steps: [],
@@ -1633,6 +1648,8 @@ const [gridEditText, setGridEditText] = useState('');
         completedAtMs: null,
       });
       setNewItemText('');
+      setSmartParseEnabled(true);
+      setDuplicateDismissed(false);
       setAddDueDate(null);
       setAddReminderAtMs(null);
       setAddRepeat('none');
@@ -3578,8 +3595,10 @@ const [gridEditText, setGridEditText] = useState('');
                 onFocus={() => setAddInputFocused(true)}
                 onBlur={() => setAddInputFocused(false)}
                 onChange={(e) => {
-                  setNewItemText(e.target.value);
+                  const val = e.target.value;
+                  setNewItemText(val);
                   setDuplicateDismissed(false);
+                  if (!val.trim()) setSmartParseEnabled(true);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
@@ -3734,6 +3753,39 @@ const [gridEditText, setGridEditText] = useState('');
               </div>
             </div>
           </form>
+        )}
+
+        {!searchQuery && viewMode === 'list' && parsedNewTask?.hasMatch && (
+          <div className="smart-parse-banner" role="status" aria-live="polite">
+            <span className="smart-parse-chips">
+              <span className="smart-parse-spark" aria-hidden="true">✨</span>
+              <span className="smart-parse-title">“{parsedNewTask.title}”</span>
+              {!addDueDate && parsedNewTask.dueDate && (
+                <span className="smart-parse-chip">
+                  📅 {new Date(`${parsedNewTask.dueDate}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                </span>
+              )}
+              {!addReminderAtMs && parsedNewTask.reminderAtMs && (
+                <span className="smart-parse-chip">
+                  ⏰ {new Date(parsedNewTask.reminderAtMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </span>
+              )}
+              {addRepeat === 'none' && parsedNewTask.repeat && parsedNewTask.repeat !== 'none' && (
+                <span className="smart-parse-chip">
+                  🔁 {parsedNewTask.repeat.charAt(0).toUpperCase() + parsedNewTask.repeat.slice(1)}
+                </span>
+              )}
+            </span>
+            <button
+              type="button"
+              className="smart-parse-dismiss"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setSmartParseEnabled(false)}
+              title="Keep text as-is without auto-scheduling"
+            >
+              Keep raw text
+            </button>
+          </div>
         )}
 
         {!searchQuery && viewMode === 'list' && addInputFocused && duplicateMatches.length > 0 && (
@@ -3924,7 +3976,7 @@ const [gridEditText, setGridEditText] = useState('');
                   selectedIds={selectedIds}
                     todayStr={todayStr}
                     tomorrowStr={tomorrowStr}
-                    showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
+                    showListMeta={selection.type === 'smart' || searchQuery.trim() !== ''}
                     reorderable={canReorderItems}
                     sandState={getSandState(item.id)}
                     clipboardState={getClipboardState(item.id)}
@@ -4157,7 +4209,7 @@ const [gridEditText, setGridEditText] = useState('');
                   selectedIds={selectedIds}
                     todayStr={todayStr}
                     tomorrowStr={tomorrowStr}
-                    showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
+                    showListMeta={selection.type === 'smart' || searchQuery.trim() !== ''}
                     reorderable={canReorderItems}
                     clipboardState={getClipboardState(item.id)}
                     onReorder={handleReorderItems}
