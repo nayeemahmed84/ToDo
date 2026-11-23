@@ -5604,7 +5604,7 @@ button.primary.small {
 
   .main-pane {
     width: 100%;
-    padding: 0 12px 96px !important;
+    padding: 0 12px !important;
     display: flex;
     flex-direction: column;
   }
@@ -5768,7 +5768,10 @@ button.primary.small {
   }
 
   .tasks-scroll {
-    padding-bottom: 16px;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-left: 0;
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   }
 
   .task-row {
@@ -5793,8 +5796,8 @@ button.primary.small {
   /* Notepad horizontal ruled lines filling empty space below tasks */
   .mobile-notepad-lines {
     display: block;
-    flex: 1;
-    min-height: 220px;
+    flex: 0 1 120px;
+    min-height: 0;
     margin-top: 8px;
     background-image: repeating-linear-gradient(
       to bottom,
@@ -5805,6 +5808,12 @@ button.primary.small {
     );
     opacity: 0.65;
     pointer-events: none;
+  }
+
+  .main-pane[data-wallpaper="coast"] .mobile-notepad-lines,
+  .main-pane[data-wallpaper="field"] .mobile-notepad-lines,
+  .main-pane[data-wallpaper="custom"] .mobile-notepad-lines {
+    display: none;
   }
 
   /* ---- Mobile FAB ---- */
