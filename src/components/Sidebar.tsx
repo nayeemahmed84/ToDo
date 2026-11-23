@@ -38,6 +38,8 @@ interface SidebarProps {
   onShareList?: (listId: string) => void;
   onDuplicateList?: (listId: string) => void;
   onPrintList?: (listId: string) => void;
+  mutedListIds?: string[];
+  onToggleListNotifications?: (listId: string) => void;
   onRenameGroup?: (groupId: string, name: string) => Promise<void>;
   onUngroupLists?: (groupId: string) => Promise<void>;
   onMoveListToGroup: (listId: string, groupId: string | null) => Promise<void>;
@@ -104,6 +106,8 @@ export function Sidebar({
   onShareList,
   onDuplicateList,
   onPrintList,
+  mutedListIds,
+  onToggleListNotifications,
   onRenameGroup,
   onUngroupLists,
   onMoveListToGroup,
@@ -368,6 +372,7 @@ export function Sidebar({
     const isTaskDropTarget = dropTarget?.type === 'task-into-list' && dropTarget.id === list.id;
     const count = counts[list.id] ?? 0;
     const isShared = (list.memberUids?.length ?? 0) > 0 || list.ownerUid !== userId;
+    const isMuted = Boolean(mutedListIds?.includes(list.id));
     return (
       <div
         key={list.id}
@@ -478,6 +483,16 @@ export function Sidebar({
                     <circle cx="9" cy="7" r="3.5" />
                     <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
                     <path d="M16 3.13a3.5 3.5 0 0 1 0 6.74" />
+                  </svg>
+                </span>
+              )}
+              {isMuted && (
+                <span className="nav-shared-icon" title="Notifications muted" aria-label="Notifications muted">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M10.27 4.26A6 6 0 0 1 18 10c0 2.58.7 4.53 1.38 5.76" />
+                    <path d="M6.27 6.27A6 6 0 0 0 6 8c0 7-3 9-3 9h14" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                    <path d="m2 2 20 20" />
                   </svg>
                 </span>
               )}
@@ -1023,6 +1038,21 @@ export function Sidebar({
                 <button type="button" role="menuitem" className="context-menu-item" onClick={() => { const id = list.id; stopMenu(); if (onPrintList) onPrintList(id); else window.print(); }}>
                   <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7" /><rect x="2" y="9" width="20" height="12" rx="2" /><path d="M6 18h12v4H6z" /></svg></span>Print list
                 </button>
+                {onToggleListNotifications && (() => {
+                  const isMuted = Boolean(mutedListIds?.includes(list.id));
+                  return (
+                    <button type="button" role="menuitem" className="context-menu-item" onClick={() => { const id = list.id; stopMenu(); onToggleListNotifications(id); }}>
+                      <span className="context-menu-icon" aria-hidden="true">
+                        {isMuted ? (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M10.27 4.26A6 6 0 0 1 18 10c0 2.58.7 4.53 1.38 5.76" /><path d="M6.27 6.27A6 6 0 0 0 6 8c0 7-3 9-3 9h14" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /><path d="m2 2 20 20" /></svg>
+                        )}
+                      </span>
+                      {isMuted ? 'Turn on notifications' : 'Turn off notifications'}
+                    </button>
+                  );
+                })()}
                 <div className="account-popover-divider" />
                 {canManage && (
                   <button type="button" role="menuitem" className="context-menu-item danger" onClick={async () => { const id = list.id; stopMenu(); await onDeleteList(id); }}>

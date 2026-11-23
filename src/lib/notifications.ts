@@ -170,11 +170,15 @@ export async function showLocalNotification(
   }
 }
 
-export async function subscribeForegroundMessages(): Promise<() => void> {
+export async function subscribeForegroundMessages(
+  isListMuted?: (listId: string) => boolean
+): Promise<() => void> {
   const messaging = await getMessagingInstance();
   if (!messaging) return () => {};
 
   return onMessage(messaging, (payload) => {
+    const listId = payload.data?.listId;
+    if (listId && isListMuted?.(listId)) return;
     const title =
       payload.data?.title || payload.notification?.title || 'ToDo Reminder';
     const body =

@@ -19,6 +19,7 @@ export interface AppSettings {
   showDueTodayInMyDay: boolean;
   connectedPlanner: boolean;
   notifyEmailShare: boolean;
+  mutedListIds: string[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -38,6 +39,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showDueTodayInMyDay: true,
   connectedPlanner: true,
   notifyEmailShare: true,
+  mutedListIds: [],
 };
 
 interface SettingsModalProps {

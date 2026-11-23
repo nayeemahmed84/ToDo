@@ -514,6 +514,23 @@ export function App() {
       return next;
     });
   };
+  const mutedListIdsRef = useRef<string[]>(appSettings.mutedListIds ?? []);
+  mutedListIdsRef.current = appSettings.mutedListIds ?? [];
+  const isListMuted = (listId: string) => mutedListIdsRef.current.includes(listId);
+  const toggleListNotifications = (listId: string) => {
+    const current = appSettings.mutedListIds ?? [];
+    const willMute = !current.includes(listId);
+    const next = willMute
+      ? [...current, listId]
+      : current.filter((id) => id !== listId);
+    updateAppSettings({ mutedListIds: next });
+    const targetTitle = allLists.find((l) => l.id === listId)?.title ?? 'list';
+    showClipboardToast(
+      willMute
+        ? `Notifications turned off for "${targetTitle}"`
+        : `Notifications turned on for "${targetTitle}"`
+    );
+  };
   const [sortBy, setSortBy] = useState<SortOption>('position');
   const [sortAsc, setSortAsc] = useState(true);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
@@ -777,7 +794,7 @@ const [gridEditText, setGridEditText] = useState('');
     }
     let unsubscribe = () => {};
     let cancelled = false;
-    void subscribeForegroundMessages().then((fn) => {
+    void subscribeForegroundMessages((listId) => isListMuted(listId)).then((fn) => {
       if (cancelled) fn();
       else unsubscribe = fn;
     });
@@ -799,6 +816,7 @@ const [gridEditText, setGridEditText] = useState('');
           !item.reminderNotified &&
           item.reminderAtMs &&
           item.reminderAtMs <= now &&
+          !isListMuted(item.listId) &&
           !notifiedLocalRef.current.has(item.id)
         ) {
           notifiedLocalRef.current.add(item.id);
@@ -2863,6 +2881,8 @@ const [gridEditText, setGridEditText] = useState('');
           onShareList={(id) => setShareListId(id)}
           onDuplicateList={(id) => handleDuplicateList(id)}
           onPrintList={(id) => setPrintListId(id)}
+          mutedListIds={appSettings.mutedListIds}
+          onToggleListNotifications={toggleListNotifications}
           onMoveListToGroup={handleMoveListToGroup}
           onMoveListUp={handleMoveListUp}
           onMoveListDown={handleMoveListDown}
@@ -3432,6 +3452,36 @@ const [gridEditText, setGridEditText] = useState('');
                       </button>
                     </>
                   )}
+                  {(selection.type === 'list' || (selection.type === 'smart' && selection.id === 'tasks' && defaultTasksList)) && (() => {
+                    const targetListId = selection.type === 'list' ? selection.id : defaultTasksList!.id;
+                    const isMuted = (appSettings.mutedListIds ?? []).includes(targetListId);
+                    return (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="account-popover-item list-menu-item"
+                        onClick={() => {
+                          setListMenuOpen(false);
+                          toggleListNotifications(targetListId);
+                        }}
+                      >
+                        {isMuted ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                          </svg>
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M10.27 4.26A6 6 0 0 1 18 10c0 2.58.7 4.53 1.38 5.76" />
+                            <path d="M6.27 6.27A6 6 0 0 0 6 8c0 7-3 9-3 9h14" />
+                            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                            <path d="m2 2 20 20" />
+                          </svg>
+                        )}
+                        <span>{isMuted ? 'Turn on notifications' : 'Turn off notifications'}</span>
+                      </button>
+                    );
+                  })()}
                   <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); setPrintListId('__current__'); }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <polyline points="6 9 6 2 18 2 18 9" />
