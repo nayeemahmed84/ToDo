@@ -1,7 +1,27 @@
+# Dependencies & build output
 node_modules/
 dist/
-.env.local
-.env.*.local
+*.tsbuildinfo
+
+# Environment variables & local secrets (keep .env.example committed)
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+
+# Firebase & Service Account credentials
 .firebase/
+*firebase-adminsdk*.json
+service-account*.json
+firebase-debug.log*
+firestore-debug.log*
+
+# Cloudflare Wrangler
+.wrangler/
+
+# Logs, OS & local tool caches
 *.log
 .DS_Store
+Thumbs.db
+.kilo/
