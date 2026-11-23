@@ -107,6 +107,13 @@ Run these 3 commands in your terminal inside the `ToDo` folder:
    firebase deploy --only firestore
    ```
 
+   > **Tip:** If your computer says `firebase: command not found` or gives a permission/execution policy error, you don't need the global install — just put `npx firebase-tools` in place of `firebase` for every command:
+   > ```bash
+   > npx firebase-tools login
+   > npx firebase-tools use --add
+   > npx firebase-tools deploy --only firestore
+   > ```
+
 ---
 
 ## Part 3: Set Up Cloudflare Worker (Optional — Background Reminders)
@@ -177,6 +184,7 @@ Run these two commands in the main `ToDo` folder:
 npm run build
 firebase deploy --only hosting
 ```
+*(Or `npx firebase-tools deploy --only hosting` if `firebase` is not recognized.)*
 When it finishes, it will print your live website URL (like `https://your-project-id.web.app`). Open it on your phone or computer, sign in, and even install it as an app (**Add to Home Screen** on mobile, or the **Install** icon in Chrome/Edge address bar)!
 
 ### Option B: Deploy to Cloudflare Pages
@@ -193,6 +201,7 @@ When it finishes, it will print your live website URL (like `https://your-projec
 
 ## Troubleshooting
 
+- **"firebase is not recognized" / PowerShell script error** → Use `npx firebase-tools` instead of `firebase` (for example, `npx firebase-tools login` and `npx firebase-tools deploy --only hosting`).
 - **"Add your Firebase keys in `.env.local`"** → Make sure your file is named `.env.local` (not `.env.local.txt`) and is in the main `ToDo` folder, then restart `npm run dev`.
 - **Google Sign-In popup closes or says unauthorized domain** → Go to **Firebase Console → Authentication → Settings → Authorized domains** and make sure your website domain (or `localhost`) is listed.
 - **Permission denied in database** → Make sure you ran `firebase deploy --only firestore`.
