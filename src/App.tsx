@@ -587,6 +587,8 @@ export function App() {
     kind: 'custom-bg' | 'wallpaper' | 'color';
     id: string;
     label: string;
+    url?: string;
+    path?: string | null;
   } | null>(null);
   const [backgroundUploadInProgress, setBackgroundUploadInProgress] = useState(false);
   const [backgroundUploadStatus, setBackgroundUploadStatus] = useState<{
@@ -1425,7 +1427,8 @@ const [gridEditText, setGridEditText] = useState('');
     }
   };
   const handleUploadListBackground = async (file: File) => {
-    if (!user || !currentList || currentList.ownerUid !== user.uid) return;
+    if (!user) return;
+    if (selection.type === 'list' && (!currentList || currentList.ownerUid !== user.uid)) return;
     if (!navigator.onLine) {
       setError('You are offline. Reconnect to upload a custom background.');
       return;
@@ -1458,7 +1461,8 @@ const [gridEditText, setGridEditText] = useState('');
 
       try {
         backgroundStorage = getFirebaseStorage();
-        uploadedPath = `list-backgrounds/${user.uid}/${currentList.id}/${crypto.randomUUID()}`;
+        const folderId = selection.type === 'list' ? selection.id : `smart-${selection.id}`;
+        uploadedPath = `list-backgrounds/${user.uid}/${folderId}/${crypto.randomUUID()}`;
         const imageRef = ref(backgroundStorage, uploadedPath);
 
         setBackgroundUploadStatus({
@@ -1534,20 +1538,37 @@ const [gridEditText, setGridEditText] = useState('');
         uploadCompleted = false;
       }
 
-      await updateDoc(doc(db, 'lists', currentList.id), {
-        backgroundImageUrl,
-        backgroundImagePath: nextImagePath,
-        customBackgroundActive: true,
-      });
-      listUpdated = true;
+      const newBgEntry = {
+        id: crypto.randomUUID(),
+        url: backgroundImageUrl,
+        path: nextImagePath,
+      };
+      const existingBgs = appSettings.customBackgrounds ?? [];
+      const nextCustomBackgrounds = existingBgs.some((b) => b.url === backgroundImageUrl)
+        ? existingBgs
+        : [...existingBgs, newBgEntry];
 
-      if (currentList.backgroundImagePath && currentList.backgroundImagePath !== nextImagePath && backgroundStorage) {
-        try {
-          await deleteObject(ref(backgroundStorage, currentList.backgroundImagePath));
-        } catch (cleanupErr) {
-          setError(`Background updated, but the previous image could not be removed: ${cleanupErr instanceof Error ? cleanupErr.message : 'Unknown error'}`);
-        }
+      if (selection.type === 'list' && currentList) {
+        await updateDoc(doc(db, 'lists', currentList.id), {
+          backgroundImageUrl,
+          backgroundImagePath: nextImagePath,
+          customBackgroundActive: true,
+        });
+        updateAppSettings({ customBackgrounds: nextCustomBackgrounds });
+      } else {
+        updateAppSettings({
+          customBackgrounds: nextCustomBackgrounds,
+          smartThemes: {
+            ...(appSettings.smartThemes ?? {}),
+            [selection.id]: {
+              ...(smartTheme ?? {}),
+              background: 'custom',
+              customBackgroundUrl: backgroundImageUrl,
+            },
+          },
+        });
       }
+      listUpdated = true;
       setBackgroundUploadStatus({
         stage: 'done',
         progress: 100,
@@ -1576,24 +1597,46 @@ const [gridEditText, setGridEditText] = useState('');
       setBackgroundUploadInProgress(false);
     }
   };
-  const handleRemoveListBackground = async () => {
-    if (!user || !currentList || currentList.ownerUid !== user.uid) return;
+  const handleRemoveCustomBackground = async (bg: { url: string; path?: string | null }) => {
+    if (!user) return;
     setError(null);
+    const nextCustomBackgrounds = (appSettings.customBackgrounds ?? []).filter((b) => b.url !== bg.url);
+    const nextSmartThemes = { ...(appSettings.smartThemes ?? {}) };
+    for (const [key, theme] of Object.entries(nextSmartThemes)) {
+      if (theme?.customBackgroundUrl === bg.url) {
+        nextSmartThemes[key] = {
+          ...theme,
+          background: key === 'my-day' ? 'coast' : 'field',
+          customBackgroundUrl: null,
+        };
+      }
+    }
+    updateAppSettings({
+      customBackgrounds: nextCustomBackgrounds,
+      smartThemes: nextSmartThemes,
+    });
+
+    const listsUsingBg = lists.filter((l) => l.ownerUid === user.uid && l.backgroundImageUrl === bg.url);
     try {
-      await updateDoc(doc(db, 'lists', currentList.id), {
-        backgroundImageUrl: null,
-        backgroundImagePath: null,
-        customBackgroundActive: false,
-      });
+      await Promise.all(
+        listsUsingBg.map((l) =>
+          updateDoc(doc(db, 'lists', l.id), {
+            backgroundImageUrl: null,
+            backgroundImagePath: null,
+            customBackgroundActive: false,
+          })
+        )
+      );
       setListMenuOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove uploaded background');
       return;
     }
 
-    if (currentList.backgroundImagePath) {
+    const storagePath = bg.path ?? listsUsingBg.find((l) => l.backgroundImagePath)?.backgroundImagePath ?? null;
+    if (storagePath) {
       try {
-        await deleteObject(ref(getFirebaseStorage(), currentList.backgroundImagePath));
+        await deleteObject(ref(getFirebaseStorage(), storagePath));
       } catch (err) {
         setError(`Background removed, but the uploaded file could not be deleted: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
@@ -1604,12 +1647,28 @@ const [gridEditText, setGridEditText] = useState('');
     : selection.type === 'smart'
       ? SMART_TITLES[selection.id]
       : currentList?.title ?? 'List';
-  const customBackgroundUrl = currentList?.customBackgroundActive
-    ? currentList.backgroundImageUrl ?? null
-    : null;
   const smartTheme = selection.type === 'smart'
     ? appSettings.smartThemes?.[selection.id]
     : undefined;
+  const customBackgroundUrl = selection.type === 'list'
+    ? (currentList?.customBackgroundActive ? currentList.backgroundImageUrl ?? null : null)
+    : (smartTheme?.background === 'custom' ? smartTheme.customBackgroundUrl ?? null : null);
+  const availableCustomBackgrounds = useMemo(() => {
+    const saved = appSettings.customBackgrounds ?? [];
+    const seen = new Set(saved.map((b) => b.url));
+    const combined = [...saved];
+    for (const l of allLists) {
+      if (l.backgroundImageUrl && !seen.has(l.backgroundImageUrl)) {
+        seen.add(l.backgroundImageUrl);
+        combined.push({
+          id: `list-${l.id}`,
+          url: l.backgroundImageUrl,
+          path: l.backgroundImagePath ?? null,
+        });
+      }
+    }
+    return combined;
+  }, [appSettings.customBackgrounds, allLists]);
   const currentWallpaper = customBackgroundUrl
     ? 'custom'
     : selection.type === 'smart'
@@ -3714,36 +3773,59 @@ const [gridEditText, setGridEditText] = useState('');
                           />
                         );
                       })}
-                      {selection.type === 'list' && currentList?.backgroundImageUrl && (
-                        <button
-                          type="button"
-                          className="list-theme-tile wallpaper-custom"
-                          aria-label="Uploaded background"
-                          aria-pressed={Boolean(currentList.customBackgroundActive)}
-                          title="Right-click to delete uploaded background"
-                          style={{ backgroundImage: `url(${JSON.stringify(currentList.backgroundImageUrl)})` }}
-                          onClick={async () => {
-                            setThemeDeleteTarget(null);
-                            await updateDoc(doc(db, 'lists', selection.id), { customBackgroundActive: true });
-                            setListMenuOpen(false);
-                          }}
-                          onContextMenu={(event) => {
-                            event.preventDefault();
-                            if (currentList.ownerUid !== user.uid || backgroundUploadInProgress) return;
-                            const padding = 8;
-                            const menuWidth = Math.min(190, window.innerWidth - padding * 2);
-                            const menuHeight = 44;
-                            setThemeDeleteTarget({
-                              top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
-                              left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
-                              kind: 'custom-bg',
-                              id: 'custom-bg',
-                              label: 'uploaded background',
-                            });
-                          }}
-                        />
-                      )}
-                      {selection.type === 'list' && currentList?.ownerUid === user.uid && (
+                      {availableCustomBackgrounds.map((bg) => {
+                        const isPressed = customBackgroundUrl === bg.url;
+                        return (
+                          <button
+                            key={bg.id}
+                            type="button"
+                            className="list-theme-tile wallpaper-custom"
+                            aria-label="Uploaded background"
+                            aria-pressed={isPressed}
+                            title="Right-click to delete uploaded background"
+                            style={{ backgroundImage: `url(${JSON.stringify(bg.url)})` }}
+                            onClick={async () => {
+                              setThemeDeleteTarget(null);
+                              if (selection.type === 'list' && currentList?.ownerUid === user.uid) {
+                                await updateDoc(doc(db, 'lists', selection.id), {
+                                  backgroundImageUrl: bg.url,
+                                  backgroundImagePath: bg.path ?? null,
+                                  customBackgroundActive: true,
+                                });
+                              } else if (selection.type === 'smart') {
+                                updateAppSettings({
+                                  smartThemes: {
+                                    ...(appSettings.smartThemes ?? {}),
+                                    [selection.id]: {
+                                      ...(smartTheme ?? {}),
+                                      background: 'custom',
+                                      customBackgroundUrl: bg.url,
+                                    },
+                                  },
+                                });
+                              }
+                              setListMenuOpen(false);
+                            }}
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              if (backgroundUploadInProgress) return;
+                              const padding = 8;
+                              const menuWidth = Math.min(190, window.innerWidth - padding * 2);
+                              const menuHeight = 44;
+                              setThemeDeleteTarget({
+                                top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
+                                left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
+                                kind: 'custom-bg',
+                                id: bg.id,
+                                label: 'uploaded background',
+                                url: bg.url,
+                                path: bg.path ?? null,
+                              });
+                            }}
+                          />
+                        );
+                      })}
+                      {(selection.type === 'smart' || (selection.type === 'list' && currentList?.ownerUid === user.uid)) && (
                         <>
                           <input
                             ref={backgroundImageInputRef}
@@ -3962,8 +4044,8 @@ const [gridEditText, setGridEditText] = useState('');
                     onClick={async () => {
                       const target = themeDeleteTarget;
                       setThemeDeleteTarget(null);
-                      if (target.kind === 'custom-bg') {
-                        await handleRemoveListBackground();
+                      if (target.kind === 'custom-bg' && target.url) {
+                        await handleRemoveCustomBackground({ url: target.url, path: target.path });
                         return;
                       }
                       if (target.kind === 'color') {

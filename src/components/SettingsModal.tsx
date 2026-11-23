@@ -17,7 +17,8 @@ export interface AppSettings {
   autoHideEmptySmartLists: boolean;
   showDueTodayInMyDay: boolean;
   mutedListIds: string[];
-  smartThemes?: Record<string, { color?: string; background?: string }>;
+  smartThemes?: Record<string, { color?: string; background?: string; customBackgroundUrl?: string | null }>;
+  customBackgrounds?: Array<{ id: string; url: string; path?: string | null }>;
   hiddenThemeColors?: string[];
   hiddenBackgrounds?: string[];
 }
