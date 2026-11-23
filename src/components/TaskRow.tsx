@@ -22,6 +22,7 @@ interface TaskRowProps {
   showListMeta: boolean;
   reorderable?: boolean;
   sandState?: 'dissolve' | 'materialize' | null;
+  clipboardState?: 'copy' | 'cut' | null;
   onReorder?: (draggedItemId: string, targetItemId: string, insertAfter: boolean) => void | Promise<void>;
   onToggleDone: (item: TodoItem) => void;
   onToggleImportant: (item: TodoItem) => void;
@@ -40,6 +41,7 @@ export function TaskRow({
   showListMeta,
   reorderable = false,
   sandState = null,
+  clipboardState = null,
   onReorder,
   onToggleDone,
   onToggleImportant,
@@ -117,7 +119,7 @@ export function TaskRow({
 
   return (
     <li
-      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''}`}
+      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''} ${clipboardState ? `clipboard-${clipboardState}` : ''}`}
       draggable
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}

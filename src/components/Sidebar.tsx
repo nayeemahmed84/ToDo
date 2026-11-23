@@ -37,6 +37,7 @@ interface SidebarProps {
   onDeleteList: (listId: string) => Promise<void>;
   onShareList?: (listId: string) => void;
   onDuplicateList?: (listId: string) => void;
+  onPrintList?: (listId: string) => void;
   onRenameGroup?: (groupId: string, name: string) => Promise<void>;
   onUngroupLists?: (groupId: string) => Promise<void>;
   onMoveListToGroup: (listId: string, groupId: string | null) => Promise<void>;
@@ -46,6 +47,7 @@ interface SidebarProps {
   onMoveTasksToList?: (taskIds: string[], targetListId: string) => void | Promise<void>;
   onToggleCollapsed?: () => void;
   onOpenSettings: () => void;
+  onOpenShortcuts?: () => void;
   onOpenWhatsNew: () => void;
   onSignOut: () => void;
 }
@@ -100,6 +102,7 @@ export function Sidebar({
   onDeleteList,
   onShareList,
   onDuplicateList,
+  onPrintList,
   onRenameGroup,
   onUngroupLists,
   onMoveListToGroup,
@@ -108,6 +111,7 @@ export function Sidebar({
   onReorderGroup,
   onToggleCollapsed,
   onOpenSettings,
+  onOpenShortcuts,
   onMoveTasksToList,
   onSignOut,
 }: SidebarProps) {
@@ -526,6 +530,9 @@ export function Sidebar({
                     <span>{user.email}</span>
                   </div>
                   <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); onOpenSettings(); }}>Settings</button>
+                  {onOpenShortcuts && (
+                    <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); onOpenShortcuts(); }}>Keyboard shortcuts</button>
+                  )}
                   <button type="button" role="menuitem" className="danger" onClick={() => { setAccountOpen(false); onSignOut(); }}>Sign out</button>
                 </div>
               )}
@@ -555,6 +562,16 @@ export function Sidebar({
                 aria-label="Search tasks"
                 value={searchQuery}
                 onChange={(event) => onSearchChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    if (searchQuery) {
+                      event.stopPropagation();
+                      onSearchChange('');
+                    } else {
+                      event.currentTarget.blur();
+                    }
+                  }
+                }}
               />
             </label>
           )}
@@ -776,6 +793,7 @@ export function Sidebar({
               <span className="sidebar-add-icon" aria-hidden="true">+</span>
               <input
                 ref={newListInputRef}
+                data-new-list-input="true"
                 type="text"
                 placeholder="New list"
                 title="Name this list, then select enter to create it."
@@ -954,7 +972,7 @@ export function Sidebar({
                 )}
                 {list.groupId && canManage && (
                   <button type="button" role="menuitem" className="context-menu-item" onClick={() => { void onMoveListToGroup(list.id, null); stopMenu(); }}>
-                    <span className="context-menu-icon" aria-hidden="true"><ListIcon /></span>Remove from group
+                    <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h7l2 2h9v11H3z" /></svg></span>Remove from group
                   </button>
                 )}
                 {canMoveDown && (
@@ -967,7 +985,7 @@ export function Sidebar({
                     <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg></span>Duplicate list
                   </button>
                 )}
-                <button type="button" role="menuitem" className="context-menu-item" onClick={() => { stopMenu(); window.print(); }}>
+                <button type="button" role="menuitem" className="context-menu-item" onClick={() => { const id = list.id; stopMenu(); if (onPrintList) onPrintList(id); else window.print(); }}>
                   <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7" /><rect x="2" y="9" width="20" height="12" rx="2" /><path d="M6 18h12v4H6z" /></svg></span>Print list
                 </button>
                 <div className="account-popover-divider" />

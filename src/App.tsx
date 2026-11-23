@@ -37,6 +37,7 @@ import { AppSettings, DEFAULT_SETTINGS, SettingsModal } from './components/Setti
 import { ShareDialog } from './components/ShareDialog';
 import { CustomCalendarPicker } from './components/CustomCalendarPicker';
 import { AppDialogModal } from './components/AppDialogModal';
+import { DEFAULT_PRINT_OPTIONS, PrintModal, PrintOptions, PrintSheet } from './components/PrintModal';
 import { appConfirm, appPrompt } from './lib/appDialog';
 import { playCompleteSound } from './lib/sound';
 import { suggestEmoji } from './lib/suggestEmoji';
@@ -182,7 +183,7 @@ function ContextMenuIcon({ kind }: { kind: 'sun' | 'star' | 'check' | 'calendar'
     check: <><circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" /></>,
     calendar: <><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></>,
     folder: <path d="M3 6h7l2 2h9v11H3z" />,
-    move: <><path d="M3 6h7l2 2h9v11H3z" /><path d="M12 11v5m-2-2 2 2 2-2" /></>,
+    move: <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />,
     copy: <><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>,
     trash: <><path d="M3 6h18M8 6V4h8v2m-11 0 1 15h12l1-15" /><path d="M10 10v7m4-7v7" /></>,
   };
@@ -451,6 +452,18 @@ export function App() {
   }, [addDueMenuOpen, addRemindMenuOpen, addRepeatMenuOpen, addDueCalendarOpen, addRemindCalendarOpen]);
   const [installPrompt, setInstallPrompt] = useState<Event & { prompt?: () => Promise<void> } | null>(null);
   const [shareListId, setShareListId] = useState<string | null>(null);
+  const [printListId, setPrintListId] = useState<string | null>(null);
+  const [printOptions, setPrintOptions] = useState<PrintOptions>(() => {
+    try {
+      const saved = localStorage.getItem('todo-print-options');
+      return saved ? { ...DEFAULT_PRINT_OPTIONS, ...JSON.parse(saved) } : DEFAULT_PRINT_OPTIONS;
+    } catch {
+      return DEFAULT_PRINT_OPTIONS;
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem('todo-print-options', JSON.stringify(printOptions));
+  }, [printOptions]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
     try {
@@ -583,6 +596,12 @@ export function App() {
     item: TodoItem;
     timerId: number;
   } | null>(null);
+  const undoStackRef = useRef<Array<{ label: string; undo: () => Promise<void> }>>([]);
+  const isUndoingRef = useRef(false);
+  const pushUndo = (entry: { label: string; undo: () => Promise<void> }) => {
+    if (isUndoingRef.current) return;
+    undoStackRef.current = [...undoStackRef.current.slice(-29), entry];
+  };
   const [error, setError] = useState<string | null>(null);
 
   const todayStr = getTodayStr();
@@ -594,6 +613,20 @@ export function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [listPickerMenu, setListPickerMenu] = useState<{ mode: 'move' | 'copy'; items: TodoItem[] } | null>(null);
+  const [taskClipboard, setTaskClipboard] = useState<{ mode: 'copy' | 'cut'; items: TodoItem[] } | null>(null);
+  const [clipboardToast, setClipboardToast] = useState<string | null>(null);
+  const clipboardToastTimerRef = useRef<number | null>(null);
+  const showClipboardToast = (msg: string) => {
+    if (clipboardToastTimerRef.current !== null) {
+      window.clearTimeout(clipboardToastTimerRef.current);
+    }
+    setClipboardToast(msg);
+    clipboardToastTimerRef.current = window.setTimeout(() => {
+      setClipboardToast(null);
+      clipboardToastTimerRef.current = null;
+    }, 2400);
+  };
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
 const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 const [gridEditId, setGridEditId] = useState<string | null>(null);
@@ -640,42 +673,6 @@ const [gridEditText, setGridEditText] = useState('');
   }, [allItems, todayStr, defaultTasksList]);
 
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === '1') {
-        e.preventDefault();
-        setSidebarOpen((v) => !v);
-      } else if (e.key === 'Escape') {
-        if (listOptionsSortOpen) {
-          setListOptionsSortOpen(false);
-          setListOptionsSortPosition(null);
-          return;
-        }
-        const hasOpenMenu = Boolean(
-          contextMenu || sortMenuOpen || groupMenuOpen || listMenuOpen || listOptionsSortOpen ||
-          addDueMenuOpen || addRemindMenuOpen || addRepeatMenuOpen ||
-          addDueCalendarOpen || addRemindCalendarOpen || settingsOpen ||
-          shareListId || shortcutsOpen || whatsNewOpen || sidebarOpen ||
-          document.querySelector('.context-menu, .sort-menu, .list-options-menu, .list-options-sort-submenu, .settings-backdrop, .modal-backdrop, .add-picker-wrap .top-bar-popover')
-        );
-        setContextMenu(null);
-        setSortMenuOpen(false);
-        setGroupMenuOpen(false);
-        setListMenuOpen(false);
-        setListOptionsSortOpen(false);
-        setListOptionsSortPosition(null);
-        setAddDueMenuOpen(false);
-        setAddRemindMenuOpen(false);
-        setAddRepeatMenuOpen(false);
-        setAddDueCalendarOpen(false);
-        setAddRemindCalendarOpen(false);
-        setSettingsOpen(false);
-        setWhatsNewOpen(false);
-        setShareListId(null);
-        setShortcutsOpen(false);
-        setSidebarOpen(false);
-        if (!hasOpenMenu) setSelectedItemId(null);
-      }
-    };
     const onClick = () => {
       setContextMenu(null);
       setTaskDatePickerOpen(false);
@@ -690,31 +687,13 @@ const [gridEditText, setGridEditText] = useState('');
       setCompletedMoveOpen(false);
       setCompletedDatePickerOpen(false);
     };
-    window.addEventListener('keydown', onKeyDown);
     window.addEventListener('click', onClick);
     window.addEventListener('scroll', onScroll, true);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('click', onClick);
       window.removeEventListener('scroll', onScroll, true);
     };
-  }, [
-    addDueCalendarOpen,
-    addDueMenuOpen,
-    addRemindCalendarOpen,
-    addRemindMenuOpen,
-    addRepeatMenuOpen,
-    contextMenu,
-    groupMenuOpen,
-    listMenuOpen,
-    listOptionsSortOpen,
-    settingsOpen,
-    whatsNewOpen,
-    shareListId,
-    shortcutsOpen,
-    sidebarOpen,
-    sortMenuOpen,
-  ]);
+  }, []);
 
   useEffect(() => {
     if (!sortMenuOpen && !groupMenuOpen && !listMenuOpen && !listOptionsSortOpen) return;
@@ -1236,18 +1215,24 @@ const [gridEditText, setGridEditText] = useState('');
     if (e.ctrlKey || e.metaKey) {
       setSelectedIds((prev) => {
         const next = new Set(prev);
+        if (prev.size === 0 && selectedItemId) {
+          next.add(selectedItemId);
+        }
         if (next.has(item.id)) next.delete(item.id);
         else next.add(item.id);
         return next;
       });
+      setSelectedItemId(null);
       setLastSelectedId(item.id);
     } else if (e.shiftKey && lastSelectedId) {
-      const idxA = activeItems.findIndex((t) => t.id === lastSelectedId);
-      const idxB = activeItems.findIndex((t) => t.id === item.id);
+      const pool = showCompleted ? [...activeItems, ...completedItems] : activeItems;
+      const idxA = pool.findIndex((t) => t.id === lastSelectedId);
+      const idxB = pool.findIndex((t) => t.id === item.id);
       if (idxA !== -1 && idxB !== -1) {
         const [start, end] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
-        const rangeIds = activeItems.slice(start, end + 1).map((t) => t.id);
+        const rangeIds = pool.slice(start, end + 1).map((t) => t.id);
         setSelectedIds(new Set(rangeIds));
+        setSelectedItemId(null);
       }
     } else {
       setSelectedIds(new Set());
@@ -1616,6 +1601,12 @@ const [gridEditText, setGridEditText] = useState('');
       setAddDueDate(null);
       setAddReminderAtMs(null);
       setAddRepeat('none');
+      pushUndo({
+        label: `add "${addedText}"`,
+        undo: async () => {
+          await deleteDoc(doc(db, 'lists', targetListId, 'items', addedRef.id));
+        },
+      });
       if (isSharedList(targetListId)) {
         void notifyListCollaborators({
           listId: targetListId,
@@ -1631,8 +1622,13 @@ const [gridEditText, setGridEditText] = useState('');
 
   const handleUpdateItem = async (
     item: TodoItem,
-    patch: Partial<TodoItem>
+    patch: Partial<TodoItem>,
+    options?: { skipUndo?: boolean }
   ) => {
+    const prevPatch: Partial<TodoItem> = {};
+    for (const key of Object.keys(patch) as (keyof TodoItem)[]) {
+      (prevPatch as Record<string, unknown>)[key] = item[key] ?? null;
+    }
     const extraReminderReset =
       patch.reminderAtMs !== undefined && patch.reminderNotified === undefined
         ? { reminderNotified: false }
@@ -1645,6 +1641,12 @@ const [gridEditText, setGridEditText] = useState('');
       updatedByUid: user?.uid ?? item.ownerUid,
       updatedByName: user?.displayName?.trim() || user?.email?.trim() || null,
     });
+    if (!options?.skipUndo) {
+      pushUndo({
+        label: `update "${item.text}"`,
+        undo: () => handleUpdateItem(item, prevPatch, { skipUndo: true }),
+      });
+    }
     if (patch.done !== undefined && isSharedList(item.listId)) {
       void notifyListCollaborators({
         listId: item.listId,
@@ -1799,8 +1801,13 @@ const [gridEditText, setGridEditText] = useState('');
     }
   };
 
-  const handleMoveToList = async (item: TodoItem, targetListId: string) => {
+  const handleMoveToList = async (
+    item: TodoItem,
+    targetListId: string,
+    options?: { skipUndo?: boolean }
+  ): Promise<string | void> => {
     if (!user || targetListId === item.listId) return;
+    const prevListId = item.listId;
     const ref = await addDoc(collection(db, 'lists', targetListId, 'items'), {
       listId: targetListId,
       ownerUid: user.uid,
@@ -1820,8 +1827,93 @@ const [gridEditText, setGridEditText] = useState('');
       updatedByName: user.displayName?.trim() || null,
       completedAtMs: item.completedAtMs ?? null,
     });
-    await deleteDoc(doc(db, 'lists', item.listId, 'items', item.id));
+    await deleteDoc(doc(db, 'lists', prevListId, 'items', item.id));
     setSelectedItemId(ref.id);
+    if (!options?.skipUndo) {
+      pushUndo({
+        label: `move "${item.text}"`,
+        undo: async () => {
+          await handleMoveToList({ ...item, id: ref.id, listId: targetListId }, prevListId, { skipUndo: true });
+        },
+      });
+    }
+    return ref.id;
+  };
+
+  const handleCopyItemToList = async (
+    item: TodoItem,
+    targetListId: string,
+    extraPatch?: Partial<TodoItem>,
+    options?: { skipUndo?: boolean }
+  ): Promise<string | void> => {
+    if (!user) return;
+    const isSame = targetListId === item.listId;
+    const addedRef = await addDoc(collection(db, 'lists', targetListId, 'items'), {
+      listId: targetListId,
+      ownerUid: user.uid,
+      text: isSame ? `${item.text} (copy)` : item.text,
+      done: false,
+      important: extraPatch?.important ?? false,
+      myDayDate: extraPatch?.myDayDate ?? null,
+      dueDate: item.dueDate ?? null,
+      notes: item.notes ?? '',
+      category: item.category ?? null,
+      steps: (item.steps ?? []).map((st) => ({ ...st, done: false })),
+      createdAtMs: Date.now(),
+      completedAtMs: null,
+    });
+    if (!options?.skipUndo) {
+      pushUndo({
+        label: `copy "${item.text}"`,
+        undo: async () => {
+          await deleteDoc(doc(db, 'lists', targetListId, 'items', addedRef.id));
+        },
+      });
+    }
+    return addedRef.id;
+  };
+
+  const clipboardItemIds = useMemo(
+    () => new Set(taskClipboard?.items.map((t) => t.id) ?? []),
+    [taskClipboard]
+  );
+  const getClipboardState = (id: string): 'copy' | 'cut' | null =>
+    taskClipboard && clipboardItemIds.has(id) ? taskClipboard.mode : null;
+
+  const handlePasteClipboard = async () => {
+    if (!taskClipboard || taskClipboard.items.length === 0) return;
+    const targetListId =
+      selection.type === 'list'
+        ? selection.id
+        : defaultTasksList?.id ?? allLists[0]?.id ?? null;
+    if (!targetListId) return;
+    const extraPatch: Partial<TodoItem> | undefined =
+      selection.type === 'smart' && selection.id === 'my-day'
+        ? { myDayDate: todayStr }
+        : selection.type === 'smart' && selection.id === 'important'
+          ? { important: true }
+          : undefined;
+    if (taskClipboard.mode === 'copy') {
+      await Promise.all(
+        taskClipboard.items.map((item) => handleCopyItemToList(item, targetListId, extraPatch))
+      );
+      showClipboardToast(`Pasted ${taskClipboard.items.length} task${taskClipboard.items.length > 1 ? 's' : ''}`);
+    } else {
+      await Promise.all(
+        taskClipboard.items.map(async (item) => {
+          if (item.listId !== targetListId) {
+            await handleMoveToList(item, targetListId);
+          }
+          if (extraPatch) {
+            await handleUpdateItem(item, extraPatch);
+          }
+        })
+      );
+      const count = taskClipboard.items.length;
+      setTaskClipboard(null);
+      setSelectedIds(new Set());
+      showClipboardToast(`Moved ${count} task${count > 1 ? 's' : ''}`);
+    }
   };
 
   const handleDuplicateList = async (listId: string) => {
@@ -1860,7 +1952,10 @@ const [gridEditText, setGridEditText] = useState('');
     setSelection({ type: 'list', id: newRef.id });
   };
 
-  const handleDeleteItem = async (item: TodoItem) => {
+  const handleDeleteItem = async (
+    item: TodoItem,
+    options?: { skipUndo?: boolean }
+  ) => {
     setError(null);
     try {
       await updateDoc(doc(db, 'lists', item.listId, 'items', item.id), {
@@ -1871,6 +1966,12 @@ const [gridEditText, setGridEditText] = useState('');
       if (selectedItemId === item.id) {
         setSelectedItemId(null);
       }
+      if (!options?.skipUndo) {
+        pushUndo({
+          label: `delete "${item.text}"`,
+          undo: () => handleRestoreItem(item),
+        });
+      }
       if (undoToast) window.clearTimeout(undoToast.timerId);
       const timerId = window.setTimeout(() => setUndoToast(null), 5000);
       setUndoToast({ item, timerId });
@@ -1879,12 +1980,36 @@ const [gridEditText, setGridEditText] = useState('');
     }
   };
 
+  const handleUndo = async () => {
+    const stack = undoStackRef.current;
+    if (stack.length === 0 || !user) return;
+    const entry = stack[stack.length - 1];
+    undoStackRef.current = stack.slice(0, -1);
+    if (undoToast) {
+      window.clearTimeout(undoToast.timerId);
+      setUndoToast(null);
+    }
+    isUndoingRef.current = true;
+    try {
+      await entry.undo();
+      showClipboardToast(`Undid: ${entry.label}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to undo');
+    } finally {
+      isUndoingRef.current = false;
+    }
+  };
+
   const handleUndoDelete = async () => {
     if (!undoToast || !user) return;
     window.clearTimeout(undoToast.timerId);
     const { item } = undoToast;
     setUndoToast(null);
-    await handleRestoreItem(item);
+    if (undoStackRef.current.length > 0) {
+      await handleUndo();
+    } else {
+      await handleRestoreItem(item);
+    }
   };
 
   const handleRestoreItem = async (item: TodoItem) => {
@@ -2048,6 +2173,549 @@ const [gridEditText, setGridEditText] = useState('');
     URL.revokeObjectURL(url);
   };
 
+  const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyHandlerRef.current = (e: KeyboardEvent) => {
+    if (!user) return;
+    const target = e.target as HTMLElement | null;
+    const isInput = Boolean(
+      target &&
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable)
+    );
+    const isInteractiveElement = Boolean(
+      target && target.closest('button:not(.task-body), a, input, textarea, select, [role="menuitem"]')
+    );
+    const mod = e.ctrlKey || e.metaKey;
+    const lowerKey = e.key.toLowerCase();
+
+    // Always handle Escape
+    if (e.key === 'Escape') {
+      if (listOptionsSortOpen) {
+        setListOptionsSortOpen(false);
+        setListOptionsSortPosition(null);
+        return;
+      }
+      const hasOpenMenu = Boolean(
+        contextMenu || sortMenuOpen || groupMenuOpen || listMenuOpen || listOptionsSortOpen ||
+        addDueMenuOpen || addRemindMenuOpen || addRepeatMenuOpen ||
+        addDueCalendarOpen || addRemindCalendarOpen || settingsOpen ||
+        shareListId || shortcutsOpen || whatsNewOpen || sidebarOpen || emojiPickerOpen ||
+        bulkMoveOpen || listPickerMenu || suggestionsOpen || mobileAddOpen ||
+        document.querySelector('.context-menu, .sort-menu, .list-options-menu, .list-options-sort-submenu, .settings-backdrop, .modal-backdrop, .add-picker-wrap .top-bar-popover')
+      );
+      setContextMenu(null);
+      setSortMenuOpen(false);
+      setGroupMenuOpen(false);
+      setListMenuOpen(false);
+      setListOptionsSortOpen(false);
+      setListOptionsSortPosition(null);
+      setAddDueMenuOpen(false);
+      setAddRemindMenuOpen(false);
+      setAddRepeatMenuOpen(false);
+      setAddDueCalendarOpen(false);
+      setAddRemindCalendarOpen(false);
+      setSettingsOpen(false);
+      setWhatsNewOpen(false);
+      setShareListId(null);
+      setPrintListId(null);
+      setShortcutsOpen(false);
+      setSidebarOpen(false);
+      setEmojiPickerOpen(false);
+      setBulkMoveOpen(false);
+      setListPickerMenu(null);
+      setSuggestionsOpen(false);
+      setMobileAddOpen(false);
+      if (hasOpenMenu) return;
+      if (isInput && target) {
+        (target as HTMLElement).blur();
+        return;
+      }
+      if (selectedIds.size > 0) {
+        setSelectedIds(new Set());
+        return;
+      }
+      if (selectedItemId) {
+        setSelectedItemId(null);
+        return;
+      }
+      if (searchQuery) {
+        setSearchQuery('');
+      }
+      return;
+    }
+
+    // If a modal dialog (confirm/prompt/settings/share/whatsNew/shortcuts/listPicker) is open, restrict globals
+    const hasBlockingModal = Boolean(
+      settingsOpen || shareListId || printListId || whatsNewOpen || listPickerMenu ||
+      document.querySelector('.app-dialog-backdrop')
+    );
+    if (hasBlockingModal) return;
+
+    const isEmptyAddInput = Boolean(
+      target && target === addTaskInputRef.current && !addTaskInputRef.current?.value
+    );
+
+    const sourcePool =
+      selection.type === 'smart' && selection.id === 'trash' ? trashedItems : allItems;
+    const targetTasks = selectedIds.size > 0
+      ? sourcePool.filter((t) => selectedIds.has(t.id))
+      : selectedItem
+        ? [selectedItem]
+        : [];
+
+    // Shortcuts modal toggle: ? (when not typing) or Ctrl/Cmd + /
+    if ((e.key === '?' && !isInput && !mod) || (mod && e.key === '/')) {
+      e.preventDefault();
+      setShortcutsOpen((v) => !v);
+      return;
+    }
+
+    if (shortcutsOpen) return;
+
+    // Global modifier shortcuts (work even when focused inside inputs)
+    if (mod && !e.altKey) {
+      if (e.key === '1' || (lowerKey === 'b' && !e.shiftKey)) {
+        e.preventDefault();
+        if (window.innerWidth <= 900) {
+          setSidebarOpen((v) => !v);
+        } else {
+          setSidebarCollapsed((v) => !v);
+        }
+        return;
+      }
+      if (lowerKey === 'f' && !e.shiftKey) {
+        e.preventDefault();
+        if (window.innerWidth <= 900) {
+          setMobileView('search');
+          setMobileAddOpen(false);
+          setTimeout(() => mobileSearchInputRef.current?.focus(), 60);
+        } else {
+          setSidebarCollapsed(false);
+          setTimeout(() => {
+            const el = document.querySelector<HTMLInputElement>('.sidebar-search .search-input');
+            el?.focus();
+            el?.select();
+          }, 60);
+        }
+        return;
+      }
+      if (lowerKey === 'n' && !e.shiftKey) {
+        e.preventDefault();
+        if (window.innerWidth <= 900) {
+          setMobileView('list');
+          setMobileAddOpen(true);
+          setTimeout(() => mobileAddInputRef.current?.focus(), 60);
+        } else {
+          setAddRowExpanded(true);
+          setTimeout(() => addTaskInputRef.current?.focus(), 40);
+        }
+        return;
+      }
+      if (e.key === ',' && !e.shiftKey) {
+        e.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
+      if (e.shiftKey && lowerKey === 'd') {
+        e.preventDefault();
+        const nextDark = !darkMode;
+        updateAppSettings({ themeMode: nextDark ? 'dark' : 'light', themeModeExplicit: true });
+        return;
+      }
+      if (e.shiftKey && lowerKey === 'l') {
+        e.preventDefault();
+        setSidebarCollapsed(false);
+        if (window.innerWidth <= 900) setSidebarOpen(true);
+        setTimeout(() => {
+          document.querySelector<HTMLInputElement>('[data-new-list-input="true"]')?.focus();
+        }, 80);
+        return;
+      }
+      if (e.shiftKey && lowerKey === 'c') {
+        e.preventDefault();
+        setCompletedExpandedByView((prev) => ({ ...prev, [currentViewKey]: !prev[currentViewKey] }));
+        return;
+      }
+      if (lowerKey === 'z' && !e.shiftKey && (!isInput || isEmptyAddInput) && undoStackRef.current.length > 0) {
+        e.preventDefault();
+        void handleUndo();
+        return;
+      }
+      if (lowerKey === 'a' && !e.shiftKey && (!isInput || isEmptyAddInput)) {
+        e.preventDefault();
+        if (activeItems.length > 0) {
+          setSelectedIds(new Set(activeItems.map((t) => t.id)));
+          setLastSelectedId(activeItems[activeItems.length - 1].id);
+        }
+        return;
+      }
+      if (lowerKey === 't' && !e.shiftKey) {
+        if (targetTasks.length > 0) {
+          e.preventDefault();
+          const allInMyDay = targetTasks.every((t) => t.myDayDate === todayStr);
+          targetTasks.forEach((t) => handleUpdateItem(t, { myDayDate: allInMyDay ? null : todayStr }));
+          return;
+        }
+      }
+      const inDetailPane = Boolean(target?.closest('.detail-pane'));
+      if (lowerKey === 'm' && !e.shiftKey && (!isInput || isEmptyAddInput || inDetailPane) && targetTasks.length > 0) {
+        e.preventDefault();
+        targetTasks.forEach((t) => {
+          if (!t.done) handleUpdateItem(t, { done: true, completedAtMs: Date.now() });
+        });
+        return;
+      }
+      if (lowerKey === 'u' && !e.shiftKey && (!isInput || isEmptyAddInput || inDetailPane) && targetTasks.length > 0) {
+        e.preventDefault();
+        targetTasks.forEach((t) => {
+          if (t.done) handleUpdateItem(t, { done: false, completedAtMs: null });
+        });
+        return;
+      }
+      const hasInputSelection =
+        target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+          ? (target.selectionStart ?? 0) !== (target.selectionEnd ?? 0)
+          : false;
+      const hasTextSelection = Boolean(window.getSelection()?.toString().trim()) || hasInputSelection;
+      const canCopyOrCutTask =
+        (!isInput || isEmptyAddInput || Boolean(target?.closest('.detail-pane'))) &&
+        !hasTextSelection &&
+        targetTasks.length > 0;
+      if (lowerKey === 'c' && !e.shiftKey && canCopyOrCutTask) {
+        e.preventDefault();
+        setTaskClipboard({ mode: 'copy', items: targetTasks });
+        showClipboardToast(`Copied ${targetTasks.length} task${targetTasks.length > 1 ? 's' : ''}`);
+        return;
+      }
+      if (lowerKey === 'x' && !e.shiftKey && canCopyOrCutTask) {
+        e.preventDefault();
+        setTaskClipboard({ mode: 'cut', items: targetTasks });
+        showClipboardToast(`Cut ${targetTasks.length} task${targetTasks.length > 1 ? 's' : ''} — press Ctrl+V in a list to move`);
+        return;
+      }
+      const isEmptyDetailStepInput = Boolean(
+        inDetailPane && target instanceof HTMLInputElement && !target.value
+      );
+      if (lowerKey === 'v' && !e.shiftKey && (!isInput || isEmptyAddInput || isEmptyDetailStepInput) && taskClipboard && taskClipboard.items.length > 0) {
+        e.preventDefault();
+        void handlePasteClipboard();
+        return;
+      }
+    }
+
+    // Alt + 1..8 smart list switching (works anywhere)
+    const smartOrder: SmartListId[] = [
+      'my-day',
+      'important',
+      'planned',
+      'all',
+      'completed',
+      'assigned-to-me',
+      'tasks',
+      'trash',
+    ];
+    if (e.altKey && !mod && !e.shiftKey && /^[1-8]$/.test(e.key)) {
+      e.preventDefault();
+      const id = smartOrder[Number(e.key) - 1];
+      if (id) {
+        setSearchQuery('');
+        setSelection({ type: 'smart', id });
+        setMobileView('list');
+      }
+      return;
+    }
+
+    // Reorder selected task with Alt+ArrowUp/Down or Ctrl/Cmd+Shift+ArrowUp/Down
+    if (
+      ((e.altKey && !mod) || (mod && e.shiftKey)) &&
+      (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+      !isInput
+    ) {
+      if (canReorderItems && selectedItem && !selectedItem.done) {
+        const idx = activeItems.findIndex((t) => t.id === selectedItem.id);
+        if (idx !== -1) {
+          if (e.key === 'ArrowUp' && idx > 0) {
+            e.preventDefault();
+            void handleReorderItems(selectedItem.id, activeItems[idx - 1].id, false);
+          } else if (e.key === 'ArrowDown' && idx < activeItems.length - 1) {
+            e.preventDefault();
+            void handleReorderItems(selectedItem.id, activeItems[idx + 1].id, true);
+          }
+        }
+      }
+      return;
+    }
+
+    // Everything below only runs when NOT typing in an input/textarea/select
+    if (isInput || mod || e.altKey) return;
+
+    // Number keys 1..8 switch smart lists
+    if (/^[1-8]$/.test(e.key) && !e.shiftKey) {
+      e.preventDefault();
+      const id = smartOrder[Number(e.key) - 1];
+      if (id) {
+        setSearchQuery('');
+        setSelection({ type: 'smart', id });
+        setMobileView('list');
+      }
+      return;
+    }
+
+    // [ and ] to cycle through lists
+    if (e.key === '[' || e.key === ']') {
+      e.preventDefault();
+      const navEntries: ViewSelection[] = [
+        ...smartOrder
+          .filter((id) => {
+            if (id === 'important' && !appSettings.smartImportant) return false;
+            if (id === 'planned' && !appSettings.smartPlanned) return false;
+            if (id === 'all' && !appSettings.smartAll) return false;
+            if (id === 'completed' && !appSettings.smartCompleted) return false;
+            if (id === 'assigned-to-me' && !appSettings.smartAssignedToMe) return false;
+            return true;
+          })
+          .map((id) => ({ type: 'smart' as const, id })),
+        ...allLists.filter((l) => !l.isDefaultTasksList).map((l) => ({ type: 'list' as const, id: l.id })),
+      ];
+      if (navEntries.length > 0) {
+        const currIdx = navEntries.findIndex(
+          (entry) => entry.type === selection.type && entry.id === selection.id
+        );
+        const delta = e.key === ']' ? 1 : -1;
+        const nextIdx = currIdx === -1
+          ? 0
+          : (currIdx + delta + navEntries.length) % navEntries.length;
+        setSearchQuery('');
+        setSelection(navEntries[nextIdx]);
+        setMobileView('list');
+      }
+      return;
+    }
+
+    // Single-key app shortcuts
+    if (e.key === '/') {
+      e.preventDefault();
+      if (window.innerWidth <= 900) {
+        setMobileView('search');
+        setMobileAddOpen(false);
+        setTimeout(() => mobileSearchInputRef.current?.focus(), 60);
+      } else {
+        setSidebarCollapsed(false);
+        setTimeout(() => {
+          const el = document.querySelector<HTMLInputElement>('.sidebar-search .search-input');
+          el?.focus();
+          el?.select();
+        }, 60);
+      }
+      return;
+    }
+
+    if (lowerKey === 'n' && !e.shiftKey) {
+      e.preventDefault();
+      if (window.innerWidth <= 900) {
+        setMobileView('list');
+        setMobileAddOpen(true);
+        setTimeout(() => mobileAddInputRef.current?.focus(), 60);
+      } else {
+        setAddRowExpanded(true);
+        setTimeout(() => addTaskInputRef.current?.focus(), 40);
+      }
+      return;
+    }
+
+    if (lowerKey === 'l' && !e.shiftKey) {
+      e.preventDefault();
+      setSidebarCollapsed(false);
+      if (window.innerWidth <= 900) setSidebarOpen(true);
+      setTimeout(() => {
+        document.querySelector<HTMLInputElement>('[data-new-list-input="true"]')?.focus();
+      }, 80);
+      return;
+    }
+
+    if (lowerKey === 'v' && !e.shiftKey) {
+      e.preventDefault();
+      setViewMode((mode) => {
+        const next = mode === 'list' ? 'grid' : 'list';
+        setViewAnnouncement(next === 'grid' ? 'Grid view opened' : 'List view opened');
+        return next;
+      });
+      return;
+    }
+
+    if (lowerKey === 'c' && !e.shiftKey) {
+      if (targetTasks.length > 0) {
+        e.preventDefault();
+        setListPickerMenu({ mode: 'copy', items: targetTasks });
+        return;
+      }
+      e.preventDefault();
+      setCompletedExpandedByView((prev) => ({ ...prev, [currentViewKey]: !prev[currentViewKey] }));
+      return;
+    }
+
+    if (lowerKey === 'm' && !e.shiftKey && targetTasks.length > 0) {
+      e.preventDefault();
+      setListPickerMenu({ mode: 'move', items: targetTasks });
+      return;
+    }
+
+    // Task list navigation: ArrowDown / ArrowUp / j / k
+    const navigableItems = showCompleted ? [...activeItems, ...completedItems] : activeItems;
+    if (
+      (e.key === 'ArrowDown' || e.key === 'ArrowUp' || lowerKey === 'j' || lowerKey === 'k') &&
+      navigableItems.length > 0 &&
+      !target?.closest('.sidebar')
+    ) {
+      e.preventDefault();
+      const goingDown = e.key === 'ArrowDown' || lowerKey === 'j';
+      const anchorId = lastSelectedId ?? selectedItemId;
+      const currentIdx = anchorId ? navigableItems.findIndex((t) => t.id === anchorId) : -1;
+      const nextIdx = goingDown
+        ? (currentIdx < navigableItems.length - 1 ? currentIdx + 1 : 0)
+        : (currentIdx > 0 ? currentIdx - 1 : navigableItems.length - 1);
+      const nextItem = navigableItems[nextIdx];
+      if (!nextItem) return;
+
+      if (e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          if (anchorId) next.add(anchorId);
+          next.add(nextItem.id);
+          return next;
+        });
+        setSelectedItemId(null);
+        setLastSelectedId(nextItem.id);
+      } else {
+        setSelectedIds(new Set());
+        setSelectedItemId(nextItem.id);
+        setLastSelectedId(nextItem.id);
+      }
+      return;
+    }
+
+    // Selected task actions
+    if ((e.key === 'Delete' || e.key === 'Backspace') && targetTasks.length > 0) {
+      e.preventDefault();
+      void (async () => {
+        if (
+          (targetTasks.length > 1 || appSettings.confirmBeforeDelete) &&
+          !(await appConfirm({
+            title: targetTasks.length > 1 ? 'Delete tasks' : 'Delete task',
+            message: targetTasks.length > 1
+              ? `Delete ${targetTasks.length} selected tasks?`
+              : `Delete "${targetTasks[0].text}"?`,
+            confirmLabel: 'Delete',
+            danger: true,
+          }))
+        ) {
+          return;
+        }
+        if (selection.id === 'trash') {
+          await Promise.all(targetTasks.map((t) => handlePermanentDeleteItem(t)));
+        } else {
+          await Promise.all(
+            targetTasks.map((t) => handleDeleteItem(t, { skipUndo: targetTasks.length > 1 }))
+          );
+          if (targetTasks.length > 1) {
+            const deletedBatch = [...targetTasks];
+            pushUndo({
+              label: `delete ${deletedBatch.length} tasks`,
+              undo: async () => {
+                await Promise.all(deletedBatch.map((t) => handleRestoreItem(t)));
+              },
+            });
+          }
+        }
+        setSelectedIds(new Set());
+        if (selectedItemId && targetTasks.some((t) => t.id === selectedItemId)) {
+          setSelectedItemId(null);
+        }
+      })();
+      return;
+    }
+
+    if (lowerKey === 'x' && targetTasks.length > 0) {
+      e.preventDefault();
+      const allDone = targetTasks.every((t) => t.done);
+      targetTasks.forEach((t) =>
+        handleUpdateItem(t, { done: !allDone, completedAtMs: !allDone ? Date.now() : null })
+      );
+      return;
+    }
+
+    if (e.key === ' ' && targetTasks.length > 0 && !isInteractiveElement) {
+      e.preventDefault();
+      const allDone = targetTasks.every((t) => t.done);
+      targetTasks.forEach((t) =>
+        handleUpdateItem(t, { done: !allDone, completedAtMs: !allDone ? Date.now() : null })
+      );
+      return;
+    }
+
+    if (lowerKey === 't' && !e.shiftKey && targetTasks.length > 0) {
+      e.preventDefault();
+      const allInMyDay = targetTasks.every((t) => t.myDayDate === todayStr);
+      targetTasks.forEach((t) => handleUpdateItem(t, { myDayDate: allInMyDay ? null : todayStr }));
+      return;
+    }
+
+    if ((lowerKey === 's' || lowerKey === 'i') && !e.shiftKey && targetTasks.length > 0) {
+      e.preventDefault();
+      const allImportant = targetTasks.every((t) => t.important);
+      targetTasks.forEach((t) => handleUpdateItem(t, { important: !allImportant }));
+      return;
+    }
+
+    if (lowerKey === 'd' && targetTasks.length > 0) {
+      e.preventDefault();
+      const due = e.shiftKey ? tomorrowStr : todayStr;
+      targetTasks.forEach((t) => handleUpdateItem(t, { dueDate: due }));
+      return;
+    }
+
+    // Detail pane quick focus shortcuts
+    if ((e.key === 'Enter' || lowerKey === 'o') && !isInteractiveElement) {
+      if (selectedItem) {
+        e.preventDefault();
+        document.querySelector<HTMLTextAreaElement>('.detail-title-input')?.focus();
+      } else if (activeItems.length > 0) {
+        e.preventDefault();
+        setSelectedItemId(activeItems[0].id);
+        setLastSelectedId(activeItems[0].id);
+      }
+      return;
+    }
+
+    if (lowerKey === 'e' && !e.shiftKey && selectedItem) {
+      e.preventDefault();
+      const titleEl = document.querySelector<HTMLTextAreaElement>('.detail-title-input');
+      titleEl?.focus();
+      titleEl?.select();
+      return;
+    }
+
+    if (lowerKey === 'a' && !e.shiftKey && selectedItem) {
+      e.preventDefault();
+      document.querySelector<HTMLInputElement>('.add-step-form input')?.focus();
+      return;
+    }
+
+    if (lowerKey === 'm' && e.shiftKey && selectedItem) {
+      e.preventDefault();
+      document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Add note"]')?.focus();
+      return;
+    }
+  };
+
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => keyHandlerRef.current(e);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
+
   if (!isFirebaseConfigured) {
     return (
       <main className="auth-screen">
@@ -2142,6 +2810,7 @@ const [gridEditText, setGridEditText] = useState('');
           onDeleteList={handleDeleteList}
           onShareList={(id) => setShareListId(id)}
           onDuplicateList={(id) => handleDuplicateList(id)}
+          onPrintList={(id) => setPrintListId(id)}
           onMoveListToGroup={handleMoveListToGroup}
           onMoveListDown={handleMoveListDown}
           onReorderList={handleReorderList}
@@ -2163,6 +2832,13 @@ const [gridEditText, setGridEditText] = useState('');
             setListMenuOpen(false);
             setContextMenu(null);
             setSettingsOpen(true);
+          }}
+          onOpenShortcuts={() => {
+            setSortMenuOpen(false);
+            setGroupMenuOpen(false);
+            setListMenuOpen(false);
+            setContextMenu(null);
+            setShortcutsOpen(true);
           }}
           onOpenWhatsNew={() => setWhatsNewOpen(true)}
           onSignOut={() => signOutUser()}
@@ -2423,7 +3099,7 @@ const [gridEditText, setGridEditText] = useState('');
             <span className="sr-only" aria-live="polite">{viewAnnouncement}</span>
             <button
               className="toolbar-btn toolbar-print-button"
-              onClick={() => window.print()}
+              onClick={() => setPrintListId('__current__')}
               title="Print list"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2543,10 +3219,8 @@ const [gridEditText, setGridEditText] = useState('');
                         void handleMoveListToGroup(selection.id, null);
                       }}
                     >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                        <polyline points="16 17 21 12 16 7" />
-                        <line x1="21" y1="12" x2="9" y2="12" />
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 6h7l2 2h9v11H3z" />
                       </svg>
                       <span>Remove from group</span>
                     </button>
@@ -2705,7 +3379,7 @@ const [gridEditText, setGridEditText] = useState('');
                       </button>
                     </>
                   )}
-                  <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); window.print(); }}>
+                  <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); setPrintListId('__current__'); }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <polyline points="6 9 6 2 18 2 18 9" />
                       <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
@@ -3144,6 +3818,7 @@ const [gridEditText, setGridEditText] = useState('');
                     showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
                     reorderable={canReorderItems}
                     sandState={getSandState(item.id)}
+                    clipboardState={getClipboardState(item.id)}
                     onReorder={handleReorderItems}
                     onToggleDone={handleToggleDone}
                     onToggleImportant={handleToggleImportant}
@@ -3288,6 +3963,7 @@ const [gridEditText, setGridEditText] = useState('');
                         tomorrowStr={tomorrowStr}
                         showListMeta={false}
                         sandState={getSandState(item.id)}
+                    clipboardState={getClipboardState(item.id)}
                         onToggleDone={handleToggleDone}
                         onToggleImportant={handleToggleImportant}
                         onOpen={handleOpen}
@@ -3323,6 +3999,7 @@ const [gridEditText, setGridEditText] = useState('');
                 showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
                 reorderable={canReorderItems}
                 sandState={getSandState(item.id)}
+                clipboardState={getClipboardState(item.id)}
                 onReorder={handleReorderItems}
                 onToggleDone={handleToggleDone}
                 onToggleImportant={handleToggleImportant}
@@ -3373,6 +4050,7 @@ const [gridEditText, setGridEditText] = useState('');
                     tomorrowStr={tomorrowStr}
                     showListMeta={(selection.type === 'smart' || searchQuery.trim() !== '') && selection.id !== 'all'}
                     reorderable={canReorderItems}
+                    clipboardState={getClipboardState(item.id)}
                     onReorder={handleReorderItems}
                     onToggleDone={handleToggleDone}
                     onToggleImportant={handleToggleImportant}
@@ -3822,14 +4500,7 @@ const [gridEditText, setGridEditText] = useState('');
               <div className="context-menu context-menu-submenu" style={taskSubmenuPosition ?? undefined}>
                 {allLists.map((l) => (
                   <button key={l.id} onClick={async () => {
-                    if (!user) return;
-                    const isSame = l.id === contextMenu.item.listId;
-                    await addDoc(collection(db, "lists", l.id, "items"), {
-                      listId: l.id, ownerUid: user.uid, text: isSame ? `${contextMenu.item.text} (copy)` : contextMenu.item.text,
-                      done: false, important: false, myDayDate: null, dueDate: contextMenu.item.dueDate ?? null,
-                      notes: contextMenu.item.notes ?? "", category: contextMenu.item.category ?? null,
-                      steps: (contextMenu.item.steps ?? []).map((st) => ({ ...st, done: false })), createdAtMs: Date.now(), completedAtMs: null,
-                    });
+                    await handleCopyItemToList(contextMenu.item, l.id);
                     setContextMenu(null); setTaskSubmenu(null);
                   }}>
                     {l.title}
@@ -4146,6 +4817,117 @@ const [gridEditText, setGridEditText] = useState('');
         </div>
       )}
 
+      {taskClipboard && taskClipboard.items.length > 0 && !undoToast && (
+        <div className="clipboard-toast" role="status" aria-live="polite">
+          <span className="clipboard-toast-badge">
+            {taskClipboard.mode === 'cut' ? '✂ Cut' : '📋 Copied'} ({taskClipboard.items.length})
+          </span>
+          <span>
+            {taskClipboard.items.length === 1
+              ? `“${taskClipboard.items[0].text}”`
+              : `${taskClipboard.items.length} tasks`}{' '}
+            — press <kbd>Ctrl+V</kbd> in a list to paste
+          </span>
+          <span className="clipboard-toast-actions">
+            <button
+              type="button"
+              className="clipboard-toast-paste"
+              onClick={() => void handlePasteClipboard()}
+            >
+              Paste here
+            </button>
+            <button
+              type="button"
+              className="clipboard-toast-clear"
+              onClick={() => setTaskClipboard(null)}
+              aria-label="Clear clipboard"
+              title="Clear clipboard"
+            >
+              ×
+            </button>
+          </span>
+        </div>
+      )}
+
+      {clipboardToast && !taskClipboard && !undoToast && (
+        <div className="undo-toast" role="status" aria-live="polite">
+          <span>{clipboardToast}</span>
+        </div>
+      )}
+
+      {listPickerMenu && (
+        <div className="modal-backdrop" onClick={() => setListPickerMenu(null)}>
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                const buttons = Array.from(
+                  e.currentTarget.querySelectorAll<HTMLButtonElement>('button[data-list-picker-item="true"]:not(:disabled)')
+                );
+                if (buttons.length === 0) return;
+                const idx = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                e.preventDefault();
+                const next = e.key === 'ArrowDown'
+                  ? (idx < buttons.length - 1 ? idx + 1 : 0)
+                  : (idx > 0 ? idx - 1 : buttons.length - 1);
+                buttons[next]?.focus();
+              }
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={listPickerMenu.mode === 'move' ? 'Move to list' : 'Copy to list'}
+            style={{ padding: "1rem", width: "300px", borderRadius: "10px" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+              <h2 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 600 }}>
+                {listPickerMenu.mode === 'move' ? 'Move' : 'Copy'}{' '}
+                {listPickerMenu.items.length > 1 ? `${listPickerMenu.items.length} tasks` : 'task'} to…
+              </h2>
+              <button type="button" className="icon-btn" onClick={() => setListPickerMenu(null)} aria-label="Close">×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px", maxHeight: "320px", overflowY: "auto" }}>
+              {(() => {
+                const firstEnabledIdx = allLists.findIndex(
+                  (l) => !(listPickerMenu.mode === 'move' && listPickerMenu.items.every((t) => t.listId === l.id))
+                );
+                return allLists.map((l, idx) => {
+                  const allInThisList = listPickerMenu.items.every((t) => t.listId === l.id);
+                  const disabled = listPickerMenu.mode === 'move' && allInThisList;
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      data-list-picker-item="true"
+                      autoFocus={idx === firstEnabledIdx}
+                      disabled={disabled}
+                      className="context-menu-item"
+                      style={{ width: "100%", textAlign: "left", justifyContent: "space-between" }}
+                      onClick={async () => {
+                        const items = listPickerMenu.items;
+                        const mode = listPickerMenu.mode;
+                        setListPickerMenu(null);
+                        if (mode === 'move') {
+                          await Promise.all(items.map((t) => handleMoveToList(t, l.id)));
+                          setSelectedIds(new Set());
+                          showClipboardToast(`Moved ${items.length} task${items.length > 1 ? 's' : ''} to ${l.title}`);
+                        } else {
+                          await Promise.all(items.map((t) => handleCopyItemToList(t, l.id)));
+                          showClipboardToast(`Copied ${items.length} task${items.length > 1 ? 's' : ''} to ${l.title}`);
+                        }
+                      }}
+                    >
+                      <span>{l.icon ? `${l.icon} ` : ''}{l.title}</span>
+                      {allInThisList && <span style={{ opacity: 0.6, fontSize: "0.78rem" }}>Current</span>}
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {!selectedItem &&
         suggestionsOpen &&
         selection.type === 'smart' &&
@@ -4263,16 +5045,47 @@ const [gridEditText, setGridEditText] = useState('');
       )}
       {shortcutsOpen && (
         <div className="modal-backdrop" onClick={() => setShortcutsOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ padding: "1.25rem", width: "360px", background: "var(--color-surface)", color: "var(--color-text)", borderRadius: "8px", border: "1px solid var(--color-border)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-              <h2 style={{ margin: 0, fontSize: "1.05rem" }}>Keyboard shortcuts</h2>
-              <button type="button" className="icon-btn" onClick={() => setShortcutsOpen(false)}>×</button>
+          <div className="modal-card shortcuts-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+            <div className="shortcuts-header">
+              <h2>Keyboard shortcuts</h2>
+              <button type="button" className="icon-btn" onClick={() => setShortcutsOpen(false)} aria-label="Close">×</button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "0.85rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>New task</span><kbd>Ctrl+N</kbd></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Search</span><kbd>Ctrl+F</kbd></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Close / Clear</span><kbd>Esc</kbd></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Shortcuts help</span><kbd>?</kbd></div>
+            <div className="shortcuts-grid">
+              <div className="shortcuts-section">
+                <h3>General &amp; Navigation</h3>
+                <div className="shortcuts-row"><span>New task</span><span className="shortcuts-keys"><kbd>Ctrl+N</kbd><kbd>N</kbd></span></div>
+                <div className="shortcuts-row"><span>Search tasks</span><span className="shortcuts-keys"><kbd>Ctrl+F</kbd><kbd>/</kbd></span></div>
+                <div className="shortcuts-row"><span>New list</span><span className="shortcuts-keys"><kbd>Ctrl+Shift+L</kbd><kbd>L</kbd></span></div>
+                <div className="shortcuts-row"><span>Toggle sidebar</span><span className="shortcuts-keys"><kbd>Ctrl+B</kbd><kbd>Ctrl+1</kbd></span></div>
+                <div className="shortcuts-row"><span>Switch smart lists</span><span className="shortcuts-keys"><kbd>1</kbd>–<kbd>8</kbd></span></div>
+                <div className="shortcuts-row"><span>Previous / Next list</span><span className="shortcuts-keys"><kbd>[</kbd><kbd>]</kbd></span></div>
+                <div className="shortcuts-row"><span>Toggle List / Grid view</span><kbd>V</kbd></div>
+                <div className="shortcuts-row"><span>Toggle Completed section</span><span className="shortcuts-keys"><kbd>Ctrl+Shift+C</kbd><kbd>C</kbd></span></div>
+                <div className="shortcuts-row"><span>Toggle Dark / Light theme</span><kbd>Ctrl+Shift+D</kbd></div>
+                <div className="shortcuts-row"><span>Open Settings</span><kbd>Ctrl+,</kbd></div>
+                <div className="shortcuts-row"><span>Shortcuts help</span><span className="shortcuts-keys"><kbd>?</kbd><kbd>Ctrl+/</kbd></span></div>
+                <div className="shortcuts-row"><span>Close / Clear selection</span><kbd>Esc</kbd></div>
+              </div>
+              <div className="shortcuts-section">
+                <h3>Task List &amp; Actions</h3>
+                <div className="shortcuts-row"><span>Next / Previous task</span><span className="shortcuts-keys"><kbd>↓</kbd><kbd>↑</kbd> / <kbd>J</kbd><kbd>K</kbd></span></div>
+                <div className="shortcuts-row"><span>Multi-select range</span><span className="shortcuts-keys"><kbd>Shift+↓</kbd><kbd>Shift+↑</kbd></span></div>
+                <div className="shortcuts-row"><span>Select all active tasks</span><kbd>Ctrl+A</kbd></div>
+                <div className="shortcuts-row"><span>Mark / Unmark complete</span><span className="shortcuts-keys"><kbd>Ctrl+M</kbd><kbd>Ctrl+U</kbd></span></div>
+                <div className="shortcuts-row"><span>Toggle complete</span><span className="shortcuts-keys"><kbd>Space</kbd><kbd>X</kbd></span></div>
+                <div className="shortcuts-row"><span>Move / Copy to list menu</span><span className="shortcuts-keys"><kbd>M</kbd><kbd>C</kbd></span></div>
+                <div className="shortcuts-row"><span>Copy / Cut / Paste tasks</span><span className="shortcuts-keys"><kbd>Ctrl+C</kbd><kbd>Ctrl+X</kbd><kbd>Ctrl+V</kbd></span></div>
+                <div className="shortcuts-row"><span>Toggle My Day</span><span className="shortcuts-keys"><kbd>Ctrl+T</kbd><kbd>T</kbd></span></div>
+                <div className="shortcuts-row"><span>Toggle Important</span><span className="shortcuts-keys"><kbd>S</kbd><kbd>I</kbd></span></div>
+                <div className="shortcuts-row"><span>Due Today / Tomorrow</span><span className="shortcuts-keys"><kbd>D</kbd><kbd>Shift+D</kbd></span></div>
+                <div className="shortcuts-row"><span>Reorder task up / down</span><span className="shortcuts-keys"><kbd>Alt+↑</kbd><kbd>Alt+↓</kbd></span></div>
+                <div className="shortcuts-row"><span>Delete selected task(s)</span><span className="shortcuts-keys"><kbd>Del</kbd><kbd>Backspace</kbd></span></div>
+                <div className="shortcuts-row"><span>Undo (multi-step)</span><kbd>Ctrl+Z</kbd></div>
+                <h3 style={{ marginTop: "0.75rem" }}>Task Detail Pane</h3>
+                <div className="shortcuts-row"><span>Open / Focus title</span><span className="shortcuts-keys"><kbd>Enter</kbd><kbd>O</kbd><kbd>E</kbd></span></div>
+                <div className="shortcuts-row"><span>Add a step</span><kbd>A</kbd></div>
+                <div className="shortcuts-row"><span>Focus notes</span><kbd>Shift+M</kbd></div>
+              </div>
             </div>
           </div>
         </div>
@@ -4307,6 +5120,53 @@ const [gridEditText, setGridEditText] = useState('');
             }}
             onClose={() => setShareListId(null)}
           />
+        );
+      })()}
+      {(() => {
+        const targetList =
+          printListId && printListId !== '__current__'
+            ? allLists.find((l) => l.id === printListId) ?? null
+            : null;
+        const pTitle = targetList ? targetList.title : currentTitle;
+        const pIcon = targetList ? targetList.icon ?? null : currentList?.icon ?? null;
+        const pItems = targetList
+          ? allItems
+              .filter((i) => i.listId === targetList.id)
+              .sort((a, b) => getTaskSortOrder(a) - getTaskSortOrder(b))
+          : null;
+        const pActive = pItems ? pItems.filter((i) => !i.done) : activeItems;
+        const pCompleted = pItems ? pItems.filter((i) => i.done) : completedItems;
+        const pShowListName = !targetList && (selection.type === 'smart' || searchQuery.trim() !== '');
+        return (
+          <>
+            <div className="print-sheet-root" aria-hidden="true">
+              <PrintSheet
+                title={pTitle}
+                icon={pIcon}
+                activeItems={pActive}
+                completedItems={pCompleted}
+                lists={allLists}
+                showListName={pShowListName}
+                todayStr={todayStr}
+                options={printOptions}
+              />
+            </div>
+            {printListId && (
+              <PrintModal
+                title={pTitle}
+                icon={pIcon}
+                activeItems={pActive}
+                completedItems={pCompleted}
+                lists={allLists}
+                showListName={pShowListName}
+                todayStr={todayStr}
+                options={printOptions}
+                onChangeOptions={setPrintOptions}
+                onPrint={() => window.print()}
+                onClose={() => setPrintListId(null)}
+              />
+            )}
+          </>
         );
       })()}
       <AppDialogModal />
