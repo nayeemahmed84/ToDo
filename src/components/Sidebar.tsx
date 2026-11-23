@@ -27,6 +27,7 @@ interface SidebarProps {
   collapsed: boolean;
   onClose: () => void;
   onSelect: (sel: ViewSelection) => void;
+  onOpenMobileSearch?: () => void;
   onSearchChange: (q: string) => void;
   onCreateList: (title: string) => Promise<void>;
   onCreateGroup: (title: string) => Promise<void>;
@@ -90,6 +91,7 @@ export function Sidebar({
   collapsed,
   onClose,
   onSelect,
+  onOpenMobileSearch,
   onSearchChange,
   onCreateList,
   onCreateGroup,
@@ -483,40 +485,62 @@ export function Sidebar({
         }}
       >
         <div className="sidebar-top">
-          <div className="sidebar-account-wrap" ref={accountRef}>
-            <button
-              type="button"
-              className="sidebar-profile-button"
-              onClick={() => setAccountOpen((open) => !open)}
-              aria-expanded={accountOpen}
-              aria-haspopup="menu"
-              aria-label={`Account menu for ${displayName}`}
-            >
-              <span className="user-avatar sidebar-avatar">
-                {user.photoURL ? <img src={user.photoURL} alt="" /> : initials}
-              </span>
-              {!collapsed && (
-                <span className="sidebar-profile-copy">
-                  <strong>{displayName}</strong>
+          <div className="sidebar-account-row">
+            <div className="sidebar-account-wrap" ref={accountRef}>
+              <button
+                type="button"
+                className="sidebar-profile-button"
+                onClick={() => setAccountOpen((open) => !open)}
+                aria-expanded={accountOpen}
+                aria-haspopup="menu"
+                aria-label={`Account menu for ${displayName}`}
+              >
+                <span className="user-avatar sidebar-avatar">
+                  {user.photoURL ? <img src={user.photoURL} alt="" /> : initials}
                 </span>
-              )}
-              {!collapsed && (
-                <span className="sidebar-account-chevron" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
-                </span>
-              )}
-            </button>
-            {accountOpen && (
-              <div className="sidebar-account-menu" role="menu" aria-label="Account options">
-                <div className="sidebar-account-menu-user">
-                  <strong>{displayName}</strong>
-                  <span>{user.email}</span>
+                {!collapsed && (
+                  <span className="sidebar-profile-copy">
+                    <span className="sidebar-profile-name-row">
+                      <strong>{displayName}</strong>
+                      <span className="sidebar-account-chevron-inline" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="m6 9 6 6 6-6" />
+                        </svg>
+                      </span>
+                    </span>
+                    {user.email && <span className="sidebar-profile-email">{user.email}</span>}
+                  </span>
+                )}
+                {!collapsed && (
+                  <span className="sidebar-account-chevron" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </span>
+                )}
+              </button>
+              {accountOpen && (
+                <div className="sidebar-account-menu" role="menu" aria-label="Account options">
+                  <div className="sidebar-account-menu-user">
+                    <strong>{displayName}</strong>
+                    <span>{user.email}</span>
+                  </div>
+                  <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); onOpenSettings(); }}>Settings</button>
+                  <button type="button" role="menuitem" className="danger" onClick={() => { setAccountOpen(false); onSignOut(); }}>Sign out</button>
                 </div>
-                <button type="button" role="menuitem" onClick={() => { setAccountOpen(false); onOpenSettings(); }}>Settings</button>
-                <button type="button" role="menuitem" className="danger" onClick={() => { setAccountOpen(false); onSignOut(); }}>Sign out</button>
-              </div>
+              )}
+            </div>
+            {onOpenMobileSearch && (
+              <button
+                type="button"
+                className="mobile-home-search-btn"
+                onClick={onOpenMobileSearch}
+                aria-label="Search tasks"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" /><path d="m16 16 4 4" />
+                </svg>
+              </button>
             )}
           </div>
           {!collapsed && (

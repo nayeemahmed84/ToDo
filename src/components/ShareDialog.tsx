@@ -96,26 +96,12 @@ export function ShareDialog({
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop share-modal-backdrop"
       onClick={onClose}
-      style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', background: 'var(--color-overlay)', zIndex: 100 }}
     >
       <div
-        className="modal-card"
+        className="modal-card share-dialog-card"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          padding: '1.5rem',
-          width: '480px',
-          maxWidth: '92vw',
-          background: 'var(--color-surface)',
-          color: 'var(--color-text)',
-          borderRadius: '12px',
-          border: '1px solid var(--color-border)',
-          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.45)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.25rem',
-        }}
       >
         <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingBottom: '0.25rem' }}>
           <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, letterSpacing: '-0.01em', textAlign: 'center' }}>Share list</h2>

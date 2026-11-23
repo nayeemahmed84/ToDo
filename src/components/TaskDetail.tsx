@@ -26,6 +26,8 @@ interface TaskDetailProps {
   item: TodoItem;
   todayStr: string;
   currentUserId: string;
+  listTitle?: string;
+  listIcon?: string | null;
   onClose: () => void;
   onUpdate: (item: TodoItem, patch: Partial<TodoItem>) => Promise<void>;
   onDelete: (item: TodoItem) => Promise<void>;
@@ -35,6 +37,8 @@ export function TaskDetail({
   item,
   todayStr,
   currentUserId,
+  listTitle,
+  listIcon,
   onClose,
   onUpdate,
   onDelete,
@@ -194,6 +198,22 @@ export function TaskDetail({
         title="Drag to resize"
         style={{ position: "absolute", left: "-4px", top: 0, bottom: 0, width: "8px", cursor: "col-resize", zIndex: 10 }}
       />
+      <div className="detail-mobile-topbar">
+        <button
+          type="button"
+          className="mobile-topbar-icon-btn"
+          onClick={onClose}
+          aria-label="Back to list"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div className="detail-mobile-list-title">
+          {listIcon && <span aria-hidden="true">{listIcon}</span>}
+          <span>{listTitle || 'Tasks'}</span>
+        </div>
+      </div>
       <div className="detail-top-close">
         <button className="icon-btn" onClick={onClose} aria-label="Close" title="Close">
           ✕

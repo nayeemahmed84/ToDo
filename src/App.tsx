@@ -373,6 +373,12 @@ export function App() {
   const currentViewKey = `${selection.type}:${selection.id}`;
   const showCompleted = Boolean(completedExpandedByView[currentViewKey]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileView, setMobileView] = useState<'home' | 'list' | 'search'>('home');
+  const [mobileAddOpen, setMobileAddOpen] = useState(false);
+  const [mobileHideCompletedSearch, setMobileHideCompletedSearch] = useState(false);
+  const [mobileSearchMenuOpen, setMobileSearchMenuOpen] = useState(false);
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
+  const mobileAddInputRef = useRef<HTMLInputElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -972,8 +978,9 @@ const [gridEditText, setGridEditText] = useState('');
     if (q) {
       return allItems.filter(
         (i) =>
-          i.text.toLowerCase().includes(q) ||
-          i.notes.toLowerCase().includes(q)
+          (!mobileHideCompletedSearch || !i.done) &&
+          (i.text.toLowerCase().includes(q) ||
+            i.notes.toLowerCase().includes(q))
       );
     }
     if (selection.type === 'list') {
@@ -1002,7 +1009,7 @@ const [gridEditText, setGridEditText] = useState('');
       default:
         return allItems;
     }
-  }, [allItems, searchQuery, selection, todayStr, defaultTasksList]);
+  }, [allItems, searchQuery, selection, todayStr, defaultTasksList, mobileHideCompletedSearch]);
 
   const sortedVisible = useMemo(() => {
     const arr = [...visibleItems];
@@ -1993,7 +2000,7 @@ const [gridEditText, setGridEditText] = useState('');
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-mobile-view={mobileView}>
       <TopBar
         onToggleSidebar={() => {
           if (window.innerWidth < 1024) {
@@ -2016,7 +2023,16 @@ const [gridEditText, setGridEditText] = useState('');
           isOpen={sidebarOpen}
           collapsed={sidebarCollapsed}
           onClose={() => setSidebarOpen(false)}
-          onSelect={setSelection}
+          onSelect={(sel) => {
+            setSelection(sel);
+            setMobileView('list');
+            setMobileAddOpen(false);
+          }}
+          onOpenMobileSearch={() => {
+            setMobileView('search');
+            setMobileAddOpen(false);
+            setTimeout(() => mobileSearchInputRef.current?.focus(), 60);
+          }}
           onSearchChange={setSearchQuery}
           onCreateList={handleCreateList}
           onCreateGroup={handleCreateGroup}
@@ -2066,6 +2082,140 @@ const [gridEditText, setGridEditText] = useState('');
             backgroundImage: `linear-gradient(rgba(19, 19, 19, .10), rgba(17, 16, 15, .22)), url(${JSON.stringify(customBackgroundUrl)})`,
           } : undefined}
         >
+        {mobileView === 'search' ? (
+          <div className="mobile-search-topbar">
+            <button
+              type="button"
+              className="mobile-topbar-icon-btn"
+              onClick={() => {
+                setSearchQuery('');
+                setMobileSearchMenuOpen(false);
+                setMobileView('home');
+              }}
+              aria-label="Back to lists"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <input
+              ref={mobileSearchInputRef}
+              type="text"
+              className="mobile-search-input"
+              placeholder="Search"
+              aria-label="Search tasks"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="mobile-topbar-icon-btn"
+                onClick={() => {
+                  setSearchQuery('');
+                  mobileSearchInputRef.current?.focus();
+                }}
+                aria-label="Clear search"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+            <div className="mobile-search-menu-wrap" style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="mobile-topbar-icon-btn"
+                onClick={() => setMobileSearchMenuOpen((v) => !v)}
+                aria-label="Search options"
+                aria-haspopup="menu"
+                aria-expanded={mobileSearchMenuOpen}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <circle cx="12" cy="5" r="1.8" />
+                  <circle cx="12" cy="12" r="1.8" />
+                  <circle cx="12" cy="19" r="1.8" />
+                </svg>
+              </button>
+              {mobileSearchMenuOpen && (
+                <div className="top-bar-popover mobile-search-popover" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="account-popover-item"
+                    onClick={() => {
+                      setMobileHideCompletedSearch((v) => !v);
+                      setMobileSearchMenuOpen(false);
+                    }}
+                  >
+                    {mobileHideCompletedSearch ? 'Show completed items' : 'Hide completed items'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="mobile-list-topbar">
+            <button
+              type="button"
+              className="mobile-topbar-icon-btn mobile-back-btn"
+              onClick={() => {
+                setMobileAddOpen(false);
+                setListMenuOpen(false);
+                setMobileView('home');
+              }}
+              aria-label="Back to lists"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div className="mobile-list-topbar-actions">
+              {selection.type === 'list' && (
+                <button
+                  type="button"
+                  className="mobile-topbar-share-btn"
+                  onClick={() => {
+                    setSortMenuOpen(false);
+                    setGroupMenuOpen(false);
+                    setListMenuOpen(false);
+                    setContextMenu(null);
+                    setShareListId(selection.id);
+                  }}
+                  aria-label="Share list"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="9" cy="8" r="3.5" />
+                    <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16.5 4.8a3.5 3.5 0 0 1 0 6.4M18 14a5.5 5.5 0 0 1 3.5 5.1" />
+                  </svg>
+                  {currentList?.memberUids?.length ? (
+                    <span className="mobile-share-count">{currentList.memberUids.length + 1}</span>
+                  ) : null}
+                </button>
+              )}
+              <button
+                type="button"
+                className="mobile-topbar-icon-btn mobile-overflow-btn"
+                onClick={() => {
+                  setListMenuOpen((open) => !open);
+                  setListOptionsSortOpen(false);
+                  setListOptionsSortPosition(null);
+                  setSortMenuOpen(false);
+                  setGroupMenuOpen(false);
+                }}
+                aria-label="List options"
+                aria-haspopup="menu"
+                aria-expanded={listMenuOpen}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <circle cx="12" cy="5" r="1.8" />
+                  <circle cx="12" cy="12" r="1.8" />
+                  <circle cx="12" cy="19" r="1.8" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
         <header className="main-header">
           <button
             className="menu-btn"
@@ -3107,6 +3257,225 @@ const [gridEditText, setGridEditText] = useState('');
             <p className="notice">No tasks assigned to you yet.</p>
           )}
 
+        {mobileView === 'list' && <div className="mobile-notepad-lines" aria-hidden="true" />}
+
+        {mobileView === 'list' &&
+          !searchQuery &&
+          selection.id !== 'completed' &&
+          selection.id !== 'flagged-email' &&
+          selection.id !== 'assigned-to-me' &&
+          selection.id !== 'trash' &&
+          !mobileAddOpen && (
+            <button
+              type="button"
+              className="mobile-fab"
+              onClick={() => {
+                setMobileAddOpen(true);
+                setTimeout(() => mobileAddInputRef.current?.focus(), 60);
+              }}
+              aria-label="Add a task"
+            >
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          )}
+
+        {mobileAddOpen && (
+          <div
+            className="mobile-quick-add-backdrop"
+            onClick={() => {
+              setMobileAddOpen(false);
+              setAddDueMenuOpen(false);
+              setAddDueCalendarOpen(false);
+              setAddRemindMenuOpen(false);
+              setAddRemindCalendarOpen(false);
+              setAddRepeatMenuOpen(false);
+            }}
+          >
+            <form
+              className="mobile-quick-add-sheet"
+              onClick={(e) => e.stopPropagation()}
+              onSubmit={async (e) => {
+                await handleAddItem(e);
+                setAddDueMenuOpen(false);
+                setAddDueCalendarOpen(false);
+                setAddRemindMenuOpen(false);
+                setAddRemindCalendarOpen(false);
+                setAddRepeatMenuOpen(false);
+                mobileAddInputRef.current?.focus();
+              }}
+            >
+              {(addDueMenuOpen || addDueCalendarOpen || addRemindMenuOpen || addRemindCalendarOpen || addRepeatMenuOpen) && (
+                <div className="mobile-quick-add-picker-panel">
+                  {addDueMenuOpen && (
+                    <div className="mobile-picker-menu" role="menu" aria-label="Due date options">
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(todayStr); setAddDueMenuOpen(false); }}>Today</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(tomorrowStr); setAddDueMenuOpen(false); }}>Tomorrow</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 7); setAddDueDate(d.toISOString().slice(0, 10)); setAddDueMenuOpen(false); }}>Next week</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueMenuOpen(false); setAddDueCalendarOpen(true); }}>Pick a date</button>
+                      {addDueDate && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddDueDate(null); setAddDueMenuOpen(false); }}>Remove due date</button>}
+                    </div>
+                  )}
+                  {addDueCalendarOpen && (
+                    <div className="mobile-calendar-wrap">
+                      <CustomCalendarPicker
+                        initialDate={addDueDate}
+                        todayStr={todayStr}
+                        onSave={(dateStr) => { setAddDueDate(dateStr); setAddDueCalendarOpen(false); }}
+                        onCancel={() => setAddDueCalendarOpen(false)}
+                      />
+                    </div>
+                  )}
+                  {addRemindMenuOpen && (
+                    <div className="mobile-picker-menu" role="menu" aria-label="Reminder options">
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                        const d = new Date();
+                        d.setHours(d.getHours() + 1, 0, 0, 0);
+                        setAddReminderAtMs(d.getTime());
+                        setAddRemindMenuOpen(false);
+                      }}>Later today</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 1);
+                        d.setHours(9, 0, 0, 0);
+                        setAddReminderAtMs(d.getTime());
+                        setAddRemindMenuOpen(false);
+                      }}>Tomorrow, 9 AM</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 7);
+                        d.setHours(9, 0, 0, 0);
+                        setAddReminderAtMs(d.getTime());
+                        setAddRemindMenuOpen(false);
+                      }}>Next week, 9 AM</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddRemindMenuOpen(false); setAddRemindCalendarOpen(true); }}>Pick a date &amp; time</button>
+                      {addReminderAtMs && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddReminderAtMs(null); setAddRemindMenuOpen(false); }}>Remove reminder</button>}
+                    </div>
+                  )}
+                  {addRemindCalendarOpen && (
+                    <div className="mobile-calendar-wrap">
+                      <CustomCalendarPicker
+                        initialDate={todayStr}
+                        todayStr={todayStr}
+                        withTime
+                        onSave={(dateStr, timeStr) => {
+                          const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
+                          const d = new Date(`${dateStr}T00:00:00`);
+                          d.setHours(hh, mm, 0, 0);
+                          setAddReminderAtMs(d.getTime());
+                          setAddRemindCalendarOpen(false);
+                        }}
+                        onCancel={() => setAddRemindCalendarOpen(false)}
+                      />
+                    </div>
+                  )}
+                  {addRepeatMenuOpen && (
+                    <div className="mobile-picker-menu" role="menu" aria-label="Repeat options">
+                      {(['daily', 'weekdays', 'weekly', 'monthly', 'yearly'] as const).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          role="menuitem"
+                          className={`account-popover-item ${addRepeat === r ? 'active' : ''}`}
+                          onClick={() => { setAddRepeat(r); setAddRepeatMenuOpen(false); }}
+                        >
+                          {r.charAt(0).toUpperCase() + r.slice(1)}
+                        </button>
+                      ))}
+                      {addRepeat !== 'none' && (
+                        <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddRepeat('none'); setAddRepeatMenuOpen(false); }}>Never</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="mobile-quick-add-row">
+                <span className="add-task-checkbox" aria-hidden="true" />
+                <input
+                  ref={mobileAddInputRef}
+                  type="text"
+                  placeholder="Add a task"
+                  aria-label="Add a task"
+                  value={newItemText}
+                  onChange={(e) => setNewItemText(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  disabled={!newItemText.trim()}
+                  className={`mobile-quick-add-submit ${newItemText.trim() ? 'active' : ''}`}
+                  aria-label="Create task"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                  </svg>
+                </button>
+              </div>
+              <div className="mobile-quick-add-actions">
+                <button
+                  type="button"
+                  className={`mobile-quick-add-chip ${addDueDate ? 'active' : ''}`}
+                  onClick={() => {
+                    const next = !(addDueMenuOpen || addDueCalendarOpen);
+                    setAddDueMenuOpen(next);
+                    setAddDueCalendarOpen(false);
+                    setAddRemindMenuOpen(false);
+                    setAddRemindCalendarOpen(false);
+                    setAddRepeatMenuOpen(false);
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <path d="M16 2v4M8 2v4M3 10h18" />
+                  </svg>
+                  <span>{addDueDate ? `Due ${addDueDate}` : 'Set due date'}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`mobile-quick-add-chip ${addReminderAtMs ? 'active' : ''}`}
+                  onClick={() => {
+                    const next = !(addRemindMenuOpen || addRemindCalendarOpen);
+                    setAddRemindMenuOpen(next);
+                    setAddRemindCalendarOpen(false);
+                    setAddDueMenuOpen(false);
+                    setAddDueCalendarOpen(false);
+                    setAddRepeatMenuOpen(false);
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                  </svg>
+                  <span>
+                    {addReminderAtMs
+                      ? new Date(addReminderAtMs).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                      : 'Remind me'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`mobile-quick-add-chip ${addRepeat !== 'none' ? 'active' : ''}`}
+                  onClick={() => {
+                    const next = !addRepeatMenuOpen;
+                    setAddRepeatMenuOpen(next);
+                    setAddDueMenuOpen(false);
+                    setAddDueCalendarOpen(false);
+                    setAddRemindMenuOpen(false);
+                    setAddRemindCalendarOpen(false);
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m17 2 4 4-4 4" />
+                    <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+                    <path d="m7 22-4-4 4-4" />
+                    <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+                  </svg>
+                  <span>{addRepeat !== 'none' ? addRepeat.charAt(0).toUpperCase() + addRepeat.slice(1) : 'Repeat'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
       </main>
 
@@ -3421,17 +3790,22 @@ const [gridEditText, setGridEditText] = useState('');
           </aside>
         )}
 
-      {selectedItem && (
-        <TaskDetail
-          key={selectedItem.id}
-          item={selectedItem}
-          todayStr={todayStr}
-          currentUserId={user?.uid ?? ''}
-          onClose={() => setSelectedItemId(null)}
-          onUpdate={handleUpdateItem}
-          onDelete={handleDeleteItem}
-        />
-      )}
+      {selectedItem && (() => {
+        const itemParentList = allLists.find((l) => l.id === selectedItem.listId);
+        return (
+          <TaskDetail
+            key={selectedItem.id}
+            item={selectedItem}
+            todayStr={todayStr}
+            currentUserId={user?.uid ?? ''}
+            listTitle={itemParentList?.title}
+            listIcon={itemParentList?.icon}
+            onClose={() => setSelectedItemId(null)}
+            onUpdate={handleUpdateItem}
+            onDelete={handleDeleteItem}
+          />
+        );
+      })()}
       </div>
       {installPrompt && (
         <button
