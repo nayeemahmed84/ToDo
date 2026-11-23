@@ -537,7 +537,11 @@ export function App() {
         ...patch,
         ...(patch.themeMode !== undefined ? { themeModeExplicit: true } : {}),
       };
-      localStorage.setItem("todo-settings", JSON.stringify(next));
+      try {
+        localStorage.setItem("todo-settings", JSON.stringify(next));
+      } catch {
+        // Ignore storage quota errors so state updates still succeed
+      }
       if (patch.themeMode !== undefined) {
         const isDark = patch.themeMode === "dark" || (patch.themeMode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
         setDarkMode(isDark);
@@ -1543,7 +1547,7 @@ const [gridEditText, setGridEditText] = useState('');
         url: backgroundImageUrl,
         path: nextImagePath,
       };
-      const existingBgs = appSettings.customBackgrounds ?? [];
+      const existingBgs = availableCustomBackgrounds;
       const nextCustomBackgrounds = existingBgs.some((b) => b.url === backgroundImageUrl)
         ? existingBgs
         : [...existingBgs, newBgEntry];
