@@ -1776,12 +1776,14 @@ const [gridEditText, setGridEditText] = useState('');
       .sort((a, b) => getTaskSortOrder(a) - getTaskSortOrder(b));
     const draggedIndex = orderedItems.findIndex((item) => item.id === draggedItemId);
     const target = orderedItems.find((item) => item.id === targetItemId);
-    if (draggedIndex < 0 || !target || orderedItems[draggedIndex].done !== target.done) return;
+    if (draggedIndex < 0 || !target) return;
+    const draggedOrigin = orderedItems[draggedIndex];
+    const crossingDoneState = draggedOrigin.done !== target.done;
 
     if (selectedIds.has(draggedItemId) && selectedIds.size > 1) {
       if (selectedIds.has(targetItemId)) return;
       const movingItems = orderedItems.filter(
-        (item) => selectedIds.has(item.id) && item.done === target.done
+        (item) => selectedIds.has(item.id) && item.done === draggedOrigin.done
       );
       if (movingItems.length === 0) return;
       const movingSet = new Set(movingItems.map((item) => item.id));
@@ -1790,9 +1792,12 @@ const [gridEditText, setGridEditText] = useState('');
       const targetIndex = remaining.findIndex((item) => item.id === targetItemId);
       if (targetIndex < 0) return;
       remaining.splice(targetIndex + (insertAfter ? 1 : 0), 0, ...movingItems);
-      if (remaining.every((item, index) => item.id === previousOrder[index])) return;
+      if (!crossingDoneState && remaining.every((item, index) => item.id === previousOrder[index])) return;
 
       const modifiedFields = {
+        ...(crossingDoneState
+          ? { done: target.done, completedAtMs: target.done ? Date.now() : null }
+          : {}),
         updatedAtMs: Date.now(),
         updatedAt: serverTimestamp(),
         updatedByUid: user.uid,
@@ -1811,6 +1816,9 @@ const [gridEditText, setGridEditText] = useState('');
           });
           await batch.commit();
         }
+        if (crossingDoneState && target.done && soundEnabled) {
+          playCompleteSound();
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to reorder tasks');
       }
@@ -1822,7 +1830,14 @@ const [gridEditText, setGridEditText] = useState('');
     const targetIndex = orderedItems.findIndex((item) => item.id === targetItemId);
     const insertionIndex = targetIndex + (insertAfter ? 1 : 0);
     orderedItems.splice(insertionIndex, 0, draggedItem);
-    if (orderedItems.every((item, index) => item.id === previousOrder[index])) return;
+    if (!crossingDoneState && orderedItems.every((item, index) => item.id === previousOrder[index])) return;
+
+    if (crossingDoneState) {
+      await handleUpdateItem(draggedItem, {
+        done: target.done,
+        completedAtMs: target.done ? Date.now() : null,
+      });
+    }
 
     const previous = orderedItems[insertionIndex - 1];
     const next = orderedItems[insertionIndex + 1];
@@ -4221,6 +4236,24 @@ const [gridEditText, setGridEditText] = useState('');
             <button
               className="completed-toggle"
               onClick={() => setCompletedExpandedByView((prev) => ({ ...prev, [currentViewKey]: !prev[currentViewKey] }))}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const rawIds = e.dataTransfer.getData('application/x-todo-items');
+                const singleId = e.dataTransfer.getData('text/plain');
+                let ids: string[] = [];
+                if (rawIds) {
+                  try { ids = JSON.parse(rawIds) as string[]; } catch { /* ignore */ }
+                }
+                if (ids.length === 0 && singleId) ids = [singleId];
+                const toComplete = activeItems.filter((t) => ids.includes(t.id) && !t.done);
+                toComplete.forEach((t) => {
+                  void handleUpdateItem(t, { done: true, completedAtMs: Date.now() });
+                });
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
