@@ -47,20 +47,32 @@ export function CustomCalendarPicker({
   const days = useMemo(() => {
     const firstDay = new Date(viewYear, viewMonth - 1, 1).getDay(); // 0=Su
     const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
-    const cells: (string | null)[] = [];
-    for (let i = 0; i < firstDay; i++) cells.push(null);
+    const cells: { ymd: string; inMonth: boolean }[] = [];
+    for (let i = 0; i < firstDay; i++) {
+      const prevDt = new Date(viewYear, viewMonth - 1, -(firstDay - 1 - i));
+      const py = prevDt.getFullYear();
+      const pm = String(prevDt.getMonth() + 1).padStart(2, '0');
+      const pd = String(prevDt.getDate()).padStart(2, '0');
+      cells.push({ ymd: `${py}-${pm}-${pd}`, inMonth: false });
+    }
     for (let d = 1; d <= daysInMonth; d++) {
       const mm = String(viewMonth).padStart(2, '0');
       const dd = String(d).padStart(2, '0');
-      cells.push(`${viewYear}-${mm}-${dd}`);
+      cells.push({ ymd: `${viewYear}-${mm}-${dd}`, inMonth: true });
+    }
+    for (let d = 1; cells.length < 42; d++) {
+      const nextDt = new Date(viewYear, viewMonth, d);
+      const ny = nextDt.getFullYear();
+      const nm = String(nextDt.getMonth() + 1).padStart(2, '0');
+      const nd = String(nextDt.getDate()).padStart(2, '0');
+      cells.push({ ymd: `${ny}-${nm}-${nd}`, inMonth: false });
     }
     return cells;
   }, [viewYear, viewMonth]);
 
-  const monthLabel = new Date(viewYear, viewMonth - 1, 1).toLocaleString('en-US', {
+  const monthLabel = `${new Date(viewYear, viewMonth - 1, 1).toLocaleString('en-US', {
     month: 'long',
-    year: 'numeric',
-  });
+  })}, ${viewYear}`;
 
   return (
     <div
@@ -246,8 +258,7 @@ export function CustomCalendarPicker({
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', textAlign: 'center', justifyItems: 'center' }}>
-        {days.map((d, i) => {
-          if (!d) return <span key={`empty-${i}`} style={{ width: '38px', height: '38px' }} />;
+        {days.map(({ ymd: d, inMonth }) => {
           const disabled = d < todayStr;
           const isSelected = d === selectedDate;
           const isToday = d === todayStr;
@@ -258,21 +269,24 @@ export function CustomCalendarPicker({
               disabled={disabled}
               onClick={() => {
                 setSelectedDate(d);
-                if (!withTime) {
-                  onSave(d);
-                }
               }}
               style={{
-                width: isToday || isSelected ? '36px' : '38px',
-                height: isToday || isSelected ? '36px' : '38px',
-                border: isToday && !isSelected ? '1px solid var(--color-accent)' : 'none',
-                borderRadius: isToday || isSelected ? '50%' : '4px',
-                padding: 0,
-                fontSize: '15px',
+                width: '36px',
+                height: '36px',
+                border: isToday && !isSelected
+                  ? '1px solid var(--color-accent)'
+                  : isSelected
+                    ? '2px solid #7ab8f5'
+                    : 'none',
+                borderRadius: '4px',
+                padding: isSelected ? '2px' : 0,
+                fontSize: '14px',
+                fontWeight: isSelected ? 600 : 400,
                 cursor: disabled ? 'not-allowed' : 'pointer',
-                opacity: disabled ? 0.35 : 1,
-                background: isSelected || isToday ? 'var(--color-accent)' : 'transparent',
-                color: isSelected || isToday ? 'var(--color-text-inverse)' : 'var(--color-text)',
+                opacity: disabled ? 0.35 : inMonth ? 1 : 0.6,
+                background: isSelected ? '#7ab8f5' : 'transparent',
+                backgroundClip: isSelected ? 'content-box' : undefined,
+                color: isSelected ? '#111111' : 'var(--color-text)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -375,49 +389,50 @@ export function CustomCalendarPicker({
               {ampm}
             </button>
           </div>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '8px',
-              marginTop: '10px',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => onCancel?.()}
-              style={{
-                height: '38px',
-                border: 'none',
-                borderRadius: '6px',
-                background: 'rgba(255, 255, 255, 0.08)',
-                color: 'var(--color-text)',
-                fontSize: '14px',
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => onSave(selectedDate, get24HourTime())}
-              style={{
-                height: '38px',
-                border: 'none',
-                borderRadius: '6px',
-                background: '#77d33d',
-                color: '#111111',
-                fontSize: '14px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Save
-            </button>
-          </div>
         </div>
       )}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '8px',
+          marginTop: '12px',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => onCancel?.()}
+          style={{
+            height: '38px',
+            border: 'none',
+            borderRadius: '6px',
+            background: 'rgba(128, 128, 128, 0.18)',
+            color: 'var(--color-text)',
+            fontSize: '14px',
+            fontWeight: 500,
+            cursor: 'pointer',
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave(selectedDate, withTime ? get24HourTime() : undefined)}
+          style={{
+            height: '38px',
+            border: 'none',
+            borderRadius: '6px',
+            background: '#77d33d',
+            color: '#111111',
+            fontSize: '14px',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          Save
+        </button>
+      </div>
 
 
     </div>

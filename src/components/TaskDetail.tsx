@@ -54,6 +54,17 @@ export function TaskDetail({
   const [remindOptionsOpen, setRemindOptionsOpen] = useState(false);
   const [dueDateOptionsOpen, setDueDateOptionsOpen] = useState(false);
   const [repeatOptionsOpen, setRepeatOptionsOpen] = useState(false);
+  const [scheduleAnchorRect, setScheduleAnchorRect] = useState<{ top: number; bottom: number; left: number } | null>(null);
+  const getScheduleFixedStyle = (width: number, estHeight: number): React.CSSProperties | undefined => {
+    if (!scheduleAnchorRect) return undefined;
+    const maxLeft = Math.max(8, window.innerWidth - width - 12);
+    const left = Math.min(Math.max(8, scheduleAnchorRect.left + 24), maxLeft);
+    const fitsBelow = scheduleAnchorRect.bottom + 4 + estHeight <= window.innerHeight - 12;
+    const top = fitsBelow
+      ? scheduleAnchorRect.bottom + 4
+      : Math.max(8, window.innerHeight - estHeight - 12);
+    return { top, left };
+  };
   const [customRepeatOpen, setCustomRepeatOpen] = useState(false);
   const [repeatInterval, setRepeatInterval] = useState(item.repeatCustom?.interval ?? 1);
   const [repeatUnit, setRepeatUnit] = useState<'days' | 'weeks' | 'months' | 'years'>(item.repeatCustom?.unit ?? 'weeks');
@@ -191,6 +202,44 @@ export function TaskDetail({
   nextHourDate.setHours(nextHourDate.getHours() + 1);
   const laterTodayLabel = nextHourDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
+  const shortWeekday = (ymd: string) =>
+    new Date(`${ymd}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
+  const todayWeekday = shortWeekday(todayStr);
+  const tomorrowYmd = addDaysStr(todayStr, 1);
+  const tomorrowWeekday = shortWeekday(tomorrowYmd);
+  const nextWeekYmd = addDaysStr(todayStr, 7);
+  const nextWeekWeekday = shortWeekday(nextWeekYmd);
+
+  useEffect(() => {
+    if (!remindOptionsOpen && !dueDateOptionsOpen && !repeatOptionsOpen && !remindPickerOpen && !duePickerOpen) {
+      return;
+    }
+    const closeAllSchedule = () => {
+      setRemindOptionsOpen(false);
+      setDueDateOptionsOpen(false);
+      setRepeatOptionsOpen(false);
+      setRemindPickerOpen(false);
+      setDuePickerOpen(false);
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement)?.closest('.detail-schedule-section')) {
+        closeAllSchedule();
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeAllSchedule();
+      }
+    };
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [remindOptionsOpen, dueDateOptionsOpen, repeatOptionsOpen, remindPickerOpen, duePickerOpen]);
+
   return (
     <aside className="detail-panel" style={{ width: `${paneWidth}px` }}>
       <div
@@ -305,48 +354,116 @@ export function TaskDetail({
           <button
             type="button"
             className="detail-schedule-trigger"
-            aria-expanded={remindOptionsOpen}
-            onClick={() => setRemindOptionsOpen((open) => !open)}
+            aria-expanded={remindOptionsOpen || remindPickerOpen}
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setScheduleAnchorRect({ top: rect.top, bottom: rect.bottom, left: rect.left });
+              const next = !(remindOptionsOpen || remindPickerOpen);
+              setRemindOptionsOpen(next);
+              setRemindPickerOpen(false);
+              setDueDateOptionsOpen(false);
+              setDuePickerOpen(false);
+              setRepeatOptionsOpen(false);
+            }}
           >
             <AlarmClockIcon size={20} />
             <span>Remind me</span>
             {item.reminderAtMs && <span className="detail-schedule-value">{new Date(item.reminderAtMs).toLocaleString()}</span>}
           </button>
-          {remindOptionsOpen && (
-            <div className="detail-schedule-options">
-              <button type="button" className="chip-btn detail-pill" onClick={() => { onUpdate(item, { reminderAtMs: nextHourDate.getTime() }); setRemindOptionsOpen(false); }}>
-                Later today {laterTodayLabel}
+          {remindOptionsOpen && !remindPickerOpen && (
+            <div className="detail-schedule-menu" role="menu" aria-label="Remind me options" style={getScheduleFixedStyle(256, 230)}>
+              <button
+                type="button"
+                role="menuitem"
+                className="detail-schedule-menu-item"
+                onClick={() => {
+                  onUpdate(item, { reminderAtMs: nextHourDate.getTime() });
+                  setRemindOptionsOpen(false);
+                }}
+              >
+                <AlarmClockIcon size={16} />
+                <span>Later today</span>
+                <span className="detail-schedule-menu-hint">{laterTodayLabel}</span>
               </button>
-              <button type="button" className="chip-btn detail-pill" onClick={() => {
-                const d = new Date();
-                d.setDate(d.getDate() + 1);
-                d.setHours(9, 0, 0, 0);
-                onUpdate(item, { reminderAtMs: d.getTime() });
-                setRemindOptionsOpen(false);
-              }}>
-                Tomorrow 9:00 AM
+              <button
+                type="button"
+                role="menuitem"
+                className="detail-schedule-menu-item"
+                onClick={() => {
+                  const d = new Date();
+                  d.setDate(d.getDate() + 1);
+                  d.setHours(9, 0, 0, 0);
+                  onUpdate(item, { reminderAtMs: d.getTime() });
+                  setRemindOptionsOpen(false);
+                }}
+              >
+                <CalendarIcon size={16} />
+                <span>Tomorrow</span>
+                <span className="detail-schedule-menu-hint">{tomorrowWeekday}, 9:00 AM</span>
               </button>
-              <button type="button" className="chip-btn detail-pill" onClick={() => setRemindPickerOpen((open) => !open)}>
-                Pick a date &amp; time
+              <button
+                type="button"
+                role="menuitem"
+                className="detail-schedule-menu-item"
+                onClick={() => {
+                  const d = new Date();
+                  d.setDate(d.getDate() + 7);
+                  d.setHours(9, 0, 0, 0);
+                  onUpdate(item, { reminderAtMs: d.getTime() });
+                  setRemindOptionsOpen(false);
+                }}
+              >
+                <CalendarIcon size={16} />
+                <span>Next week</span>
+                <span className="detail-schedule-menu-hint">{nextWeekWeekday}, 9:00 AM</span>
               </button>
-              {item.reminderAtMs && <button type="button" className="clear-btn" onClick={() => { onUpdate(item, { reminderAtMs: null }); setRemindOptionsOpen(false); }}>Clear</button>}
-              {remindPickerOpen && (
-                <div className="detail-schedule-popover">
-                  <CustomCalendarPicker
-                    todayStr={todayStr}
-                    withTime
-                    onSave={(d, t) => {
-                      const [hh, mm] = (t || '10:00').split(':').map(Number);
-                      const [yy, mo, dd] = d.split('-').map(Number);
-                      const dt = new Date(yy, mo - 1, dd, hh, mm, 0, 0);
-                      onUpdate(item, { reminderAtMs: dt.getTime() });
-                      setRemindPickerOpen(false);
+              <div className="detail-schedule-menu-divider" />
+              <button
+                type="button"
+                role="menuitem"
+                className="detail-schedule-menu-item"
+                onClick={() => {
+                  setRemindOptionsOpen(false);
+                  setRemindPickerOpen(true);
+                }}
+              >
+                <CalendarIcon size={16} />
+                <span>Pick a date &amp; time</span>
+              </button>
+              {item.reminderAtMs && (
+                <>
+                  <div className="detail-schedule-menu-divider" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="detail-schedule-menu-item danger"
+                    onClick={() => {
+                      onUpdate(item, { reminderAtMs: null });
                       setRemindOptionsOpen(false);
                     }}
-                    onCancel={() => setRemindPickerOpen(false)}
-                  />
-                </div>
+                  >
+                    <TrashIcon size={16} />
+                    <span>Remove reminder</span>
+                  </button>
+                </>
               )}
+            </div>
+          )}
+          {remindPickerOpen && (
+            <div className="detail-schedule-popover" style={getScheduleFixedStyle(300, 405)}>
+              <CustomCalendarPicker
+                todayStr={todayStr}
+                withTime
+                onSave={(d, t) => {
+                  const [hh, mm] = (t || '10:00').split(':').map(Number);
+                  const [yy, mo, dd] = d.split('-').map(Number);
+                  const dt = new Date(yy, mo - 1, dd, hh, mm, 0, 0);
+                  onUpdate(item, { reminderAtMs: dt.getTime() });
+                  setRemindPickerOpen(false);
+                  setRemindOptionsOpen(false);
+                }}
+                onCancel={() => setRemindPickerOpen(false)}
+              />
             </div>
           )}
         </section>
@@ -355,30 +472,107 @@ export function TaskDetail({
           <button
             type="button"
             className="detail-schedule-trigger"
-            aria-expanded={dueDateOptionsOpen}
-            onClick={() => setDueDateOptionsOpen((open) => !open)}
+            aria-expanded={dueDateOptionsOpen || duePickerOpen}
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setScheduleAnchorRect({ top: rect.top, bottom: rect.bottom, left: rect.left });
+              const next = !(dueDateOptionsOpen || duePickerOpen);
+              setDueDateOptionsOpen(next);
+              setDuePickerOpen(false);
+              setRemindOptionsOpen(false);
+              setRemindPickerOpen(false);
+              setRepeatOptionsOpen(false);
+            }}
           >
             <CalendarIcon size={20} />
             <span>{item.dueDate ? 'Due date' : 'Add due date'}</span>
             {item.dueDate && <span className="detail-schedule-value">{new Date(`${item.dueDate}T00:00:00`).toLocaleDateString()}</span>}
           </button>
-          {dueDateOptionsOpen && (
-            <div className="detail-schedule-options">
-              <button type="button" className="chip-btn detail-pill" onClick={() => { onUpdate(item, { dueDate: todayStr }); setDueDateOptionsOpen(false); }}>Today</button>
-              <button type="button" className="chip-btn detail-pill" onClick={() => { onUpdate(item, { dueDate: addDaysStr(todayStr, 1) }); setDueDateOptionsOpen(false); }}>Tomorrow</button>
-              <button type="button" className="chip-btn detail-pill" onClick={() => { onUpdate(item, { dueDate: addDaysStr(todayStr, 7) }); setDueDateOptionsOpen(false); }}>Next week</button>
-              <button type="button" className="chip-btn detail-pill" onClick={() => setDuePickerOpen((open) => !open)}>{item.dueDate ? 'Change date' : 'Pick a date'}</button>
-              {item.dueDate && <button type="button" className="clear-btn" onClick={() => { onUpdate(item, { dueDate: null }); setDueDateOptionsOpen(false); }}>Clear</button>}
-              {duePickerOpen && (
-                <div className="detail-schedule-popover">
-                  <CustomCalendarPicker
-                    initialDate={item.dueDate}
-                    todayStr={todayStr}
-                    onSave={(d) => { onUpdate(item, { dueDate: d }); setDuePickerOpen(false); setDueDateOptionsOpen(false); }}
-                    onCancel={() => setDuePickerOpen(false)}
-                  />
-                </div>
+          {dueDateOptionsOpen && !duePickerOpen && (
+            <div className="detail-schedule-menu" role="menu" aria-label="Due date options" style={getScheduleFixedStyle(256, 230)}>
+              <button
+                type="button"
+                role="menuitem"
+                className="detail-schedule-menu-item"
+                onClick={() => {
+                  onUpdate(item, { dueDate: todayStr });
+                  setDueDateOptionsOpen(false);
+                }}
+              >
+                <CalendarIcon size={16} />
+                <span>Today</span>
+                <span className="detail-schedule-menu-hint">{todayWeekday}</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="detail-schedule-menu-item"
+                onClick={() => {
+                  onUpdate(item, { dueDate: tomorrowYmd });
+                  setDueDateOptionsOpen(false);
+                }}
+              >
+                <CalendarIcon size={16} />
+                <span>Tomorrow</span>
+                <span className="detail-schedule-menu-hint">{tomorrowWeekday}</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="detail-schedule-menu-item"
+                onClick={() => {
+                  onUpdate(item, { dueDate: nextWeekYmd });
+                  setDueDateOptionsOpen(false);
+                }}
+              >
+                <CalendarIcon size={16} />
+                <span>Next week</span>
+                <span className="detail-schedule-menu-hint">{nextWeekWeekday}</span>
+              </button>
+              <div className="detail-schedule-menu-divider" />
+              <button
+                type="button"
+                role="menuitem"
+                className="detail-schedule-menu-item"
+                onClick={() => {
+                  setDueDateOptionsOpen(false);
+                  setDuePickerOpen(true);
+                }}
+              >
+                <CalendarIcon size={16} />
+                <span>Pick a date</span>
+              </button>
+              {item.dueDate && (
+                <>
+                  <div className="detail-schedule-menu-divider" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="detail-schedule-menu-item danger"
+                    onClick={() => {
+                      onUpdate(item, { dueDate: null });
+                      setDueDateOptionsOpen(false);
+                    }}
+                  >
+                    <TrashIcon size={16} />
+                    <span>Remove due date</span>
+                  </button>
+                </>
               )}
+            </div>
+          )}
+          {duePickerOpen && (
+            <div className="detail-schedule-popover" style={getScheduleFixedStyle(300, 355)}>
+              <CustomCalendarPicker
+                initialDate={item.dueDate}
+                todayStr={todayStr}
+                onSave={(d) => {
+                  onUpdate(item, { dueDate: d });
+                  setDuePickerOpen(false);
+                  setDueDateOptionsOpen(false);
+                }}
+                onCancel={() => setDuePickerOpen(false)}
+              />
             </div>
           )}
         </section>
@@ -388,33 +582,69 @@ export function TaskDetail({
             type="button"
             className="detail-schedule-trigger"
             aria-expanded={repeatOptionsOpen}
-            onClick={() => setRepeatOptionsOpen((open) => !open)}
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setScheduleAnchorRect({ top: rect.top, bottom: rect.bottom, left: rect.left });
+              const next = !repeatOptionsOpen;
+              setRepeatOptionsOpen(next);
+              setRemindOptionsOpen(false);
+              setRemindPickerOpen(false);
+              setDueDateOptionsOpen(false);
+              setDuePickerOpen(false);
+            }}
           >
             <RepeatIcon size={20} />
             <span>Repeat</span>
             {item.repeat && item.repeat !== 'none' && <span className="detail-schedule-value">{item.repeat === 'custom' ? 'Custom' : item.repeat.charAt(0).toUpperCase() + item.repeat.slice(1)}</span>}
           </button>
           {repeatOptionsOpen && (
-            <label className="detail-field-label detail-repeat-options">
-              <span className="sr-only">Repeat frequency</span>
-              <select
-                className="repeat-select"
-                value={item.repeat ?? 'none'}
-                onChange={(e) => {
-                  const val = e.target.value as RepeatRule;
-                  if (val === 'custom') setCustomRepeatOpen(true);
-                  else onUpdate(item, { repeat: val });
+            <div className="detail-schedule-menu" role="menu" aria-label="Repeat options" style={getScheduleFixedStyle(248, 280)}>
+              {(['daily', 'weekdays', 'weekly', 'monthly', 'yearly'] as RepeatRule[]).map((rule) => (
+                <button
+                  key={rule}
+                  type="button"
+                  role="menuitem"
+                  className="detail-schedule-menu-item"
+                  onClick={() => {
+                    onUpdate(item, { repeat: rule });
+                    setRepeatOptionsOpen(false);
+                  }}
+                >
+                  <RepeatIcon size={16} />
+                  <span>{rule.charAt(0).toUpperCase() + rule.slice(1)}</span>
+                </button>
+              ))}
+              <div className="detail-schedule-menu-divider" />
+              <button
+                type="button"
+                role="menuitem"
+                className="detail-schedule-menu-item"
+                onClick={() => {
+                  setRepeatOptionsOpen(false);
+                  setCustomRepeatOpen(true);
                 }}
               >
-                <option value="none">Never</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="weekdays">Weekdays</option>
-                <option value="yearly">Yearly</option>
-                <option value="custom">Custom…</option>
-              </select>
-            </label>
+                <RepeatIcon size={16} />
+                <span>Custom…</span>
+              </button>
+              {item.repeat && item.repeat !== 'none' && (
+                <>
+                  <div className="detail-schedule-menu-divider" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="detail-schedule-menu-item danger"
+                    onClick={() => {
+                      onUpdate(item, { repeat: 'none' });
+                      setRepeatOptionsOpen(false);
+                    }}
+                  >
+                    <TrashIcon size={16} />
+                    <span>Never repeat</span>
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </section>
       </div>
