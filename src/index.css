@@ -5605,10 +5605,37 @@ button.primary.small {
   .main-pane {
     width: 100%;
     padding: 0 12px 96px !important;
-    background-color: var(--color-bg) !important;
-    background-image: none !important;
     display: flex;
     flex-direction: column;
+  }
+
+  .main-pane[data-wallpaper="coast"] .mobile-list-topbar,
+  .main-pane[data-wallpaper="field"] .mobile-list-topbar,
+  .main-pane[data-wallpaper="custom"] .mobile-list-topbar {
+    background: transparent;
+  }
+
+  .main-pane[data-wallpaper="coast"] .mobile-back-btn,
+  .main-pane[data-wallpaper="field"] .mobile-back-btn,
+  .main-pane[data-wallpaper="custom"] .mobile-back-btn,
+  .main-pane[data-wallpaper="coast"] .mobile-overflow-btn,
+  .main-pane[data-wallpaper="field"] .mobile-overflow-btn,
+  .main-pane[data-wallpaper="custom"] .mobile-overflow-btn,
+  .main-pane[data-wallpaper="coast"] .mobile-topbar-share-btn,
+  .main-pane[data-wallpaper="field"] .mobile-topbar-share-btn,
+  .main-pane[data-wallpaper="custom"] .mobile-topbar-share-btn {
+    color: #ffffff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  }
+
+  .main-pane[data-wallpaper="coast"] .header-title,
+  .main-pane[data-wallpaper="field"] .header-title,
+  .main-pane[data-wallpaper="custom"] .header-title,
+  .main-pane[data-wallpaper="coast"] .header-title-input,
+  .main-pane[data-wallpaper="field"] .header-title-input,
+  .main-pane[data-wallpaper="custom"] .header-title-input {
+    color: #ffffff;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
   }
 
   .mobile-list-topbar,
