@@ -36,9 +36,19 @@ import { TopBar } from './components/TopBar';
 import { AppSettings, DEFAULT_SETTINGS, SettingsModal } from './components/SettingsModal';
 import { ShareDialog } from './components/ShareDialog';
 import { CustomCalendarPicker } from './components/CustomCalendarPicker';
+import { AppDialogModal } from './components/AppDialogModal';
+import { appConfirm, appPrompt } from './lib/appDialog';
 import { playCompleteSound } from './lib/sound';
 import { suggestEmoji } from './lib/suggestEmoji';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
+import {
+  notifyListCollaborators,
+  registerDevicePushToken,
+  requestAndEnableNotifications,
+  showLocalNotification,
+  subscribeForegroundMessages,
+  unregisterDevicePushToken,
+} from './lib/notifications';
 import {
   RepeatRule,
   SmartListId,
@@ -78,7 +88,6 @@ const SMART_TITLES: Record<SmartListId, string> = {
   important: 'Important',
   planned: 'Planned',
   'assigned-to-me': 'Assigned to me',
-  'flagged-email': 'Flagged email',
   tasks: 'Tasks',
   all: 'All',
   completed: 'Completed',
@@ -113,12 +122,6 @@ function getListIcon(selection: ViewSelection, customIcon?: string | null): Reac
           return <span style={{ fontSize: '20px', fontWeight: 600, lineHeight: 1 }}>∞</span>;
         case 'completed':
           return <span className="completed-nav-icon">✓</span>;
-        case 'flagged-email':
-          return (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M5 21V4m0 0h14l-3.5 5L19 14H5" />
-            </svg>
-          );
         case 'assigned-to-me':
           return (
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -320,7 +323,6 @@ export function App() {
   };
   const [selection, setSelection] = useState<ViewSelection>(() => {
     const path = window.location.pathname.toLowerCase();
-    if (path === '/tasks/flagged' || path === '/tasks/flagged-email') return { type: 'smart', id: 'flagged-email' };
     if (path === '/tasks/important') return { type: 'smart', id: 'important' };
     if (path === '/tasks/planned') return { type: 'smart', id: 'planned' };
     if (path === '/tasks/all') return { type: 'smart', id: 'all' };
@@ -390,6 +392,7 @@ export function App() {
   const [addDueCalendarOpen, setAddDueCalendarOpen] = useState(false);
   const [addRemindCalendarOpen, setAddRemindCalendarOpen] = useState(false);
   const [addRowExpanded, setAddRowExpanded] = useState(false);
+  const [addInputFocused, setAddInputFocused] = useState(false);
   const [suggestionsLimit, setSuggestionsLimit] = useState(10);
 
   useEffect(() => {
@@ -485,6 +488,13 @@ export function App() {
         setSoundEnabled(patch.playCompletionSound);
         localStorage.setItem("todo-sound", patch.playCompletionSound ? "1" : "0");
       }
+      if (patch.reminderNotifications !== undefined && user) {
+        if (patch.reminderNotifications) {
+          void requestAndEnableNotifications(user.uid);
+        } else {
+          void unregisterDevicePushToken(user.uid);
+        }
+      }
       return next;
     });
   };
@@ -539,17 +549,6 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const syncFullscreen = () => setIsFullscreen(Boolean(document.fullscreenElement));
-    document.addEventListener('fullscreenchange', syncFullscreen);
-    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
-  }, []);
-
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void document.documentElement.requestFullscreen?.();
-  };
-
-  useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const sync = () => {
       const isDark =
@@ -572,6 +571,14 @@ export function App() {
     y: number;
     item: TodoItem;
   } | null>(null);
+  const [taskDatePickerOpen, setTaskDatePickerOpen] = useState(false);
+  const [completedMenu, setCompletedMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [completedMoveOpen, setCompletedMoveOpen] = useState(false);
+  const [completedMovePosition, setCompletedMovePosition] = useState<ContextSubmenuPosition | null>(null);
+  const [completedDatePickerOpen, setCompletedDatePickerOpen] = useState(false);
   const [undoToast, setUndoToast] = useState<{
     item: TodoItem;
     timerId: number;
@@ -589,7 +596,6 @@ export function App() {
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
 const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
-const [isFullscreen, setIsFullscreen] = useState(false);
 const [gridEditId, setGridEditId] = useState<string | null>(null);
 const [gridEditText, setGridEditText] = useState('');
   const [collapsedLists, setCollapsedLists] = useState<Record<string, boolean>>(() => {
@@ -607,7 +613,7 @@ const [gridEditText, setGridEditText] = useState('');
 
   // Auto-focus the add-task input when selection changes (list opened)
   useEffect(() => {
-    if (!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'flagged-email' && selection.id !== 'assigned-to-me') {
+    if (!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'assigned-to-me') {
       setTimeout(() => {
         if (!document.activeElement?.closest('.sidebar-search')) {
           addTaskInputRef.current?.focus();
@@ -670,8 +676,20 @@ const [gridEditText, setGridEditText] = useState('');
         if (!hasOpenMenu) setSelectedItemId(null);
       }
     };
-    const onClick = () => setContextMenu(null);
-    const onScroll = () => setContextMenu(null);
+    const onClick = () => {
+      setContextMenu(null);
+      setTaskDatePickerOpen(false);
+      setCompletedMenu(null);
+      setCompletedMoveOpen(false);
+      setCompletedDatePickerOpen(false);
+    };
+    const onScroll = () => {
+      setContextMenu(null);
+      setTaskDatePickerOpen(false);
+      setCompletedMenu(null);
+      setCompletedMoveOpen(false);
+      setCompletedDatePickerOpen(false);
+    };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('click', onClick);
     window.addEventListener('scroll', onScroll, true);
@@ -738,6 +756,52 @@ const [gridEditText, setGridEditText] = useState('');
     });
   }, []);
 
+  const notifiedLocalRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!user || !appSettings.reminderNotifications) return;
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      void registerDevicePushToken(user.uid);
+    }
+    let unsubscribe = () => {};
+    let cancelled = false;
+    void subscribeForegroundMessages().then((fn) => {
+      if (cancelled) fn();
+      else unsubscribe = fn;
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [user, appSettings.reminderNotifications]);
+
+  useEffect(() => {
+    if (!user || !appSettings.reminderNotifications) return;
+    const checkDueReminders = () => {
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+      const now = Date.now();
+      for (const item of allItems) {
+        if (
+          !item.done &&
+          !item.deletedAtMs &&
+          !item.reminderNotified &&
+          item.reminderAtMs &&
+          item.reminderAtMs <= now &&
+          !notifiedLocalRef.current.has(item.id)
+        ) {
+          notifiedLocalRef.current.add(item.id);
+          void showLocalNotification('Task Reminder', item.text, item.id);
+          void updateDoc(doc(db, 'lists', item.listId, 'items', item.id), {
+            reminderNotified: true,
+          }).catch(() => {});
+        }
+      }
+    };
+    checkDueReminders();
+    const timer = window.setInterval(checkDueReminders, 30_000);
+    return () => window.clearInterval(timer);
+  }, [user, appSettings.reminderNotifications, allItems]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const paramListId = params.get('join') || params.get('share');
@@ -800,6 +864,7 @@ const [gridEditText, setGridEditText] = useState('');
       repeat: (data.repeat as RepeatRule) ?? 'none',
       repeatCustom: (data.repeatCustom as TodoItem['repeatCustom']) ?? null,
       reminderAtMs: (data.reminderAtMs as number | null) ?? null,
+      reminderNotified: Boolean(data.reminderNotified),
       assignedTo: (data.assignedTo as string | null) ?? null,
       attachments: Array.isArray(data.attachments) ? data.attachments : [],
       updatedAtMs: (data.updatedAtMs as number | null) ?? null,
@@ -994,7 +1059,6 @@ const [gridEditText, setGridEditText] = useState('');
       case 'planned':
         return allItems.filter((i) => Boolean(i.dueDate));
       case 'assigned-to-me':
-      case 'flagged-email':
         return [];
       case 'all':
         return allItems;
@@ -1512,17 +1576,26 @@ const [gridEditText, setGridEditText] = useState('');
     ]);
   };
 
+  const isSharedList = (listId: string) => {
+    const list = allLists.find((l) => l.id === listId);
+    return Boolean(
+      list &&
+        ((list.memberUids?.length ?? 0) > 0 || (user && list.ownerUid !== user.uid))
+    );
+  };
+
   const handleAddItem = async (e: FormEvent) => {
     e.preventDefault();
     if (!user || !newItemText.trim()) return;
     setError(null);
     try {
       const targetListId = await ensureDefaultList();
-      await addDoc(collection(db, 'lists', targetListId, 'items'), {
+      const addedText = newItemText.trim();
+      const addedRef = await addDoc(collection(db, 'lists', targetListId, 'items'), {
         listId: targetListId,
         ownerUid: user.uid,
         createdByName: user.displayName?.trim() || user.email?.trim() || null,
-        text: newItemText.trim(),
+        text: addedText,
         done: false,
         important: selection.type === 'smart' && selection.id === 'important',
         myDayDate:
@@ -1531,6 +1604,7 @@ const [gridEditText, setGridEditText] = useState('');
             : null,
         dueDate: addDueDate ?? (selection.type === 'smart' && selection.id === 'planned' ? todayStr : null),
         reminderAtMs: addReminderAtMs,
+        reminderNotified: false,
         repeat: addRepeat,
         notes: '',
         category: null,
@@ -1542,6 +1616,14 @@ const [gridEditText, setGridEditText] = useState('');
       setAddDueDate(null);
       setAddReminderAtMs(null);
       setAddRepeat('none');
+      if (isSharedList(targetListId)) {
+        void notifyListCollaborators({
+          listId: targetListId,
+          itemId: addedRef.id,
+          action: 'added',
+          text: addedText,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add task');
     }
@@ -1551,13 +1633,26 @@ const [gridEditText, setGridEditText] = useState('');
     item: TodoItem,
     patch: Partial<TodoItem>
   ) => {
+    const extraReminderReset =
+      patch.reminderAtMs !== undefined && patch.reminderNotified === undefined
+        ? { reminderNotified: false }
+        : {};
     await updateDoc(doc(db, 'lists', item.listId, 'items', item.id), {
       ...patch,
+      ...extraReminderReset,
       updatedAtMs: Date.now(),
       updatedAt: serverTimestamp(),
       updatedByUid: user?.uid ?? item.ownerUid,
       updatedByName: user?.displayName?.trim() || user?.email?.trim() || null,
     });
+    if (patch.done !== undefined && isSharedList(item.listId)) {
+      void notifyListCollaborators({
+        listId: item.listId,
+        itemId: item.id,
+        action: patch.done ? 'completed' : 'reopened',
+        text: item.text,
+      });
+    }
     if (patch.done === true) {
       if (soundEnabled) playCompleteSound();
       if (item.repeat && item.repeat !== 'none' && user) {
@@ -1816,7 +1911,13 @@ const [gridEditText, setGridEditText] = useState('');
 
   const handleEmptyTrash = async () => {
     if (trashedItems.length === 0) return;
-    if (!window.confirm(`Permanently delete all ${trashedItems.length} item(s) in Trash? This cannot be undone.`)) {
+    const ok = await appConfirm({
+      title: 'Empty Trash',
+      message: `Permanently delete all ${trashedItems.length} item(s) in Trash? This cannot be undone.`,
+      confirmLabel: 'Empty trash',
+      danger: true,
+    });
+    if (!ok) {
       return;
     }
     setError(null);
@@ -2321,17 +2422,6 @@ const [gridEditText, setGridEditText] = useState('');
             </div>
             <span className="sr-only" aria-live="polite">{viewAnnouncement}</span>
             <button
-              type="button"
-              className="toolbar-icon-button workspace-fullscreen-button"
-              onClick={toggleFullscreen}
-              aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
-              title={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                {isFullscreen ? <><path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5" /></> : <><path d="M14 3h7v7M21 3l-8 8M10 21H3v-7M3 21l8-8" /></>}
-              </svg>
-            </button>
-            <button
               className="toolbar-btn toolbar-print-button"
               onClick={() => window.print()}
               title="Print list"
@@ -2418,122 +2508,53 @@ const [gridEditText, setGridEditText] = useState('');
               </button>
               {listMenuOpen && (
                 <div className="top-bar-popover list-options-menu" role="menu">
-                  {selection.type === 'list' && (
-                    <>
-                      <div className="list-theme-row">
-                        <span>List color</span>
-                        <span className="list-theme-swatches">
-                          {[
-                            { key: "blue", var: "var(--swatch-blue)" },
-                            { key: "red", var: "var(--swatch-red)" },
-                            { key: "purple", var: "var(--swatch-purple)" },
-                            { key: "green", var: "var(--swatch-green)" },
-                            { key: "teal", var: "var(--swatch-teal)" },
-                          ].map((swatch) => (
-                            <button
-                              key={swatch.key}
-                              type="button"
-                              aria-label={`List color ${swatch.key}`}
-                              aria-pressed={(currentList?.color ?? 'blue') === swatch.key}
-                              className="list-theme-swatch"
-                              onClick={async () => {
-                                await updateDoc(doc(db, "lists", selection.id), { color: swatch.key });
-                                setListMenuOpen(false);
-                              }}
-                              style={{ background: swatch.var }}
-                            />
-                          ))}
-                        </span>
-                      </div>
-                      <div className="wallpaper-menu-row">
-                        <span>Background</span>
-                        <span className="wallpaper-controls">
-                          <span className="wallpaper-swatches">
-                            {([
-                              { id: 'field', label: 'Poppy field' },
-                              { id: 'coast', label: 'Coast at sunset' },
-                              { id: 'plain', label: 'Solid background' },
-                              { id: 'none', label: 'No background' },
-                            ] as const).map((wallpaper) => (
-                              <button
-                                key={wallpaper.id}
-                                type="button"
-                                className={`wallpaper-swatch wallpaper-${wallpaper.id}`}
-                                aria-label={wallpaper.label}
-                                aria-pressed={!currentList?.customBackgroundActive && (currentList?.background ?? 'field') === wallpaper.id}
-                                title={wallpaper.label}
-                                onClick={async () => {
-                                  await updateDoc(doc(db, 'lists', selection.id), {
-                                    background: wallpaper.id,
-                                    customBackgroundActive: false,
-                                  });
-                                  setListMenuOpen(false);
-                                }}
-                              />
-                            ))}
-                            {currentList?.backgroundImageUrl && (
-                              <button
-                                type="button"
-                                className="wallpaper-swatch wallpaper-custom"
-                                aria-label="Uploaded background"
-                                aria-pressed={Boolean(currentList.customBackgroundActive)}
-                                title="Right-click to remove uploaded background"
-                                style={{ backgroundImage: `url(${JSON.stringify(currentList.backgroundImageUrl)})` }}
-                                onClick={async () => {
-                                  setBackgroundImageDeleteMenuPosition(null);
-                                  await updateDoc(doc(db, 'lists', selection.id), { customBackgroundActive: true });
-                                  setListMenuOpen(false);
-                                }}
-                                onContextMenu={(event) => {
-                                  event.preventDefault();
-                                  if (currentList.ownerUid !== user.uid || backgroundUploadInProgress) return;
-                                  const padding = 8;
-                                  const menuWidth = Math.min(190, window.innerWidth - padding * 2);
-                                  const menuHeight = 44;
-                                  setBackgroundImageDeleteMenuPosition({
-                                    top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
-                                    left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
-                                  });
-                                }}
-                              />
-                            )}
-                          </span>
-                          {currentList?.ownerUid === user.uid && (
-                            <>
-                              <input
-                                ref={backgroundImageInputRef}
-                                type="file"
-                                accept="image/jpeg,image/png,image/webp"
-                                hidden
-                                onChange={(event) => {
-                                  const file = event.currentTarget.files?.[0];
-                                  if (file) void handleUploadListBackground(file);
-                                  event.currentTarget.value = '';
-                                }}
-                              />
-                              <button
-                                type="button"
-                                role="menuitem"
-                                className="wallpaper-upload-button"
-                                aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
-                                title={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
-                                disabled={backgroundUploadInProgress}
-                                onClick={() => backgroundImageInputRef.current?.click()}
-                              >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5h14v-5" />
-                                </svg>
-                              </button>
-                            </>
-                          )}
-                        </span>
-                      </div>
-                    </>
+                  {selection.type === 'list' && currentList?.ownerUid === user.uid && !currentList?.isDefaultTasksList && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="account-popover-item list-menu-item"
+                      onClick={async () => {
+                        setListMenuOpen(false);
+                        const nextTitle = await appPrompt({
+                          title: 'Rename list',
+                          defaultValue: currentList.title,
+                          placeholder: 'List name',
+                          confirmLabel: 'Rename',
+                        });
+                        if (nextTitle && nextTitle.trim() && nextTitle.trim() !== currentList.title) {
+                          await updateDoc(doc(db, 'lists', selection.id), { title: nextTitle.trim() });
+                        }
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                      <span>Rename list</span>
+                    </button>
+                  )}
+                  {selection.type === 'list' && currentList?.ownerUid === user.uid && currentList?.groupId && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="account-popover-item list-menu-item"
+                      onClick={() => {
+                        setListMenuOpen(false);
+                        void handleMoveListToGroup(selection.id, null);
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                        <polyline points="16 17 21 12 16 7" />
+                        <line x1="21" y1="12" x2="9" y2="12" />
+                      </svg>
+                      <span>Remove from group</span>
+                    </button>
                   )}
                   <button
                     type="button"
                     role="menuitem"
-                    className="account-popover-item list-options-sort-trigger"
+                    className="account-popover-item list-menu-item list-options-sort-trigger"
                     aria-haspopup="menu"
                     aria-expanded={listOptionsSortOpen}
                     onClick={(event) => {
@@ -2546,30 +2567,178 @@ const [gridEditText, setGridEditText] = useState('');
                       }
                     }}
                   >
-                    <span>Sort by…</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M7 15V4M7 4L3 8M7 4l4 4M17 9v11m0 0-4-4m4 4 4-4" />
+                    </svg>
+                    <span style={{ flex: 1, textAlign: 'left' }}>Sort by</span>
                     <span className="list-options-sort-arrow" aria-hidden="true">›</span>
                   </button>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setViewMode((mode) => mode === 'list' ? 'grid' : 'list'); setListMenuOpen(false); }}>
-                    {viewMode === 'list' ? 'Grid' : 'List'} view
+                  <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setViewMode((mode) => mode === 'list' ? 'grid' : 'list'); setListMenuOpen(false); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="3" width="7" height="7" rx="1" />
+                      <rect x="14" y="3" width="7" height="7" rx="1" />
+                      <rect x="3" y="14" width="7" height="7" rx="1" />
+                      <rect x="14" y="14" width="7" height="7" rx="1" />
+                    </svg>
+                    <span>{viewMode === 'list' ? 'Grid view' : 'List view'}</span>
                   </button>
                   {selection.type === 'list' && (
+                    <div className="list-theme-section">
+                      <div className="list-theme-heading">Theme</div>
+                      <div className="list-theme-grid">
+                        {[
+                          { key: "blue", var: "var(--swatch-blue)" },
+                          { key: "purple", var: "var(--swatch-purple)" },
+                          { key: "red", var: "var(--swatch-red)" },
+                          { key: "green", var: "var(--swatch-green)" },
+                          { key: "teal", var: "var(--swatch-teal)" },
+                        ].map((swatch) => (
+                          <button
+                            key={swatch.key}
+                            type="button"
+                            aria-label={`List color ${swatch.key}`}
+                            aria-pressed={(currentList?.color ?? 'blue') === swatch.key}
+                            className="list-theme-tile"
+                            onClick={async () => {
+                              await updateDoc(doc(db, "lists", selection.id), { color: swatch.key });
+                              setListMenuOpen(false);
+                            }}
+                            style={{ background: swatch.var }}
+                          />
+                        ))}
+                        {([
+                          { id: 'field', label: 'Poppy field' },
+                          { id: 'coast', label: 'Coast at sunset' },
+                          { id: 'plain', label: 'Solid background' },
+                          { id: 'none', label: 'No background' },
+                        ] as const).map((wallpaper) => (
+                          <button
+                            key={wallpaper.id}
+                            type="button"
+                            className={`list-theme-tile wallpaper-${wallpaper.id}`}
+                            aria-label={wallpaper.label}
+                            aria-pressed={!currentList?.customBackgroundActive && (currentList?.background ?? 'field') === wallpaper.id}
+                            title={wallpaper.label}
+                            onClick={async () => {
+                              await updateDoc(doc(db, 'lists', selection.id), {
+                                background: wallpaper.id,
+                                customBackgroundActive: false,
+                              });
+                              setListMenuOpen(false);
+                            }}
+                          />
+                        ))}
+                        {currentList?.backgroundImageUrl && (
+                          <button
+                            type="button"
+                            className="list-theme-tile wallpaper-custom"
+                            aria-label="Uploaded background"
+                            aria-pressed={Boolean(currentList.customBackgroundActive)}
+                            title="Right-click to remove uploaded background"
+                            style={{ backgroundImage: `url(${JSON.stringify(currentList.backgroundImageUrl)})` }}
+                            onClick={async () => {
+                              setBackgroundImageDeleteMenuPosition(null);
+                              await updateDoc(doc(db, 'lists', selection.id), { customBackgroundActive: true });
+                              setListMenuOpen(false);
+                            }}
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              if (currentList.ownerUid !== user.uid || backgroundUploadInProgress) return;
+                              const padding = 8;
+                              const menuWidth = Math.min(190, window.innerWidth - padding * 2);
+                              const menuHeight = 44;
+                              setBackgroundImageDeleteMenuPosition({
+                                top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
+                                left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
+                              });
+                            }}
+                          />
+                        )}
+                        {currentList?.ownerUid === user.uid && (
+                          <>
+                            <input
+                              ref={backgroundImageInputRef}
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              hidden
+                              onChange={(event) => {
+                                const file = event.currentTarget.files?.[0];
+                                if (file) void handleUploadListBackground(file);
+                                event.currentTarget.value = '';
+                              }}
+                            />
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="list-theme-tile list-theme-upload-tile"
+                              aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                              title={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                              disabled={backgroundUploadInProgress}
+                              onClick={() => backgroundImageInputRef.current?.click()}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5h14v-5" />
+                              </svg>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <div className="account-popover-divider" />
+                  {selection.type === 'list' && (
                     <>
-                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); void handleDuplicateList(selection.id); }}>
-                        Duplicate list
+                      <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); void handleDuplicateList(selection.id); }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <rect x="9" y="9" width="13" height="13" rx="2" />
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                        </svg>
+                        <span>Duplicate list</span>
                       </button>
-                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); setShareListId(selection.id); }}>
-                        Share list
+                      <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); setShareListId(selection.id); }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                          <circle cx="9" cy="7" r="4" />
+                          <path d="M19 8v6M22 11h-6" />
+                        </svg>
+                        <span>Share list</span>
                       </button>
                     </>
                   )}
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setListMenuOpen(false); window.print(); }}>
-                    Print list
+                  <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); window.print(); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="6 9 6 2 18 2 18 9" />
+                      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                      <rect x="6" y="14" width="12" height="8" />
+                    </svg>
+                    <span>Print list</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="account-popover-item list-menu-item"
+                    onClick={() => {
+                      setListMenuOpen(false);
+                      const bodyLines = visibleItems.map((i) => `${i.done ? '[x]' : '[ ]'} ${i.text}`).join('\n');
+                      window.location.href = `mailto:?subject=${encodeURIComponent(currentTitle)}&body=${encodeURIComponent(bodyLines)}`;
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="2" y="4" width="20" height="16" rx="2" />
+                      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                    </svg>
+                    <span>Email list</span>
                   </button>
                   {selection.type === 'list' && (
                     <>
                       <div className="account-popover-divider" />
-                      <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setListMenuOpen(false); handleDeleteList(selection.id); }}>
-                        Delete list
+                      <button type="button" role="menuitem" className="account-popover-item list-menu-item danger" onClick={() => { setListMenuOpen(false); handleDeleteList(selection.id); }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M3 6h18" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                          <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                        <span>Delete list</span>
                       </button>
                     </>
                   )}
@@ -2682,8 +2851,8 @@ const [gridEditText, setGridEditText] = useState('');
           </div>
         )}
 
-{!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'flagged-email' && selection.id !== 'assigned-to-me' && selection.id !== 'trash' && (
-          <form className={`add-task-row ${addRowExpanded || addDueMenuOpen || addRemindMenuOpen || addRepeatMenuOpen || addDueCalendarOpen || addRemindCalendarOpen ? 'has-open-popover' : ''}`}
+{!searchQuery && viewMode === 'list' && selection.id !== 'completed' && selection.id !== 'assigned-to-me' && selection.id !== 'trash' && (
+          <form className={`add-task-row ${addDueMenuOpen || addRemindMenuOpen || addRepeatMenuOpen || addDueCalendarOpen || addRemindCalendarOpen || addDueDate || addReminderAtMs || addRepeat !== 'none' ? 'has-open-popover' : ''}`}
           onFocus={() => setAddRowExpanded(true)}
           onClick={() => setAddRowExpanded(true)} onSubmit={handleAddItem} ref={addTaskFormRef}>
             <div className="add-task-top-row">
@@ -2691,11 +2860,13 @@ const [gridEditText, setGridEditText] = useState('');
               <input
                 ref={addTaskInputRef}
                 type="text"
-                placeholder={selection.type === 'smart' && selection.id === 'my-day'
+                placeholder={addInputFocused
                   ? "Try typing 'Pay utilities bill by Friday 6pm'"
                   : 'Add a task. Type @ to assign it to someone.'}
                 aria-label={`List ${currentTitle}, Press shift+tab to access List options`}
                 value={newItemText}
+                onFocus={() => setAddInputFocused(true)}
+                onBlur={() => setAddInputFocused(false)}
                 onChange={(e) => setNewItemText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Escape" && !newItemText.trim()) (e.target as HTMLInputElement).blur(); }}
                 onPaste={async (e) => {
@@ -2703,7 +2874,14 @@ const [gridEditText, setGridEditText] = useState('');
                   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
                   if (lines.length > 1 && user) {
                     e.preventDefault();
-                    if (lines.length > 20 && !window.confirm(`Create ${lines.length} tasks?`)) return;
+                    if (
+                      lines.length > 20 &&
+                      !(await appConfirm({
+                        title: 'Create multiple tasks',
+                        message: `Create ${lines.length} tasks from pasted lines?`,
+                        confirmLabel: `Create ${lines.length} tasks`,
+                      }))
+                    ) return;
                     const targetListId = await ensureDefaultList();
                     await Promise.all(lines.map((line) => addDoc(collection(db, "lists", targetListId, "items"), {
                       listId: targetListId, ownerUid: user.uid, text: line, done: false, important: false,
@@ -2713,108 +2891,124 @@ const [gridEditText, setGridEditText] = useState('');
                   }
                 }}
               />
-              <button type="submit" disabled={!newItemText.trim()} className="add-task-submit-btn">Add</button>
-            </div>
-            <div className="add-task-divider" />
-            <div className="add-task-bottom-row">
-              <div className="add-picker-wrap">
-              <button type="button" className="add-task-icon-btn" onClick={() => { setAddDueMenuOpen((v) => !v); setAddRepeatMenuOpen(false); setAddRemindMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Add due date">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="18" rx="2" />
-                  <path d="M16 2v4M8 2v4M3 10h18" />
-                </svg>
-                {addDueDate && <span className="add-task-icon-label">Due: {addDueDate}</span>}
-              </button>
-              {addDueMenuOpen && (
-                <div className="top-bar-popover" role="menu" style={{ minWidth: '160px', left: 0 }}>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(todayStr); setAddDueMenuOpen(false); }}>Today</button>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(tomorrowStr); setAddDueMenuOpen(false); }}>Tomorrow</button>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 7); setAddDueDate(d.toISOString().slice(0, 10)); setAddDueMenuOpen(false); }}>Next week</button>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={(e) => { e.stopPropagation(); setAddDueMenuOpen(false); setAddDueCalendarOpen(true); }}>Pick a date</button>
-                  {addDueDate && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddDueDate(null); setAddDueMenuOpen(false); }}>Remove due date</button>}
+              <div className="add-task-inline-actions">
+                <div className="add-picker-wrap">
+                  <button type="button" className="add-task-icon-btn" onClick={() => { setAddDueMenuOpen((v) => !v); setAddRepeatMenuOpen(false); setAddRemindMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Add due date">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="17" rx="2" />
+                      <path d="M8 2v3M16 2v3M3 9h18" />
+                      <circle cx="8" cy="13" r="0.9" fill="currentColor" stroke="none" />
+                      <circle cx="12" cy="13" r="0.9" fill="currentColor" stroke="none" />
+                      <circle cx="16" cy="13" r="0.9" fill="currentColor" stroke="none" />
+                      <circle cx="8" cy="17" r="0.9" fill="currentColor" stroke="none" />
+                      <circle cx="12" cy="17" r="0.9" fill="currentColor" stroke="none" />
+                      <circle cx="16" cy="17" r="0.9" fill="currentColor" stroke="none" />
+                    </svg>
+                    {addDueDate && <span className="add-task-icon-label">{addDueDate}</span>}
+                  </button>
+                  {addDueMenuOpen && (
+                    <div className="top-bar-popover" role="menu" style={{ minWidth: '160px', right: 0, left: 'auto' }}>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(todayStr); setAddDueMenuOpen(false); }}>Today</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddDueDate(tomorrowStr); setAddDueMenuOpen(false); }}>Tomorrow</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 7); setAddDueDate(d.toISOString().slice(0, 10)); setAddDueMenuOpen(false); }}>Next week</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={(e) => { e.stopPropagation(); setAddDueMenuOpen(false); setAddDueCalendarOpen(true); }}>Pick a date</button>
+                      {addDueDate && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddDueDate(null); setAddDueMenuOpen(false); }}>Remove due date</button>}
+                    </div>
+                  )}
+                  {addDueCalendarOpen && (
+                    <div className="top-bar-popover" style={{ right: 0, left: 'auto', padding: 0 }}>
+                      <CustomCalendarPicker
+                        initialDate={addDueDate}
+                        todayStr={todayStr}
+                        onSave={(dateStr) => { setAddDueDate(dateStr); setAddDueCalendarOpen(false); }}
+                        onCancel={() => setAddDueCalendarOpen(false)}
+                      />
+                    </div>
+                  )}
                 </div>
-              )}
-              {addDueCalendarOpen && (
-                <div className="top-bar-popover" style={{ left: 0, padding: 0 }}>
-                  <CustomCalendarPicker
-                    initialDate={addDueDate}
-                    todayStr={todayStr}
-                    onSave={(dateStr) => { setAddDueDate(dateStr); setAddDueCalendarOpen(false); }}
-                    onCancel={() => setAddDueCalendarOpen(false)}
-                  />
+                <div className="add-picker-wrap">
+                  <button type="button" className="add-task-icon-btn" onClick={() => { setAddRemindMenuOpen((v) => !v); setAddDueMenuOpen(false); setAddRepeatMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Remind me">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="13" r="7.5" />
+                      <path d="M12 9.5v3.5l2.2 1.4" />
+                      <path d="M5.5 4.5L3 7M18.5 4.5L21 7" />
+                      <path d="M7.5 19.5L6 21M16.5 19.5L18 21" />
+                    </svg>
+                    {addReminderAtMs && <span className="add-task-icon-label">{new Date(addReminderAtMs).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>}
+                  </button>
+                  {addRemindMenuOpen && (
+                    <div className="top-bar-popover" role="menu" style={{ minWidth: '190px', right: 0, left: 'auto' }}>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                        const d = new Date();
+                        d.setHours(d.getHours() + 1, 0, 0, 0);
+                        setAddReminderAtMs(d.getTime());
+                        setAddRemindMenuOpen(false);
+                      }}>Later today</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 1);
+                        d.setHours(9, 0, 0, 0);
+                        setAddReminderAtMs(d.getTime());
+                        setAddRemindMenuOpen(false);
+                      }}>Tomorrow, 9 AM</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 7);
+                        d.setHours(9, 0, 0, 0);
+                        setAddReminderAtMs(d.getTime());
+                        setAddRemindMenuOpen(false);
+                      }}>Next week, 9 AM</button>
+                      <button type="button" role="menuitem" className="account-popover-item" onClick={(e) => { e.stopPropagation(); setAddRemindMenuOpen(false); setAddRemindCalendarOpen(true); }}>Pick a date & time</button>
+                      {addReminderAtMs && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddReminderAtMs(null); setAddRemindMenuOpen(false); }}>Remove reminder</button>}
+                    </div>
+                  )}
+                  {addRemindCalendarOpen && (
+                    <div className="top-bar-popover" style={{ right: 0, left: 'auto', padding: 0 }}>
+                      <CustomCalendarPicker
+                        initialDate={todayStr}
+                        todayStr={todayStr}
+                        withTime
+                        onSave={(dateStr, timeStr) => {
+                          const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
+                          const d = new Date(`${dateStr}T00:00:00`);
+                          d.setHours(hh, mm, 0, 0);
+                          setAddReminderAtMs(d.getTime());
+                          setAddRemindCalendarOpen(false);
+                        }}
+                        onCancel={() => setAddRemindCalendarOpen(false)}
+                      />
+                    </div>
+                  )}
                 </div>
-              )}
-              </div>
-              <div className="add-picker-wrap">
-              <button type="button" className="add-task-icon-btn" onClick={() => { setAddRemindMenuOpen((v) => !v); setAddDueMenuOpen(false); setAddRepeatMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Remind me">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                </svg>
-                {addReminderAtMs && <span className="add-task-icon-label">{new Date(addReminderAtMs).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>}
-              </button>
-              {addRemindMenuOpen && (
-                <div className="top-bar-popover" role="menu" style={{ minWidth: '190px', left: 0 }}>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
-                    const d = new Date();
-                    d.setHours(d.getHours() + 1, 0, 0, 0);
-                    setAddReminderAtMs(d.getTime());
-                    setAddRemindMenuOpen(false);
-                  }}>Later today</button>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
-                    const d = new Date();
-                    d.setDate(d.getDate() + 1);
-                    d.setHours(9, 0, 0, 0);
-                    setAddReminderAtMs(d.getTime());
-                    setAddRemindMenuOpen(false);
-                  }}>Tomorrow, 9 AM</button>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={() => {
-                    const d = new Date();
-                    d.setDate(d.getDate() + 7);
-                    d.setHours(9, 0, 0, 0);
-                    setAddReminderAtMs(d.getTime());
-                    setAddRemindMenuOpen(false);
-                  }}>Next week, 9 AM</button>
-                  <button type="button" role="menuitem" className="account-popover-item" onClick={(e) => { e.stopPropagation(); setAddRemindMenuOpen(false); setAddRemindCalendarOpen(true); }}>Pick a date & time</button>
-                  {addReminderAtMs && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddReminderAtMs(null); setAddRemindMenuOpen(false); }}>Remove reminder</button>}
+                <div className="add-picker-wrap">
+                  <button type="button" className="add-task-icon-btn" onClick={() => { setAddRepeatMenuOpen((v) => !v); setAddDueMenuOpen(false); setAddRemindMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Repeat">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M20 11.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6.5" />
+                      <path d="M8 2v3M16 2v3M3 9h17" />
+                      <path d="M17.5 14.5a3.5 3.5 0 1 1-3 5.3" />
+                      <path d="M17.5 12.8v2.4h2.4" />
+                    </svg>
+                    {addRepeat !== "none" && <span className="add-task-icon-label">{addRepeat}</span>}
+                  </button>
+                  {addRepeatMenuOpen && (
+                    <div className="top-bar-popover" role="menu" style={{ minWidth: '160px', right: 0, left: 'auto' }}>
+                      {(['daily', 'weekdays', 'weekly', 'monthly', 'yearly'] as const).map((r) => (
+                        <button key={r} type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddRepeat(r); setAddRepeatMenuOpen(false); }}>
+                          {r.charAt(0).toUpperCase() + r.slice(1)}
+                        </button>
+                      ))}
+                      {addRepeat !== 'none' && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddRepeat('none'); setAddRepeatMenuOpen(false); }}>Never</button>}
+                    </div>
+                  )}
                 </div>
-              )}
-              {addRemindCalendarOpen && (
-                <div className="top-bar-popover" style={{ left: 0, padding: 0 }}>
-                  <CustomCalendarPicker
-                    initialDate={todayStr}
-                    todayStr={todayStr}
-                    withTime
-                    onSave={(dateStr, timeStr) => {
-                      const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
-                      const d = new Date(`${dateStr}T00:00:00`);
-                      d.setHours(hh, mm, 0, 0);
-                      setAddReminderAtMs(d.getTime());
-                      setAddRemindCalendarOpen(false);
-                    }}
-                    onCancel={() => setAddRemindCalendarOpen(false)}
-                  />
-                </div>
-              )}
-              </div>
-              <div className="add-picker-wrap">
-              <button type="button" className="add-task-icon-btn" onClick={() => { setAddRepeatMenuOpen((v) => !v); setAddDueMenuOpen(false); setAddRemindMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Repeat">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14" />
-                  <path d="M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3" />
-                </svg>
-                {addRepeat !== "none" && <span className="add-task-icon-label">{addRepeat}</span>}
-              </button>
-              {addRepeatMenuOpen && (
-                <div className="top-bar-popover" role="menu" style={{ minWidth: '160px', left: 0 }}>
-                  {(['daily', 'weekdays', 'weekly', 'monthly', 'yearly'] as const).map((r) => (
-                    <button key={r} type="button" role="menuitem" className="account-popover-item" onClick={() => { setAddRepeat(r); setAddRepeatMenuOpen(false); }}>
-                      {r.charAt(0).toUpperCase() + r.slice(1)}
-                    </button>
-                  ))}
-                  {addRepeat !== 'none' && <button type="button" role="menuitem" className="account-popover-item danger" onClick={() => { setAddRepeat('none'); setAddRepeatMenuOpen(false); }}>Never</button>}
-                </div>
-              )}
+                {newItemText.trim() && (
+                  <button type="submit" className="add-task-icon-btn add-task-send-btn" title="Add task" aria-label="Add task">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M22 2L11 13" />
+                      <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+                    </svg>
+                  </button>
+                )}
               </div>
             </div>
           </form>
@@ -3154,6 +3348,14 @@ const [gridEditText, setGridEditText] = useState('');
             <button
               className="completed-toggle"
               onClick={() => setCompletedExpandedByView((prev) => ({ ...prev, [currentViewKey]: !prev[currentViewKey] }))}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setContextMenu(null);
+                setCompletedMoveOpen(false);
+                setCompletedDatePickerOpen(false);
+                setCompletedMenu({ x: e.clientX, y: e.clientY });
+              }}
             >
               <span>{showCompleted ? '▾' : '▸'}</span>
               <span>Completed ({completedItems.length})</span>
@@ -3195,7 +3397,7 @@ const [gridEditText, setGridEditText] = useState('');
         </div>
 
         
-        {!searchQuery && activeItems.length === 0 && selection.type !== 'list' && !(selection.type === 'smart' && (selection.id === 'flagged-email' || selection.id === 'assigned-to-me' || selection.id === 'trash')) && (
+        {!searchQuery && activeItems.length === 0 && selection.type !== 'list' && !(selection.type === 'smart' && (selection.id === 'assigned-to-me' || selection.id === 'trash')) && (
           <div className={`empty-state ${selection.type === 'smart' && selection.id === 'my-day' ? 'my-day-empty-state' : ''}`}>
             {selection.type === 'smart' && selection.id === 'my-day' && (
               <div className="empty-state-illustration" aria-hidden="true">
@@ -3235,23 +3437,6 @@ const [gridEditText, setGridEditText] = useState('');
         )}
 
         {selection.type === 'smart' &&
-          selection.id === 'flagged-email' &&
-          !searchQuery && (
-            <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--color-text-2)' }}>
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ marginBottom: '0.75rem' }}>
-                <rect x="2" y="4" width="20" height="16" rx="2" stroke="var(--color-text-3)" strokeWidth="1.5" />
-                <path d="M2 7l10 6 10-6" stroke="var(--color-text-3)" strokeWidth="1.5" />
-                <path d="M17 3v9m0-9h4l-1.2 2L21 7h-4" fill="var(--color-accent)" stroke="var(--color-accent)" strokeWidth="1.2" strokeLinejoin="round" />
-              </svg>
-              <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--color-text)', marginBottom: '0.25rem' }}>Tasks from flagged email</div>
-              <div style={{ fontSize: '0.9rem' }}>Messages you flag will show up as tasks here.</div>
-              {!appSettings.connectedFlaggedEmail && (
-                <div style={{ fontSize: '0.85rem', marginTop: '0.5rem', color: 'var(--color-text-3)' }}>Turn on Flagged email in Connected apps to receive flagged messages.</div>
-              )}
-            </div>
-          )}
-
-        {selection.type === 'smart' &&
           selection.id === 'assigned-to-me' &&
           !searchQuery && (
             <p className="notice">No tasks assigned to you yet.</p>
@@ -3262,7 +3447,6 @@ const [gridEditText, setGridEditText] = useState('');
         {mobileView === 'list' &&
           !searchQuery &&
           selection.id !== 'completed' &&
-          selection.id !== 'flagged-email' &&
           selection.id !== 'assigned-to-me' &&
           selection.id !== 'trash' &&
           !mobileAddOpen && (
@@ -3500,7 +3684,8 @@ const [gridEditText, setGridEditText] = useState('');
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="sun" /></span>
-            {contextMenu.item.myDayDate === todayStr ? "Remove from My Day" : "Add to My Day"}
+            <span>{contextMenu.item.myDayDate === todayStr ? "Remove from My Day" : "Add to My Day"}</span>
+            <span className="context-menu-shortcut">Ctrl+T</span>
           </button>
           <button
             type="button"
@@ -3522,8 +3707,9 @@ const [gridEditText, setGridEditText] = useState('');
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="check" /></span>
-            {contextMenu.item.done ? "Mark as not completed" : "Mark as completed"}
+            <span>{contextMenu.item.done ? "Mark as not completed" : "Mark as completed"}</span>
           </button>
+          <div className="account-popover-divider" />
           <button
             type="button"
             className="context-menu-item"
@@ -3546,6 +3732,50 @@ const [gridEditText, setGridEditText] = useState('');
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
             Due tomorrow
           </button>
+          <div className="context-menu-submenu-wrap">
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={(e) => {
+                e.stopPropagation();
+                setTaskSubmenu(null);
+                setTaskDatePickerOpen((v) => !v);
+              }}
+            >
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
+              <span>Pick a date</span>
+            </button>
+            {taskDatePickerOpen && (
+              <div
+                className="context-menu context-menu-submenu"
+                style={{
+                  top: Math.max(8, Math.min(contextMenu.y + 120, window.innerHeight - 360)),
+                  left: Math.max(8, Math.min(contextMenu.x + 252, window.innerWidth - 320)),
+                  width: 'auto',
+                  minWidth: 'unset',
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                  overflow: 'visible',
+                  padding: 0,
+                  border: 'none',
+                  background: 'transparent',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <CustomCalendarPicker
+                  initialDate={contextMenu.item.dueDate ?? todayStr}
+                  todayStr={todayStr}
+                  onSave={(dateStr) => {
+                    handleUpdateItem(contextMenu.item, { dueDate: dateStr });
+                    setContextMenu(null);
+                    setTaskDatePickerOpen(false);
+                  }}
+                  onCancel={() => setTaskDatePickerOpen(false)}
+                />
+              </div>
+            )}
+          </div>
+          <div className="account-popover-divider" />
           <button
             type="button"
             className="context-menu-item"
@@ -3608,19 +3838,210 @@ const [gridEditText, setGridEditText] = useState('');
               </div>
             )}
           </div>
+          <div className="account-popover-divider" />
           <button
             type="button"
-            className="danger"
+            className="context-menu-item danger"
             onClick={() => {
               handleDeleteItem(contextMenu.item);
               setContextMenu(null);
             }}
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="trash" /></span>
-            Delete task
+            <span>Delete task</span>
+            <span className="context-menu-shortcut">Delete</span>
           </button>
         </div>
       )}
+
+      {completedMenu && completedItems.length > 0 && (() => {
+        const allInMyDay = completedItems.every((i) => i.myDayDate === todayStr);
+        const allImportant = completedItems.every((i) => i.important);
+        const closeCompletedMenu = () => {
+          setCompletedMenu(null);
+          setCompletedMoveOpen(false);
+          setCompletedDatePickerOpen(false);
+        };
+        return (
+          <div
+            className="context-menu"
+            style={{
+              top: Math.max(8, Math.min(completedMenu.y, window.innerHeight - 440)),
+              left: Math.max(8, Math.min(completedMenu.x, window.innerWidth - 280)),
+              maxHeight: 'calc(100vh - 16px)',
+              overflowY: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={async () => {
+                const target = allInMyDay ? null : todayStr;
+                closeCompletedMenu();
+                await Promise.all(completedItems.map((item) => handleUpdateItem(item, { myDayDate: target })));
+              }}
+            >
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="sun" /></span>
+              <span>{allInMyDay ? 'Remove from My Day' : 'Add to My Day'}</span>
+              <span className="context-menu-shortcut">Ctrl+T</span>
+            </button>
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={async () => {
+                const target = !allImportant;
+                closeCompletedMenu();
+                await Promise.all(completedItems.map((item) => handleUpdateItem(item, { important: target })));
+              }}
+            >
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="star" /></span>
+              <span>{allImportant ? 'Remove importance' : 'Mark as important'}</span>
+            </button>
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={async () => {
+                closeCompletedMenu();
+                await Promise.all(completedItems.map((item) => handleUpdateItem(item, { done: false, completedAtMs: null })));
+              }}
+            >
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="check" /></span>
+              <span>Mark as not completed</span>
+            </button>
+            <div className="account-popover-divider" />
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={async () => {
+                closeCompletedMenu();
+                await Promise.all(completedItems.map((item) => handleUpdateItem(item, { dueDate: todayStr })));
+              }}
+            >
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
+              <span>Due today</span>
+            </button>
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={async () => {
+                closeCompletedMenu();
+                await Promise.all(completedItems.map((item) => handleUpdateItem(item, { dueDate: tomorrowStr })));
+              }}
+            >
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
+              <span>Due tomorrow</span>
+            </button>
+            <div className="context-menu-submenu-wrap">
+              <button
+                type="button"
+                className="context-menu-item"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCompletedMoveOpen(false);
+                  setCompletedDatePickerOpen((v) => !v);
+                }}
+              >
+                <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
+                <span>Pick a date</span>
+              </button>
+              {completedDatePickerOpen && (
+                <div
+                  className="context-menu context-menu-submenu"
+                  style={{
+                    top: Math.max(8, Math.min(completedMenu.y + 120, window.innerHeight - 360)),
+                    left: Math.max(8, Math.min(completedMenu.x + 252, window.innerWidth - 320)),
+                    width: 'auto',
+                    minWidth: 'unset',
+                    maxWidth: 'none',
+                    maxHeight: 'none',
+                    overflow: 'visible',
+                    padding: 0,
+                    border: 'none',
+                    background: 'transparent',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <CustomCalendarPicker
+                    initialDate={todayStr}
+                    todayStr={todayStr}
+                    onSave={async (dateStr) => {
+                      closeCompletedMenu();
+                      await Promise.all(completedItems.map((item) => handleUpdateItem(item, { dueDate: dateStr })));
+                    }}
+                    onCancel={() => setCompletedDatePickerOpen(false)}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="account-popover-divider" />
+            <div
+              className="context-menu-submenu-wrap"
+              onMouseEnter={(event) => {
+                setCompletedDatePickerOpen(false);
+                setCompletedMovePosition(getContextSubmenuPosition(event.currentTarget.getBoundingClientRect()));
+                setCompletedMoveOpen(true);
+              }}
+              onMouseLeave={() => setCompletedMoveOpen(false)}
+            >
+              <button
+                type="button"
+                className="context-menu-item"
+                onClick={(event) => {
+                  setCompletedDatePickerOpen(false);
+                  setCompletedMovePosition(getContextSubmenuPosition(event.currentTarget.getBoundingClientRect()));
+                  setCompletedMoveOpen((v) => !v);
+                }}
+              >
+                <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="move" /></span>
+                <span>Move tasks to…</span>
+                <span className="context-menu-arrow">›</span>
+              </button>
+              {completedMoveOpen && (
+                <div className="context-menu context-menu-submenu" style={completedMovePosition ?? undefined}>
+                  {allLists.map((l) => {
+                    const isCurrent = selection.type === 'list' && l.id === selection.id;
+                    return (
+                      <button
+                        key={l.id}
+                        disabled={isCurrent}
+                        onClick={async () => {
+                          closeCompletedMenu();
+                          await Promise.all(completedItems.map((item) => handleMoveToList(item, l.id)));
+                        }}
+                      >
+                        {isCurrent ? '✓ ' : ''}{l.title}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="account-popover-divider" />
+            <button
+              type="button"
+              className="context-menu-item danger"
+              onClick={async () => {
+                const count = completedItems.length;
+                const snapshot = [...completedItems];
+                closeCompletedMenu();
+                const ok = await appConfirm({
+                  title: 'Delete completed tasks',
+                  message: `Delete all ${count} completed task(s)?`,
+                  confirmLabel: 'Delete',
+                  danger: true,
+                });
+                if (!ok) return;
+                await Promise.all(snapshot.map((item) => handleDeleteItem(item)));
+              }}
+            >
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="trash" /></span>
+              <span>Delete tasks</span>
+              <span className="context-menu-shortcut">Delete</span>
+            </button>
+          </div>
+        );
+      })()}
 
       {selectedIds.size > 0 && (
         <div className="bulk-bar" role="region" aria-label="Bulk actions">
@@ -3686,10 +4107,15 @@ const [gridEditText, setGridEditText] = useState('');
             </div>
             <button
               className="danger"
-              onClick={() => {
+              onClick={async () => {
                 if (
                   selectedIds.size > 1 &&
-                  !window.confirm(`Delete ${selectedIds.size} tasks?`)
+                  !(await appConfirm({
+                    title: 'Delete tasks',
+                    message: `Delete ${selectedIds.size} selected tasks?`,
+                    confirmLabel: 'Delete',
+                    danger: true,
+                  }))
                 ) {
                   return;
                 }
@@ -3883,6 +4309,7 @@ const [gridEditText, setGridEditText] = useState('');
           />
         );
       })()}
+      <AppDialogModal />
     </div>
   );
 }

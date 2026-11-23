@@ -3,7 +3,6 @@ export type SmartListId =
   | 'important'
   | 'planned'
   | 'assigned-to-me'
-  | 'flagged-email'
   | 'tasks'
   | 'all'
   | 'completed'
@@ -60,6 +59,7 @@ export interface TodoItem {
   myDayDate: string | null; // YYYY-MM-DD
   dueDate: string | null;   // YYYY-MM-DD
   reminderAtMs?: number | null;
+  reminderNotified?: boolean;
   repeat?: RepeatRule;
   repeatCustom?: { interval: number; unit: 'days' | 'weeks' | 'months' | 'years'; days: number[] } | null;
   assignedTo?: string | null;

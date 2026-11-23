@@ -3,6 +3,7 @@ import { User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { TodoList } from '../types/todo';
+import { appConfirm } from '../lib/appDialog';
 
 interface UserProfile {
   displayName?: string | null;
@@ -258,8 +259,14 @@ export function ShareDialog({
                   <button
                     type="button"
                     className="chip-btn"
-                    onClick={() => {
-                      if (window.confirm(`Remove ${name} from '${list.title}'? They will no longer see this list.`)) {
+                    onClick={async () => {
+                      const ok = await appConfirm({
+                        title: mid === user.uid ? 'Leave shared list' : 'Remove member',
+                        message: `Remove ${name} from '${list.title}'? They will no longer see this list.`,
+                        confirmLabel: mid === user.uid ? 'Leave' : 'Remove',
+                        danger: true,
+                      });
+                      if (ok) {
                         onRemoveMember(mid);
                       }
                     }}

@@ -18,6 +18,7 @@ export function CustomCalendarPicker({
   withTime = false,
   initialTime = '10:00',
   onSave,
+  onCancel,
 }: CustomCalendarPickerProps) {
   const [todayY, todayM] = todayStr.split('-').map(Number);
   const baseDate = initialDate || todayStr;
@@ -28,7 +29,18 @@ export function CustomCalendarPicker({
   const [pickerMode, setPickerMode] = useState<'days' | 'months' | 'years'>('days');
   const [yearPageStart, setYearPageStart] = useState(() => Math.floor(initY / 12) * 12);
   const [selectedDate, setSelectedDate] = useState(baseDate >= todayStr ? baseDate : todayStr);
-  const [timeStr, setTimeStr] = useState(initialTime);
+
+  const [initH24, initMin] = initialTime.split(':').map((n) => Number(n) || 0);
+  const [hourInput, setHourInput] = useState(() => String(initH24 % 12 === 0 ? 12 : initH24 % 12));
+  const [minuteInput, setMinuteInput] = useState(() => String(initMin).padStart(2, '0'));
+  const [ampm, setAmpm] = useState<'AM' | 'PM'>(() => (initH24 >= 12 ? 'PM' : 'AM'));
+
+  const get24HourTime = () => {
+    const hNum = Math.max(1, Math.min(12, parseInt(hourInput, 10) || 12));
+    const mNum = Math.max(0, Math.min(59, parseInt(minuteInput, 10) || 0));
+    const h24 = ampm === 'PM' ? (hNum === 12 ? 12 : hNum + 12) : hNum === 12 ? 0 : hNum;
+    return `${String(h24).padStart(2, '0')}:${String(mNum).padStart(2, '0')}`;
+  };
 
   const isCurrentMonth = viewYear === todayY && viewMonth === todayM;
 
@@ -49,16 +61,6 @@ export function CustomCalendarPicker({
     month: 'long',
     year: 'numeric',
   });
-
-  const timeOptions = useMemo(() => {
-    const opts: string[] = [];
-    for (let h = 0; h < 24; h++) {
-      for (let m = 0; m < 60; m += 15) {
-        opts.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-      }
-    }
-    return opts;
-  }, []);
 
   return (
     <div
@@ -256,7 +258,9 @@ export function CustomCalendarPicker({
               disabled={disabled}
               onClick={() => {
                 setSelectedDate(d);
-                onSave(d, withTime ? timeStr : undefined);
+                if (!withTime) {
+                  onSave(d);
+                }
               }}
               style={{
                 width: isToday || isSelected ? '36px' : '38px',
@@ -283,19 +287,135 @@ export function CustomCalendarPicker({
       )}
 
       {withTime && (
-        <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <label style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>Time:</label>
-          <select
-            value={timeStr}
-            onChange={(e) => setTimeStr(e.target.value)}
-            style={{ flex: 1, fontSize: '0.8rem', padding: '3px', background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
+        <div style={{ marginTop: '12px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr 1fr',
+              height: '36px',
+              border: '1px solid rgba(255, 255, 255, 0.14)',
+              borderRadius: '6px',
+              background: 'rgba(255, 255, 255, 0.06)',
+              overflow: 'hidden',
+            }}
           >
-            {timeOptions.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+            <input
+              type="text"
+              inputMode="numeric"
+              aria-label="Hour"
+              maxLength={2}
+              value={hourInput}
+              onChange={(e) => setHourInput(e.target.value.replace(/\D/g, '').slice(0, 2))}
+              onBlur={() => {
+                const h = Math.max(1, Math.min(12, parseInt(hourInput, 10) || 12));
+                setHourInput(String(h));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  onSave(selectedDate, get24HourTime());
+                }
+              }}
+              style={{
+                width: '100%',
+                border: 'none',
+                borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+                background: 'transparent',
+                color: 'var(--color-text)',
+                textAlign: 'center',
+                fontSize: '14px',
+                outline: 'none',
+                padding: 0,
+              }}
+            />
+            <input
+              type="text"
+              inputMode="numeric"
+              aria-label="Minute"
+              maxLength={2}
+              value={minuteInput}
+              onChange={(e) => setMinuteInput(e.target.value.replace(/\D/g, '').slice(0, 2))}
+              onBlur={() => {
+                const m = Math.max(0, Math.min(59, parseInt(minuteInput, 10) || 0));
+                setMinuteInput(String(m).padStart(2, '0'));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  onSave(selectedDate, get24HourTime());
+                }
+              }}
+              style={{
+                width: '100%',
+                border: 'none',
+                borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+                background: 'transparent',
+                color: 'var(--color-text)',
+                textAlign: 'center',
+                fontSize: '14px',
+                outline: 'none',
+                padding: 0,
+              }}
+            />
+            <button
+              type="button"
+              aria-label="Toggle AM or PM"
+              onClick={() => setAmpm((prev) => (prev === 'AM' ? 'PM' : 'AM'))}
+              style={{
+                width: '100%',
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--color-text)',
+                textAlign: 'center',
+                fontSize: '14px',
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              {ampm}
+            </button>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '8px',
+              marginTop: '10px',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => onCancel?.()}
+              style={{
+                height: '38px',
+                border: 'none',
+                borderRadius: '6px',
+                background: 'rgba(255, 255, 255, 0.08)',
+                color: 'var(--color-text)',
+                fontSize: '14px',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(selectedDate, get24HourTime())}
+              style={{
+                height: '38px',
+                border: 'none',
+                borderRadius: '6px',
+                background: '#77d33d',
+                color: '#111111',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Save
+            </button>
+          </div>
         </div>
       )}
 

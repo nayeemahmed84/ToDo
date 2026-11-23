@@ -4,6 +4,7 @@ import { SmartListId, TodoGroup, TodoList, ViewSelection } from '../types/todo';
 import { EmojiPicker } from './EmojiPicker';
 import { AppSettings } from './SettingsModal';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from '../lib/contextMenu';
+import { appConfirm, appPrompt } from '../lib/appDialog';
 import {
   CalendarIcon,
   HomeIcon,
@@ -60,7 +61,6 @@ const SMART_LISTS: { id: SmartListId; label: string; icon: ReactNode }[] = [
   { id: 'important', label: 'Important', icon: <StarIcon /> },
   { id: 'all', label: 'All', icon: <span>∞</span> },
   { id: 'completed', label: 'Completed', icon: <span className="completed-nav-icon">✓</span> },
-  { id: 'flagged-email', label: 'Flagged email', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 21V4m0 0h14l-3.5 5L19 14H5" /></svg> },
   { id: 'tasks', label: 'Tasks', icon: <HomeIcon /> },
   { id: 'planned', label: 'Planned', icon: <CalendarIcon /> },
   { id: 'assigned-to-me', label: 'Assigned to me', icon: <UserIcon size={20} /> },
@@ -572,9 +572,8 @@ export function Sidebar({
             if (item.id === 'planned' && !settings.smartPlanned) return false;
             if (item.id === 'all' && !settings.smartAll) return false;
             if (item.id === 'completed' && !settings.smartCompleted) return false;
-            if (item.id === 'flagged-email' && !settings.smartFlaggedEmail) return false;
             if (item.id === 'assigned-to-me' && !settings.smartAssignedToMe) return false;
-            if (!['flagged-email', 'important', 'completed'].includes(item.id) && settings.autoHideEmptySmartLists && (counts[item.id] ?? 0) === 0) return false;
+            if (!['important', 'completed'].includes(item.id) && settings.autoHideEmptySmartLists && (counts[item.id] ?? 0) === 0) return false;
             return true;
           }).map((item) => {
             const active =
@@ -871,7 +870,12 @@ export function Sidebar({
                   const g = groups.find((x) => x.id === sidebarMenu.id);
                   setSidebarMenu(null);
                   if (!g || !onRenameGroup) return;
-                  const next = window.prompt('Rename group', g.title);
+                  const next = await appPrompt({
+                    title: 'Rename group',
+                    defaultValue: g.title,
+                    placeholder: 'Group name',
+                    confirmLabel: 'Rename',
+                  });
                   if (next && next.trim()) await onRenameGroup(g.id, next.trim());
                 }}
               >
@@ -886,7 +890,13 @@ export function Sidebar({
                   const g = groups.find((x) => x.id === sidebarMenu.id);
                   setSidebarMenu(null);
                   if (!g || !onUngroupLists) return;
-                  if (window.confirm(`Delete group '${g.title}'? Lists inside will not be deleted.`)) {
+                  const ok = await appConfirm({
+                    title: 'Ungroup lists',
+                    message: `Delete group '${g.title}'? Lists inside will not be deleted.`,
+                    confirmLabel: 'Ungroup',
+                    danger: true,
+                  });
+                  if (ok) {
                     await onUngroupLists(g.id);
                   }
                 }}

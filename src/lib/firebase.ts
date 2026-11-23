@@ -30,6 +30,7 @@ export const isFirebaseConfigured = Boolean(
 );
 
 const app = initializeApp(firebaseConfig);
+export { app };
 export const auth = getAuth(app);
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({

@@ -1,0 +1,11 @@
+name = "todo-reminder-cron"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+# Set these secrets using:
+#   npx wrangler secret put FIREBASE_PROJECT_ID
+#   npx wrangler secret put FIREBASE_CLIENT_EMAIL
+#   npx wrangler secret put FIREBASE_PRIVATE_KEY

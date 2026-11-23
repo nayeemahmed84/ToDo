@@ -7,6 +7,15 @@
         { "fieldPath": "ownerUid", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "items",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "done", "order": "ASCENDING" },
+        { "fieldPath": "reminderNotified", "order": "ASCENDING" },
+        { "fieldPath": "reminderAtMs", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

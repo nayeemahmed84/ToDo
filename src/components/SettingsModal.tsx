@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { User } from 'firebase/auth';
+import { isIosNonStandalone, isNotificationApiSupported } from '../lib/notifications';
 
 export interface AppSettings {
   confirmBeforeDelete: boolean;
@@ -13,12 +14,10 @@ export interface AppSettings {
   smartPlanned: boolean;
   smartAll: boolean;
   smartCompleted: boolean;
-  smartFlaggedEmail: boolean;
   smartAssignedToMe: boolean;
   autoHideEmptySmartLists: boolean;
   showDueTodayInMyDay: boolean;
   connectedPlanner: boolean;
-  connectedFlaggedEmail: boolean;
   notifyEmailShare: boolean;
 }
 
@@ -34,12 +33,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   smartPlanned: false,
   smartAll: true,
   smartCompleted: true,
-  smartFlaggedEmail: true,
   smartAssignedToMe: false,
   autoHideEmptySmartLists: true,
   showDueTodayInMyDay: true,
   connectedPlanner: true,
-  connectedFlaggedEmail: true,
   notifyEmailShare: true,
 };
 
@@ -139,6 +136,16 @@ export function SettingsModal({
           </SettingBlock>
           <SettingBlock label="Turn on reminder notifications">
             <Toggle label="Turn on reminder notifications" checked={settings.reminderNotifications} onChange={(v) => onUpdateSettings({ reminderNotifications: v })} />
+            {settings.reminderNotifications && isIosNonStandalone() && (
+              <div style={{ fontSize: '0.78rem', color: 'var(--color-text-2)', marginTop: '6px' }}>
+                On iPhone/iPad, install this app via Share → Add to Home Screen to receive push notifications.
+              </div>
+            )}
+            {settings.reminderNotifications && isNotificationApiSupported() && Notification.permission === 'denied' && (
+              <div style={{ fontSize: '0.78rem', color: '#ef4444', marginTop: '6px' }}>
+                Notifications are blocked in your browser or OS settings. Allow them for this site to receive reminders.
+              </div>
+            )}
           </SettingBlock>
           <SettingBlock label="Theme">
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -169,9 +176,6 @@ export function SettingsModal({
           <SettingBlock label="Completed">
             <Toggle label="Completed" checked={settings.smartCompleted} onChange={(v) => onUpdateSettings({ smartCompleted: v })} />
           </SettingBlock>
-          <SettingBlock label="Flagged email">
-            <Toggle label="Flagged email" checked={settings.smartFlaggedEmail} onChange={(v) => onUpdateSettings({ smartFlaggedEmail: v })} />
-          </SettingBlock>
           <SettingBlock label="Assigned to me">
             <Toggle label="Assigned to me" checked={settings.smartAssignedToMe} onChange={(v) => onUpdateSettings({ smartAssignedToMe: v })} />
           </SettingBlock>
@@ -187,9 +191,6 @@ export function SettingsModal({
           <h3 style={{ margin: '1rem 0 0', fontSize: '1.25rem', fontWeight: 700 }}>Connected apps</h3>
           <SettingBlock label="Planner">
             <Toggle label="Planner" checked={settings.connectedPlanner} onChange={(v) => onUpdateSettings({ connectedPlanner: v })} />
-          </SettingBlock>
-          <SettingBlock label="Flagged email">
-            <Toggle label="Flagged email" checked={settings.connectedFlaggedEmail} onChange={(v) => onUpdateSettings({ connectedFlaggedEmail: v })} />
           </SettingBlock>
         </section>
 
