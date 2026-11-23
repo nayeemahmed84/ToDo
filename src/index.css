@@ -3879,23 +3879,25 @@ button.primary.small {
 }
 
 .list-options-menu {
-  top: 38px;
+  top: 40px;
   right: 0;
   left: auto;
-  width: 262px;
+  width: 268px;
   max-height: min(78vh, 660px);
   overflow-y: auto;
   overflow-x: hidden;
   padding: 6px 0;
   border-radius: 8px;
+  backdrop-filter: blur(18px);
 }
 
 .list-menu-item {
   display: flex !important;
   align-items: center;
-  gap: 12px;
-  padding: 8px 14px !important;
-  font-size: 13.5px;
+  gap: 14px;
+  min-height: 38px;
+  padding: 8px 16px !important;
+  font-size: var(--text-md);
 }
 
 .list-menu-item svg {
@@ -3904,11 +3906,11 @@ button.primary.small {
 }
 
 .list-theme-section {
-  padding: 6px 14px 10px;
+  padding: 10px 16px 12px;
 }
 
 .list-theme-heading {
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--color-text);
   margin-bottom: 10px;
@@ -3926,7 +3928,7 @@ button.primary.small {
   min-height: 0 !important;
   padding: 0 !important;
   border: 1px solid rgba(255, 255, 255, .14) !important;
-  border-radius: 4px !important;
+  border-radius: 3px !important;
   background-size: cover !important;
   background-position: center !important;
   cursor: pointer;

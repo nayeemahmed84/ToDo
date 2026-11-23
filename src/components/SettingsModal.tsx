@@ -20,6 +20,7 @@ export interface AppSettings {
   connectedPlanner: boolean;
   notifyEmailShare: boolean;
   mutedListIds: string[];
+  smartThemes?: Record<string, { color?: string; background?: string }>;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -40,6 +41,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   connectedPlanner: true,
   notifyEmailShare: true,
   mutedListIds: [],
+  smartThemes: {},
 };
 
 interface SettingsModalProps {

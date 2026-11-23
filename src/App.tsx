@@ -1397,10 +1397,13 @@ const [gridEditText, setGridEditText] = useState('');
   const customBackgroundUrl = currentList?.customBackgroundActive
     ? currentList.backgroundImageUrl ?? null
     : null;
-  const currentWallpaper = selection.type === 'smart' && selection.id === 'my-day'
-    ? 'coast'
-    : customBackgroundUrl
-      ? 'custom'
+  const smartTheme = selection.type === 'smart'
+    ? appSettings.smartThemes?.[selection.id]
+    : undefined;
+  const currentWallpaper = customBackgroundUrl
+    ? 'custom'
+    : selection.type === 'smart'
+      ? smartTheme?.background ?? (selection.id === 'my-day' ? 'coast' : 'field')
       : currentList?.background ?? 'field';
   const sortOptions: { id: SortOption; label: string }[] = [
     { id: 'importance', label: 'Importance' },
@@ -2942,7 +2945,7 @@ const [gridEditText, setGridEditText] = useState('');
               if (selectedItemId) setSelectedItemId(null);
             }
           }}
-          data-list-color={currentList ? currentList.color ?? 'blue' : 'default'}
+          data-list-color={currentList ? currentList.color ?? 'blue' : smartTheme?.color ?? 'default'}
           data-wallpaper={currentWallpaper}
           style={customBackgroundUrl ? {
             backgroundImage: `linear-gradient(rgba(19, 19, 19, .10), rgba(17, 16, 15, .22)), url(${JSON.stringify(customBackgroundUrl)})`,
@@ -3273,6 +3276,195 @@ const [gridEditText, setGridEditText] = useState('');
               </button>
               {listMenuOpen && (
                 <div className="top-bar-popover list-options-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="account-popover-item list-menu-item list-options-sort-trigger"
+                    aria-haspopup="menu"
+                    aria-expanded={listOptionsSortOpen}
+                    onClick={(event) => {
+                      if (listOptionsSortOpen) {
+                        setListOptionsSortOpen(false);
+                        setListOptionsSortPosition(null);
+                      } else {
+                        setListOptionsSortPosition(getContextSubmenuPosition(event.currentTarget.getBoundingClientRect()));
+                        setListOptionsSortOpen(true);
+                      }
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M7 15V4M7 4L3 8M7 4l4 4M17 9v11m0 0-4-4m4 4 4-4" />
+                    </svg>
+                    <span style={{ flex: 1, textAlign: 'left' }}>Sort by</span>
+                    <span className="list-options-sort-arrow" aria-hidden="true">›</span>
+                  </button>
+                  <div className="list-theme-section">
+                    <div className="list-theme-heading">Theme</div>
+                    <div className="list-theme-grid">
+                      {[
+                        { key: "blue", var: "var(--swatch-blue)" },
+                        { key: "purple", var: "var(--swatch-purple)" },
+                        { key: "red", var: "var(--swatch-red)" },
+                        { key: "green", var: "var(--swatch-green)" },
+                        { key: "teal", var: "var(--swatch-teal)" },
+                      ].map((swatch) => {
+                        const activeColor = selection.type === 'list'
+                          ? (currentList?.color ?? 'blue')
+                          : (smartTheme?.color ?? 'blue');
+                        return (
+                          <button
+                            key={swatch.key}
+                            type="button"
+                            aria-label={`List color ${swatch.key}`}
+                            aria-pressed={activeColor === swatch.key}
+                            className="list-theme-tile"
+                            onClick={async () => {
+                              if (selection.type === 'list') {
+                                await updateDoc(doc(db, "lists", selection.id), { color: swatch.key });
+                              } else {
+                                updateAppSettings({
+                                  smartThemes: {
+                                    ...(appSettings.smartThemes ?? {}),
+                                    [selection.id]: { ...(smartTheme ?? {}), color: swatch.key },
+                                  },
+                                });
+                              }
+                              setListMenuOpen(false);
+                            }}
+                            style={{ background: swatch.var }}
+                          />
+                        );
+                      })}
+                      {([
+                        { id: 'field', label: 'Poppy field' },
+                        { id: 'coast', label: 'Coast at sunset' },
+                        { id: 'plain', label: 'Solid background' },
+                        { id: 'none', label: 'No background' },
+                      ] as const).map((wallpaper) => {
+                        const isPressed = selection.type === 'list'
+                          ? !currentList?.customBackgroundActive && (currentList?.background ?? 'field') === wallpaper.id
+                          : currentWallpaper === wallpaper.id;
+                        return (
+                          <button
+                            key={wallpaper.id}
+                            type="button"
+                            className={`list-theme-tile wallpaper-${wallpaper.id}`}
+                            aria-label={wallpaper.label}
+                            aria-pressed={isPressed}
+                            title={wallpaper.label}
+                            onClick={async () => {
+                              if (selection.type === 'list') {
+                                await updateDoc(doc(db, 'lists', selection.id), {
+                                  background: wallpaper.id,
+                                  customBackgroundActive: false,
+                                });
+                              } else {
+                                updateAppSettings({
+                                  smartThemes: {
+                                    ...(appSettings.smartThemes ?? {}),
+                                    [selection.id]: { ...(smartTheme ?? {}), background: wallpaper.id },
+                                  },
+                                });
+                              }
+                              setListMenuOpen(false);
+                            }}
+                          />
+                        );
+                      })}
+                      {selection.type === 'list' && currentList?.backgroundImageUrl && (
+                        <button
+                          type="button"
+                          className="list-theme-tile wallpaper-custom"
+                          aria-label="Uploaded background"
+                          aria-pressed={Boolean(currentList.customBackgroundActive)}
+                          title="Right-click to remove uploaded background"
+                          style={{ backgroundImage: `url(${JSON.stringify(currentList.backgroundImageUrl)})` }}
+                          onClick={async () => {
+                            setBackgroundImageDeleteMenuPosition(null);
+                            await updateDoc(doc(db, 'lists', selection.id), { customBackgroundActive: true });
+                            setListMenuOpen(false);
+                          }}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            if (currentList.ownerUid !== user.uid || backgroundUploadInProgress) return;
+                            const padding = 8;
+                            const menuWidth = Math.min(190, window.innerWidth - padding * 2);
+                            const menuHeight = 44;
+                            setBackgroundImageDeleteMenuPosition({
+                              top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
+                              left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
+                            });
+                          }}
+                        />
+                      )}
+                      {selection.type === 'list' && currentList?.ownerUid === user.uid && (
+                        <>
+                          <input
+                            ref={backgroundImageInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            hidden
+                            onChange={(event) => {
+                              const file = event.currentTarget.files?.[0];
+                              if (file) void handleUploadListBackground(file);
+                              event.currentTarget.value = '';
+                            }}
+                          />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="list-theme-tile list-theme-upload-tile"
+                            aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                            title={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                            disabled={backgroundUploadInProgress}
+                            onClick={() => backgroundImageInputRef.current?.click()}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5h14v-5" />
+                            </svg>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); setPrintListId('__current__'); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="6 9 6 2 18 2 18 9" />
+                      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                      <rect x="6" y="14" width="12" height="8" />
+                    </svg>
+                    <span>Print list</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="account-popover-item list-menu-item"
+                    onClick={() => {
+                      setListMenuOpen(false);
+                      const lines = [
+                        ...activeItems.map((t) => `☐ ${t.text}`),
+                        ...completedItems.map((t) => `☑ ${t.text}`),
+                      ];
+                      const subject = encodeURIComponent(currentTitle);
+                      const body = encodeURIComponent(lines.length > 0 ? lines.join('\n') : '(No tasks)');
+                      window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="2" y="4" width="20" height="16" rx="2" />
+                      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                    </svg>
+                    <span>Email list</span>
+                  </button>
+                  <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setViewMode((mode) => mode === 'list' ? 'grid' : 'list'); setListMenuOpen(false); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="3" width="7" height="7" rx="1" />
+                      <rect x="14" y="3" width="7" height="7" rx="1" />
+                      <rect x="3" y="14" width="7" height="7" rx="1" />
+                      <rect x="14" y="14" width="7" height="7" rx="1" />
+                    </svg>
+                    <span>{viewMode === 'list' ? 'Grid view' : 'List view'}</span>
+                  </button>
                   {selection.type === 'list' && currentList?.ownerUid === user.uid && !currentList?.isDefaultTasksList && (
                     <button
                       type="button"
@@ -3314,143 +3506,9 @@ const [gridEditText, setGridEditText] = useState('');
                       <span>Remove from group</span>
                     </button>
                   )}
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="account-popover-item list-menu-item list-options-sort-trigger"
-                    aria-haspopup="menu"
-                    aria-expanded={listOptionsSortOpen}
-                    onClick={(event) => {
-                      if (listOptionsSortOpen) {
-                        setListOptionsSortOpen(false);
-                        setListOptionsSortPosition(null);
-                      } else {
-                        setListOptionsSortPosition(getContextSubmenuPosition(event.currentTarget.getBoundingClientRect()));
-                        setListOptionsSortOpen(true);
-                      }
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M7 15V4M7 4L3 8M7 4l4 4M17 9v11m0 0-4-4m4 4 4-4" />
-                    </svg>
-                    <span style={{ flex: 1, textAlign: 'left' }}>Sort by</span>
-                    <span className="list-options-sort-arrow" aria-hidden="true">›</span>
-                  </button>
-                  <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setViewMode((mode) => mode === 'list' ? 'grid' : 'list'); setListMenuOpen(false); }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect x="3" y="3" width="7" height="7" rx="1" />
-                      <rect x="14" y="3" width="7" height="7" rx="1" />
-                      <rect x="3" y="14" width="7" height="7" rx="1" />
-                      <rect x="14" y="14" width="7" height="7" rx="1" />
-                    </svg>
-                    <span>{viewMode === 'list' ? 'Grid view' : 'List view'}</span>
-                  </button>
-                  {selection.type === 'list' && (
-                    <div className="list-theme-section">
-                      <div className="list-theme-heading">Theme</div>
-                      <div className="list-theme-grid">
-                        {[
-                          { key: "blue", var: "var(--swatch-blue)" },
-                          { key: "purple", var: "var(--swatch-purple)" },
-                          { key: "red", var: "var(--swatch-red)" },
-                          { key: "green", var: "var(--swatch-green)" },
-                          { key: "teal", var: "var(--swatch-teal)" },
-                        ].map((swatch) => (
-                          <button
-                            key={swatch.key}
-                            type="button"
-                            aria-label={`List color ${swatch.key}`}
-                            aria-pressed={(currentList?.color ?? 'blue') === swatch.key}
-                            className="list-theme-tile"
-                            onClick={async () => {
-                              await updateDoc(doc(db, "lists", selection.id), { color: swatch.key });
-                              setListMenuOpen(false);
-                            }}
-                            style={{ background: swatch.var }}
-                          />
-                        ))}
-                        {([
-                          { id: 'field', label: 'Poppy field' },
-                          { id: 'coast', label: 'Coast at sunset' },
-                          { id: 'plain', label: 'Solid background' },
-                          { id: 'none', label: 'No background' },
-                        ] as const).map((wallpaper) => (
-                          <button
-                            key={wallpaper.id}
-                            type="button"
-                            className={`list-theme-tile wallpaper-${wallpaper.id}`}
-                            aria-label={wallpaper.label}
-                            aria-pressed={!currentList?.customBackgroundActive && (currentList?.background ?? 'field') === wallpaper.id}
-                            title={wallpaper.label}
-                            onClick={async () => {
-                              await updateDoc(doc(db, 'lists', selection.id), {
-                                background: wallpaper.id,
-                                customBackgroundActive: false,
-                              });
-                              setListMenuOpen(false);
-                            }}
-                          />
-                        ))}
-                        {currentList?.backgroundImageUrl && (
-                          <button
-                            type="button"
-                            className="list-theme-tile wallpaper-custom"
-                            aria-label="Uploaded background"
-                            aria-pressed={Boolean(currentList.customBackgroundActive)}
-                            title="Right-click to remove uploaded background"
-                            style={{ backgroundImage: `url(${JSON.stringify(currentList.backgroundImageUrl)})` }}
-                            onClick={async () => {
-                              setBackgroundImageDeleteMenuPosition(null);
-                              await updateDoc(doc(db, 'lists', selection.id), { customBackgroundActive: true });
-                              setListMenuOpen(false);
-                            }}
-                            onContextMenu={(event) => {
-                              event.preventDefault();
-                              if (currentList.ownerUid !== user.uid || backgroundUploadInProgress) return;
-                              const padding = 8;
-                              const menuWidth = Math.min(190, window.innerWidth - padding * 2);
-                              const menuHeight = 44;
-                              setBackgroundImageDeleteMenuPosition({
-                                top: Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding)),
-                                left: Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding)),
-                              });
-                            }}
-                          />
-                        )}
-                        {currentList?.ownerUid === user.uid && (
-                          <>
-                            <input
-                              ref={backgroundImageInputRef}
-                              type="file"
-                              accept="image/jpeg,image/png,image/webp"
-                              hidden
-                              onChange={(event) => {
-                                const file = event.currentTarget.files?.[0];
-                                if (file) void handleUploadListBackground(file);
-                                event.currentTarget.value = '';
-                              }}
-                            />
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="list-theme-tile list-theme-upload-tile"
-                              aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
-                              title={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
-                              disabled={backgroundUploadInProgress}
-                              onClick={() => backgroundImageInputRef.current?.click()}
-                            >
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5h14v-5" />
-                              </svg>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  <div className="account-popover-divider" />
                   {selection.type === 'list' && (
                     <>
+                      <div className="account-popover-divider" />
                       <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); void handleDuplicateList(selection.id); }}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <rect x="9" y="9" width="13" height="13" rx="2" />
@@ -3498,14 +3556,6 @@ const [gridEditText, setGridEditText] = useState('');
                       </button>
                     );
                   })()}
-                  <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setListMenuOpen(false); setPrintListId('__current__'); }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="6 9 6 2 18 2 18 9" />
-                      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                      <rect x="6" y="14" width="12" height="8" />
-                    </svg>
-                    <span>Print list</span>
-                  </button>
                   {selection.type === 'list' && (
                     <>
                       <div className="account-popover-divider" />
