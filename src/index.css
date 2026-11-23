@@ -384,6 +384,7 @@ body {
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -1950,11 +1951,6 @@ button.primary.small {
 .nav-item,
 .nav-item-main {
   transition: background 140ms var(--ease-out), color 140ms var(--ease-out), transform 150ms var(--ease-spring);
-}
-
-.nav-item:hover,
-.nav-item-row:hover .nav-item-main {
-  transform: translateX(2px);
 }
 
 .nav-item:active,
