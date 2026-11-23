@@ -802,7 +802,14 @@ export function Sidebar({
                     />
                   )}
                 </div>
-                {!group.collapsed && <div className="nav-group-items">{groupLists.map(renderList)}</div>}
+                <div
+                  className={`accordion-collapse ${group.collapsed ? 'collapsed' : 'expanded'}`}
+                  aria-hidden={group.collapsed}
+                >
+                  <div className="accordion-inner">
+                    <div className="nav-group-items">{groupLists.map(renderList)}</div>
+                  </div>
+                </div>
               </div>
             );
           })}

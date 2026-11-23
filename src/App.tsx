@@ -43,6 +43,7 @@ import { playCompleteSound } from './lib/sound';
 import { suggestEmoji } from './lib/suggestEmoji';
 import { parseTaskInput } from './lib/parseTaskInput';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
+import { runViewTransition, useAnimatedPresence, useFlipList, useRetainedValue } from './lib/motion';
 import {
   notifyListCollaborators,
   registerDevicePushToken,
@@ -1192,6 +1193,35 @@ const [gridEditText, setGridEditText] = useState('');
 
   const selectedItem =
     allItems.find((i) => i.id === selectedItemId) ?? null;
+
+  const mainPaneRef = useRef<HTMLElement | null>(null);
+  const flipOrderKey = `${currentViewKey}:${viewMode}:${showCompleted}:${activeItems.map((i) => i.id).join(',')}:${showCompleted ? completedItems.map((i) => i.id).join(',') : ''}`;
+  useFlipList(mainPaneRef, flipOrderKey);
+
+  const detailPresence = useAnimatedPresence(Boolean(selectedItem), 200);
+  const renderedDetailItem = useRetainedValue(selectedItem, detailPresence.shouldRender);
+  const suggestionsVisible = Boolean(
+    !selectedItem &&
+      suggestionsOpen &&
+      selection.type === 'smart' &&
+      selection.id === 'my-day' &&
+      !searchQuery
+  );
+  const suggestionsPresence = useAnimatedPresence(suggestionsVisible, 200);
+  const bulkPresence = useAnimatedPresence(selectedIds.size > 0, 180);
+  const undoPresence = useAnimatedPresence(Boolean(undoToast), 180);
+  const renderedUndoToast = useRetainedValue(undoToast, undoPresence.shouldRender);
+  const clipboardVisible = Boolean(taskClipboard && taskClipboard.items.length > 0 && !undoToast);
+  const clipboardPresence = useAnimatedPresence(clipboardVisible, 180);
+  const renderedClipboard = useRetainedValue(
+    taskClipboard && taskClipboard.items.length > 0 ? taskClipboard : null,
+    clipboardPresence.shouldRender
+  );
+  const clipboardToastVisible = Boolean(clipboardToast && !taskClipboard && !undoToast);
+  const clipboardToastPresence = useAnimatedPresence(clipboardToastVisible, 180);
+  const renderedClipboardToast = useRetainedValue(clipboardToast, clipboardToastPresence.shouldRender);
+  const listPickerPresence = useAnimatedPresence(Boolean(listPickerMenu), 180);
+  const renderedListPicker = useRetainedValue(listPickerMenu, listPickerPresence.shouldRender);
 
   const allLists = useMemo(() => {
     const map = new Map<string, TodoList>();
@@ -2882,9 +2912,11 @@ const [gridEditText, setGridEditText] = useState('');
           collapsed={sidebarCollapsed}
           onClose={() => setSidebarOpen(false)}
           onSelect={(sel) => {
-            setSelection(sel);
-            setMobileView('list');
-            setMobileAddOpen(false);
+            runViewTransition(() => {
+              setSelection(sel);
+              setMobileView('list');
+              setMobileAddOpen(false);
+            });
           }}
           onOpenMobileSearch={() => {
             setMobileView('search');
@@ -2936,6 +2968,7 @@ const [gridEditText, setGridEditText] = useState('');
           onSignOut={() => signOutUser()}
         />
 <main
+          ref={mainPaneRef}
           className="main-pane"
           onClick={(e) => {
             if (selectedIds.size === 0 && !selectedItemId) return;
@@ -3175,7 +3208,7 @@ const [gridEditText, setGridEditText] = useState('');
                 role="tab"
                 aria-selected={viewMode === 'list'}
                 className={`view-tab ${viewMode === 'list' ? 'active' : ''}`}
-                onClick={() => { setViewMode('list'); setViewAnnouncement('List view opened'); }}
+                onClick={() => runViewTransition(() => { setViewMode('list'); setViewAnnouncement('List view opened'); })}
               >
                 List
               </button>
@@ -3183,7 +3216,7 @@ const [gridEditText, setGridEditText] = useState('');
                 role="tab"
                 aria-selected={viewMode === 'grid'}
                 className={`view-tab ${viewMode === 'grid' ? 'active' : ''}`}
-                onClick={() => { setViewMode('grid'); setViewAnnouncement('Grid view opened'); }}
+                onClick={() => runViewTransition(() => { setViewMode('grid'); setViewAnnouncement('Grid view opened'); })}
               >
                 Grid
               </button>
@@ -4250,9 +4283,10 @@ const [gridEditText, setGridEditText] = useState('');
           })
         ) : (
           <ul className="task-list">
-            {activeItems.map((item) => (
+            {activeItems.map((item, idx) => (
               <TaskRow
                 key={item.id}
+                index={idx}
                 item={item}
                 lists={allLists}
                 selected={selectedItemId === item.id || selectedIds.has(item.id)}
@@ -4316,43 +4350,46 @@ const [gridEditText, setGridEditText] = useState('');
                 setCompletedMenu({ x: e.clientX, y: e.clientY });
               }}
             >
-              <span>{showCompleted ? '▾' : '▸'}</span>
+              <span className={`completed-toggle-chevron ${showCompleted ? 'expanded' : ''}`} aria-hidden="true">▸</span>
               <span>Completed ({completedItems.length})</span>
             </button>
-            {showCompleted && (
-              <ul className="task-list">
-                {completedItems.map((item) => (
-                  <TaskRow
-                    key={item.id}
-                    item={item}
-                    lists={allLists}
-                    selected={selectedItemId === item.id || selectedIds.has(item.id)}
-                  selectedIds={selectedIds}
-                    todayStr={todayStr}
-                    tomorrowStr={tomorrowStr}
-                    showListMeta={selection.type === 'smart' || searchQuery.trim() !== ''}
-                    reorderable={canReorderItems}
-                    clipboardState={getClipboardState(item.id)}
-                    onReorder={handleReorderItems}
-                    onToggleDone={handleToggleDone}
-                    onToggleImportant={handleToggleImportant}
-                    onOpen={handleOpen}
-                onLongPress={(t) => {
-                  setSelectedIds((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(t.id)) next.delete(t.id);
-                    else next.add(t.id);
-                    return next;
-                  });
-                }}
-                    onContextMenu={(e) => {
-                      if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
-                      setContextMenu({ x: e.clientX, y: e.clientY, item });
-                    }}
-                  />
-                ))}
-              </ul>
-            )}
+            <div className={`accordion-collapse ${showCompleted ? 'expanded' : 'collapsed'}`} aria-hidden={!showCompleted}>
+              <div className="accordion-inner">
+                <ul className="task-list">
+                  {completedItems.map((item, idx) => (
+                    <TaskRow
+                      key={item.id}
+                      index={idx}
+                      item={item}
+                      lists={allLists}
+                      selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                      selectedIds={selectedIds}
+                      todayStr={todayStr}
+                      tomorrowStr={tomorrowStr}
+                      showListMeta={selection.type === 'smart' || searchQuery.trim() !== ''}
+                      reorderable={canReorderItems}
+                      clipboardState={getClipboardState(item.id)}
+                      onReorder={handleReorderItems}
+                      onToggleDone={handleToggleDone}
+                      onToggleImportant={handleToggleImportant}
+                      onOpen={handleOpen}
+                      onLongPress={(t) => {
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(t.id)) next.delete(t.id);
+                          else next.add(t.id);
+                          return next;
+                        });
+                      }}
+                      onContextMenu={(e) => {
+                        if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
+                        setContextMenu({ x: e.clientX, y: e.clientY, item });
+                      }}
+                    />
+                  ))}
+                </ul>
+              </div>
+            </div>
           </section>
         )}
         </div>
@@ -5053,8 +5090,8 @@ const [gridEditText, setGridEditText] = useState('');
         );
       })()}
 
-      {selectedIds.size > 0 && (
-        <div className="bulk-bar" role="region" aria-label="Bulk actions">
+      {bulkPresence.shouldRender && (
+        <div className={`bulk-bar ${bulkPresence.isExiting ? 'exiting' : ''}`} role="region" aria-label="Bulk actions">
           <span className="bulk-count">{selectedIds.size} selected</span>
           <div className="bulk-actions">
             <button
@@ -5154,22 +5191,22 @@ const [gridEditText, setGridEditText] = useState('');
         </div>
       )}
 
-      {undoToast && (
-        <div className="undo-toast">
-          <span>Deleted &ldquo;{undoToast.item.text}&rdquo;</span>
+      {undoPresence.shouldRender && renderedUndoToast && (
+        <div className={`undo-toast ${undoPresence.isExiting ? 'exiting' : ''}`}>
+          <span>Deleted &ldquo;{renderedUndoToast.item.text}&rdquo;</span>
           <button onClick={handleUndoDelete}>Undo</button>
         </div>
       )}
 
-      {taskClipboard && taskClipboard.items.length > 0 && !undoToast && (
-        <div className="clipboard-toast" role="status" aria-live="polite">
+      {clipboardPresence.shouldRender && renderedClipboard && (
+        <div className={`clipboard-toast ${clipboardPresence.isExiting ? 'exiting' : ''}`} role="status" aria-live="polite">
           <span className="clipboard-toast-badge">
-            {taskClipboard.mode === 'cut' ? '✂ Cut' : '📋 Copied'} ({taskClipboard.items.length})
+            {renderedClipboard.mode === 'cut' ? '✂ Cut' : '📋 Copied'} ({renderedClipboard.items.length})
           </span>
           <span>
-            {taskClipboard.items.length === 1
-              ? `“${taskClipboard.items[0].text}”`
-              : `${taskClipboard.items.length} tasks`}{' '}
+            {renderedClipboard.items.length === 1
+              ? `“${renderedClipboard.items[0].text}”`
+              : `${renderedClipboard.items.length} tasks`}{' '}
             — press <kbd>Ctrl+V</kbd> in a list to paste
           </span>
           <span className="clipboard-toast-actions">
@@ -5193,16 +5230,16 @@ const [gridEditText, setGridEditText] = useState('');
         </div>
       )}
 
-      {clipboardToast && !taskClipboard && !undoToast && (
-        <div className="undo-toast" role="status" aria-live="polite">
-          <span>{clipboardToast}</span>
+      {clipboardToastPresence.shouldRender && renderedClipboardToast && (
+        <div className={`undo-toast ${clipboardToastPresence.isExiting ? 'exiting' : ''}`} role="status" aria-live="polite">
+          <span>{renderedClipboardToast}</span>
         </div>
       )}
 
-      {listPickerMenu && (
-        <div className="modal-backdrop" onClick={() => setListPickerMenu(null)}>
+      {listPickerPresence.shouldRender && renderedListPicker && (
+        <div className={`modal-backdrop ${listPickerPresence.isExiting ? 'exiting' : ''}`} onClick={() => setListPickerMenu(null)}>
           <div
-            className="modal-card"
+            className={`modal-card ${listPickerPresence.isExiting ? 'exiting' : ''}`}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -5220,24 +5257,24 @@ const [gridEditText, setGridEditText] = useState('');
             }}
             role="dialog"
             aria-modal="true"
-            aria-label={listPickerMenu.mode === 'move' ? 'Move to list' : 'Copy to list'}
+            aria-label={renderedListPicker.mode === 'move' ? 'Move to list' : 'Copy to list'}
             style={{ padding: "1rem", width: "300px", borderRadius: "10px" }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
               <h2 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 600 }}>
-                {listPickerMenu.mode === 'move' ? 'Move' : 'Copy'}{' '}
-                {listPickerMenu.items.length > 1 ? `${listPickerMenu.items.length} tasks` : 'task'} to…
+                {renderedListPicker.mode === 'move' ? 'Move' : 'Copy'}{' '}
+                {renderedListPicker.items.length > 1 ? `${renderedListPicker.items.length} tasks` : 'task'} to…
               </h2>
               <button type="button" className="icon-btn" onClick={() => setListPickerMenu(null)} aria-label="Close">×</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "2px", maxHeight: "320px", overflowY: "auto" }}>
               {(() => {
                 const firstEnabledIdx = allLists.findIndex(
-                  (l) => !(listPickerMenu.mode === 'move' && listPickerMenu.items.every((t) => t.listId === l.id))
+                  (l) => !(renderedListPicker.mode === 'move' && renderedListPicker.items.every((t) => t.listId === l.id))
                 );
                 return allLists.map((l, idx) => {
-                  const allInThisList = listPickerMenu.items.every((t) => t.listId === l.id);
-                  const disabled = listPickerMenu.mode === 'move' && allInThisList;
+                  const allInThisList = renderedListPicker.items.every((t) => t.listId === l.id);
+                  const disabled = renderedListPicker.mode === 'move' && allInThisList;
                   return (
                     <button
                       key={l.id}
@@ -5248,8 +5285,8 @@ const [gridEditText, setGridEditText] = useState('');
                       className="context-menu-item"
                       style={{ width: "100%", textAlign: "left", justifyContent: "space-between" }}
                       onClick={async () => {
-                        const items = listPickerMenu.items;
-                        const mode = listPickerMenu.mode;
+                        const items = renderedListPicker.items;
+                        const mode = renderedListPicker.mode;
                         setListPickerMenu(null);
                         if (mode === 'move') {
                           await Promise.all(items.map((t) => handleMoveToList(t, l.id)));
@@ -5277,12 +5314,8 @@ const [gridEditText, setGridEditText] = useState('');
         </div>
       )}
 
-      {!selectedItem &&
-        suggestionsOpen &&
-        selection.type === 'smart' &&
-        selection.id === 'my-day' &&
-        !searchQuery && (
-          <aside className="suggestions-pane" aria-label="Suggestions">
+      {suggestionsPresence.shouldRender && (
+          <aside className={`suggestions-pane ${suggestionsPresence.isExiting ? 'exiting' : ''}`} aria-label="Suggestions">
             <div className="suggestions-header">
               <h3>Suggestions</h3>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -5347,16 +5380,17 @@ const [gridEditText, setGridEditText] = useState('');
           </aside>
         )}
 
-      {selectedItem && (() => {
-        const itemParentList = allLists.find((l) => l.id === selectedItem.listId);
+      {detailPresence.shouldRender && renderedDetailItem && (() => {
+        const itemParentList = allLists.find((l) => l.id === renderedDetailItem.listId);
         return (
           <TaskDetail
-            key={selectedItem.id}
-            item={selectedItem}
+            key={renderedDetailItem.id}
+            item={renderedDetailItem}
             todayStr={todayStr}
             currentUserId={user?.uid ?? ''}
             listTitle={itemParentList?.title}
             listIcon={itemParentList?.icon}
+            exiting={detailPresence.isExiting}
             onClose={() => setSelectedItemId(null)}
             onUpdate={handleUpdateItem}
             onDelete={handleDeleteItem}

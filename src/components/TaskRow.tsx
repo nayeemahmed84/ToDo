@@ -14,6 +14,7 @@ const SAND_GRAINS = Array.from({ length: 40 }, (_, i) => {
 
 interface TaskRowProps {
   item: TodoItem;
+  index?: number;
   lists: TodoList[];
   selected: boolean;
   selectedIds?: Set<string>;
@@ -33,6 +34,7 @@ interface TaskRowProps {
 
 export function TaskRow({
   item,
+  index,
   lists,
   selected,
   selectedIds,
@@ -119,6 +121,8 @@ export function TaskRow({
 
   return (
     <li
+      data-flip-id={item.id}
+      style={typeof index === 'number' ? ({ '--row-index': index } as CSSProperties) : undefined}
       className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''} ${clipboardState ? `clipboard-${clipboardState}` : ''}`}
       draggable
       onDragStart={handleDragStart}

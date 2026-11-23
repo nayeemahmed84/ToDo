@@ -28,6 +28,7 @@ interface TaskDetailProps {
   currentUserId: string;
   listTitle?: string;
   listIcon?: string | null;
+  exiting?: boolean;
   onClose: () => void;
   onUpdate: (item: TodoItem, patch: Partial<TodoItem>) => Promise<void>;
   onDelete: (item: TodoItem) => Promise<void>;
@@ -39,6 +40,7 @@ export function TaskDetail({
   currentUserId,
   listTitle,
   listIcon,
+  exiting = false,
   onClose,
   onUpdate,
   onDelete,
@@ -241,7 +243,7 @@ export function TaskDetail({
   }, [remindOptionsOpen, dueDateOptionsOpen, repeatOptionsOpen, remindPickerOpen, duePickerOpen]);
 
   return (
-    <aside className="detail-panel" style={{ width: `${paneWidth}px` }}>
+    <aside className={`detail-panel ${exiting ? 'exiting' : ''}`} style={{ width: `${paneWidth}px` }}>
       <div
         onPointerDown={startResize}
         title="Drag to resize"
