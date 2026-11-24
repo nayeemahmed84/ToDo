@@ -5,6 +5,7 @@ import { EmojiPicker } from './EmojiPicker';
 import { AppSettings } from './SettingsModal';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from '../lib/contextMenu';
 import { appConfirm, appPrompt } from '../lib/appDialog';
+import { EmojiText } from '../lib/emoji';
 import {
   CalendarIcon,
   HomeIcon,
@@ -470,12 +471,12 @@ export function Sidebar({
         >
           <span className="nav-icon">
             {list.icon ? (
-              <span className="list-emoji" aria-hidden="true">{list.icon}</span>
+              <span className="list-emoji" aria-hidden="true"><EmojiText text={list.icon} /></span>
             ) : <ListIcon />}
           </span>
           {!collapsed && (
             <span className="nav-label nav-label-with-meta">
-              <span className="nav-label-text">{list.title}</span>
+              <span className="nav-label-text"><EmojiText text={list.title} /></span>
               {isShared && (
                 <span className="nav-shared-icon" title="Shared list" aria-label="Shared list">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

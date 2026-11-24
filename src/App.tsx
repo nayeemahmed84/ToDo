@@ -42,6 +42,7 @@ import { DEFAULT_PRINT_OPTIONS, PrintModal, PrintOptions, PrintSheet } from './c
 import { appConfirm, appPrompt } from './lib/appDialog';
 import { playCompleteSound } from './lib/sound';
 import { suggestEmoji } from './lib/suggestEmoji';
+import { EmojiText, resolveEmojiShortcodes } from './lib/emoji';
 import { parseTaskInput } from './lib/parseTaskInput';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
 import { runViewTransition, useAnimatedPresence, useFlipList, useRetainedValue } from './lib/motion';
@@ -1750,12 +1751,13 @@ const [gridEditText, setGridEditText] = useState('');
   const handleCreateList = async (title: string) => {
     if (!user) return;
     setError(null);
+    const resolvedTitle = resolveEmojiShortcodes(title);
     const ref = await addDoc(collection(db, 'lists'), {
-      title,
+      title: resolvedTitle,
       ownerUid: user.uid,
       sortOrder: Date.now(),
       background: 'field',
-      ...(suggestEmoji(title) ? { icon: suggestEmoji(title)! } : {}),
+      ...(suggestEmoji(resolvedTitle) ? { icon: suggestEmoji(resolvedTitle)! } : {}),
       createdAt: serverTimestamp(),
     });
     setSelection({ type: 'list', id: ref.id });
@@ -3619,12 +3621,12 @@ const [gridEditText, setGridEditText] = useState('');
                     }}
                   />
                 ) : (
-                  <h2 className="header-title">{currentTitle}</h2>
+                  <h2 className="header-title"><EmojiText text={currentTitle} /></h2>
                 )}
               </div>
             ) : (
               <div className="header-title-row">
-                <h2 className="header-title">{currentTitle}</h2>
+                <h2 className="header-title"><EmojiText text={currentTitle} /></h2>
               </div>
             )}
             {selection.type === 'smart' &&

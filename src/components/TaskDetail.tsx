@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { CustomCalendarPicker } from './CustomCalendarPicker';
+import { EmojiText } from '../lib/emoji';
 import {
   AlarmClockIcon,
   CalendarIcon,
@@ -317,7 +318,7 @@ export function TaskDetail({
                 checked={step.done}
                 onChange={() => toggleStep(step.id)}
               />
-              <span className={step.done ? 'done' : ''}>{step.text}</span>
+              <span className={step.done ? 'done' : ''}><EmojiText text={step.text} /></span>
               <button
                 className="icon-btn small"
                 onClick={() => removeStep(step.id)}

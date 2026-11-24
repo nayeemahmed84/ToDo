@@ -1,6 +1,7 @@
 import { useState, useRef, MouseEvent, ChangeEvent, CSSProperties } from 'react';
 import { TodoItem, TodoList } from '../types/todo';
 import { StarIcon } from './Icons';
+import { EmojiText } from '../lib/emoji';
 
 const SAND_GRAINS = Array.from({ length: 40 }, (_, i) => {
   const xPct = ((i * 23 + 7) % 94) + 3;
@@ -183,10 +184,10 @@ export function TaskRow({
           onOpen(event, item);
         }}
       >
-        <span className="task-title" title={item.text}>{item.text}</span>
+        <span className="task-title" title={item.text}><EmojiText text={item.text} /></span>
         {hasMeta && (
           <div className="task-meta">
-            {showListMeta && <span>{listName}</span>}
+            {showListMeta && <span><EmojiText text={listName} /></span>}
             {item.myDayDate === todayStr && (
               <span className="task-meta-icon" title="In My Day">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
