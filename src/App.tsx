@@ -426,9 +426,7 @@ export function App() {
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
   const [mobileHideCompletedSearch, setMobileHideCompletedSearch] = useState(false);
   const [mobileSearchMenuOpen, setMobileSearchMenuOpen] = useState(false);
-  const [mobileVoiceListening, setMobileVoiceListening] = useState(false);
   const mobileSearchInputRef = useRef<HTMLInputElement>(null);
-  const mobileSpeechRecRef = useRef<{ stop: () => void } | null>(null);
   const mobileAddInputRef = useRef<HTMLInputElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -1558,7 +1556,20 @@ const [gridEditText, setGridEditText] = useState('');
         ? existingBgs
         : [...existingBgs, newBgEntry];
 
-      if (selection.type === 'list' && currentList) {
+      if (mobileView === 'search') {
+        updateAppSettings({
+          customBackgrounds: nextCustomBackgrounds,
+          smartThemes: {
+            ...(appSettings.smartThemes ?? {}),
+            search: {
+              ...(appSettings.smartThemes?.['search'] ?? {}),
+              background: 'custom',
+              customBackgroundUrl: backgroundImageUrl,
+            },
+          },
+        });
+        setMobileSearchMenuOpen(false);
+      } else if (selection.type === 'list' && currentList) {
         await updateDoc(doc(db, 'lists', currentList.id), {
           backgroundImageUrl,
           backgroundImagePath: nextImagePath,
@@ -1660,9 +1671,12 @@ const [gridEditText, setGridEditText] = useState('');
   const smartTheme = selection.type === 'smart'
     ? appSettings.smartThemes?.[selection.id]
     : undefined;
-  const customBackgroundUrl = selection.type === 'list'
-    ? (currentList?.customBackgroundActive ? currentList.backgroundImageUrl ?? null : null)
-    : (smartTheme?.background === 'custom' ? smartTheme.customBackgroundUrl ?? null : null);
+  const searchTheme = appSettings.smartThemes?.['search'];
+  const customBackgroundUrl = mobileView === 'search'
+    ? (searchTheme?.background === 'custom' ? searchTheme.customBackgroundUrl ?? null : null)
+    : selection.type === 'list'
+      ? (currentList?.customBackgroundActive ? currentList.backgroundImageUrl ?? null : null)
+      : (smartTheme?.background === 'custom' ? smartTheme.customBackgroundUrl ?? null : null);
   const availableCustomBackgrounds = useMemo(() => {
     const saved = appSettings.customBackgrounds ?? [];
     const seen = new Set(saved.map((b) => b.url));
@@ -1681,9 +1695,11 @@ const [gridEditText, setGridEditText] = useState('');
   }, [appSettings.customBackgrounds, allLists]);
   const currentWallpaper = customBackgroundUrl
     ? 'custom'
-    : selection.type === 'smart'
-      ? smartTheme?.background ?? (selection.id === 'my-day' ? 'coast' : 'field')
-      : currentList?.background ?? 'field';
+    : mobileView === 'search'
+      ? (searchTheme?.background ?? 'none')
+      : selection.type === 'smart'
+        ? smartTheme?.background ?? (selection.id === 'my-day' ? 'coast' : 'field')
+        : currentList?.background ?? 'field';
   const sortOptions: { id: SortOption; label: string }[] = [
     { id: 'importance', label: 'Importance' },
     { id: 'dueDate', label: 'Due date' },
@@ -3324,8 +3340,6 @@ const [gridEditText, setGridEditText] = useState('');
               type="button"
               className="mobile-topbar-icon-btn"
               onClick={() => {
-                mobileSpeechRecRef.current?.stop();
-                setMobileVoiceListening(false);
                 setSearchQuery('');
                 setMobileSearchMenuOpen(false);
                 setMobileView('home');
@@ -3360,65 +3374,6 @@ const [gridEditText, setGridEditText] = useState('');
                 </svg>
               </button>
             )}
-            <button
-              type="button"
-              className={`mobile-topbar-icon-btn mobile-search-mic-btn ${mobileVoiceListening ? 'listening' : ''}`}
-              onClick={() => {
-                if (mobileVoiceListening) {
-                  mobileSpeechRecRef.current?.stop();
-                  setMobileVoiceListening(false);
-                  return;
-                }
-                const SpeechRecognitionCtor =
-                  (window as unknown as { SpeechRecognition?: new () => unknown; webkitSpeechRecognition?: new () => unknown }).SpeechRecognition ||
-                  (window as unknown as { webkitSpeechRecognition?: new () => unknown }).webkitSpeechRecognition;
-                if (!SpeechRecognitionCtor) {
-                  showClipboardToast('Voice search is not supported in this browser');
-                  mobileSearchInputRef.current?.focus();
-                  return;
-                }
-                interface SpeechRecInstance {
-                  lang: string;
-                  interimResults: boolean;
-                  continuous: boolean;
-                  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-                  onerror: (() => void) | null;
-                  onend: (() => void) | null;
-                  start: () => void;
-                  stop: () => void;
-                }
-                const rec = new SpeechRecognitionCtor() as SpeechRecInstance;
-                rec.lang = navigator.language || 'en-US';
-                rec.interimResults = true;
-                rec.continuous = false;
-                rec.onresult = (event) => {
-                  let transcript = '';
-                  for (let i = 0; i < event.results.length; i += 1) {
-                    transcript += event.results[i][0]?.transcript ?? '';
-                  }
-                  setSearchQuery(transcript.trim());
-                };
-                rec.onerror = () => {
-                  setMobileVoiceListening(false);
-                  mobileSpeechRecRef.current = null;
-                };
-                rec.onend = () => {
-                  setMobileVoiceListening(false);
-                  mobileSpeechRecRef.current = null;
-                };
-                mobileSpeechRecRef.current = rec;
-                setMobileVoiceListening(true);
-                rec.start();
-              }}
-              aria-label={mobileVoiceListening ? 'Stop voice search' : 'Voice search'}
-              title={mobileVoiceListening ? 'Stop voice search' : 'Voice search'}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="22" />
-              </svg>
-            </button>
             <div className="mobile-search-menu-wrap" style={{ position: 'relative' }}>
               <button
                 type="button"
@@ -3435,18 +3390,105 @@ const [gridEditText, setGridEditText] = useState('');
                 </svg>
               </button>
               {mobileSearchMenuOpen && (
-                <div className="top-bar-popover mobile-search-popover" role="menu">
+                <div className="top-bar-popover list-options-menu mobile-search-popover" role="menu">
                   <button
                     type="button"
                     role="menuitem"
-                    className="account-popover-item"
+                    className="account-popover-item list-menu-item"
                     onClick={() => {
                       setMobileHideCompletedSearch((v) => !v);
                       setMobileSearchMenuOpen(false);
                     }}
                   >
-                    {mobileHideCompletedSearch ? 'Show completed items' : 'Hide completed items'}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="m9 12 2 2 4-4" />
+                    </svg>
+                    <span>{mobileHideCompletedSearch ? 'Show completed items' : 'Hide completed items'}</span>
                   </button>
+                  <div className="list-theme-section">
+                    <div className="list-theme-heading">
+                      <span>Change theme</span>
+                    </div>
+                    <div className="list-theme-grid">
+                      {([
+                        { id: 'field', label: 'Poppy field' },
+                        { id: 'coast', label: 'Coast at sunset' },
+                        { id: 'plain', label: 'Solid background' },
+                        { id: 'none', label: 'No background' },
+                      ] as const)
+                        .filter((wallpaper) => !(appSettings.hiddenBackgrounds ?? []).includes(wallpaper.id))
+                        .map((wallpaper) => {
+                          const isPressed = !customBackgroundUrl && currentWallpaper === wallpaper.id;
+                          return (
+                            <button
+                              key={wallpaper.id}
+                              type="button"
+                              className={`list-theme-tile wallpaper-${wallpaper.id}`}
+                              aria-label={wallpaper.label}
+                              aria-pressed={isPressed}
+                              title={wallpaper.label}
+                              onClick={() => {
+                                updateAppSettings({
+                                  smartThemes: {
+                                    ...(appSettings.smartThemes ?? {}),
+                                    search: { ...(searchTheme ?? {}), background: wallpaper.id },
+                                  },
+                                });
+                                setMobileSearchMenuOpen(false);
+                              }}
+                            />
+                          );
+                        })}
+                      {availableCustomBackgrounds.map((bg) => (
+                        <button
+                          key={bg.id}
+                          type="button"
+                          className="list-theme-tile wallpaper-custom"
+                          aria-label="Uploaded background"
+                          aria-pressed={customBackgroundUrl === bg.url}
+                          style={{ backgroundImage: `url(${JSON.stringify(bg.url)})` }}
+                          onClick={() => {
+                            updateAppSettings({
+                              smartThemes: {
+                                ...(appSettings.smartThemes ?? {}),
+                                search: {
+                                  ...(searchTheme ?? {}),
+                                  background: 'custom',
+                                  customBackgroundUrl: bg.url,
+                                },
+                              },
+                            });
+                            setMobileSearchMenuOpen(false);
+                          }}
+                        />
+                      ))}
+                      <input
+                        ref={backgroundImageInputRef}
+                        type="file"
+                        accept="image/*,.heic,.heif"
+                        hidden
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0];
+                          if (file) void handleUploadListBackground(file);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="list-theme-tile list-theme-upload-tile"
+                        aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                        title={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                        disabled={backgroundUploadInProgress}
+                        onClick={() => backgroundImageInputRef.current?.click()}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5h14v-5" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
