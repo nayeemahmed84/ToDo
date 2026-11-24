@@ -130,7 +130,7 @@ export function TaskRow({
       data-flip-id={item.id}
       style={typeof index === 'number' ? ({ '--row-index': index } as CSSProperties) : undefined}
       className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''} ${clipboardState ? `clipboard-${clipboardState}` : ''}`}
-      draggable
+      draggable={!window.matchMedia('(max-width: 767px)').matches}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragLeave={(event) => {
@@ -193,6 +193,7 @@ export function TaskRow({
       }}
       onTouchEnd={() => {
         clearLongPress();
+        setDragging(false);
         if (swipeStartRef.current?.active) {
           if (swipeX <= -85) {
             onDelete?.(item);
@@ -204,6 +205,7 @@ export function TaskRow({
       }}
       onTouchCancel={() => {
         clearLongPress();
+        setDragging(false);
         swipeStartRef.current = null;
         setSwipeX(0);
         setIsSwiping(false);

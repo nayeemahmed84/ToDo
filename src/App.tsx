@@ -498,7 +498,7 @@ export function App() {
       }
     };
     const onDown = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement)?.closest('.add-picker-wrap')) {
+      if (!(e.target as HTMLElement)?.closest('.add-picker-wrap, .mobile-quick-add-sheet')) {
         setAddDueMenuOpen(false);
         setAddRemindMenuOpen(false);
         setAddRepeatMenuOpen(false);
