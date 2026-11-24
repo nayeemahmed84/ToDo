@@ -426,7 +426,9 @@ export function App() {
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
   const [mobileHideCompletedSearch, setMobileHideCompletedSearch] = useState(false);
   const [mobileSearchMenuOpen, setMobileSearchMenuOpen] = useState(false);
+  const [mobileVoiceListening, setMobileVoiceListening] = useState(false);
   const mobileSearchInputRef = useRef<HTMLInputElement>(null);
+  const mobileSpeechRecRef = useRef<{ stop: () => void } | null>(null);
   const mobileAddInputRef = useRef<HTMLInputElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -1135,8 +1137,12 @@ const [gridEditText, setGridEditText] = useState('');
         (i) =>
           (!mobileHideCompletedSearch || !i.done) &&
           (i.text.toLowerCase().includes(q) ||
-            i.notes.toLowerCase().includes(q))
+            i.notes.toLowerCase().includes(q) ||
+            (i.steps ?? []).some((s) => s.text.toLowerCase().includes(q)))
       );
+    }
+    if (mobileView === 'search') {
+      return [];
     }
     if (selection.type === 'list') {
       return allItems.filter((i) => i.listId === selection.id);
@@ -1163,7 +1169,7 @@ const [gridEditText, setGridEditText] = useState('');
       default:
         return allItems;
     }
-  }, [allItems, searchQuery, selection, todayStr, defaultTasksList, mobileHideCompletedSearch]);
+  }, [allItems, searchQuery, selection, todayStr, defaultTasksList, mobileHideCompletedSearch, mobileView]);
 
   const sortedVisible = useMemo(() => {
     const arr = [...visibleItems];
@@ -3318,6 +3324,8 @@ const [gridEditText, setGridEditText] = useState('');
               type="button"
               className="mobile-topbar-icon-btn"
               onClick={() => {
+                mobileSpeechRecRef.current?.stop();
+                setMobileVoiceListening(false);
                 setSearchQuery('');
                 setMobileSearchMenuOpen(false);
                 setMobileView('home');
@@ -3352,6 +3360,65 @@ const [gridEditText, setGridEditText] = useState('');
                 </svg>
               </button>
             )}
+            <button
+              type="button"
+              className={`mobile-topbar-icon-btn mobile-search-mic-btn ${mobileVoiceListening ? 'listening' : ''}`}
+              onClick={() => {
+                if (mobileVoiceListening) {
+                  mobileSpeechRecRef.current?.stop();
+                  setMobileVoiceListening(false);
+                  return;
+                }
+                const SpeechRecognitionCtor =
+                  (window as unknown as { SpeechRecognition?: new () => unknown; webkitSpeechRecognition?: new () => unknown }).SpeechRecognition ||
+                  (window as unknown as { webkitSpeechRecognition?: new () => unknown }).webkitSpeechRecognition;
+                if (!SpeechRecognitionCtor) {
+                  showClipboardToast('Voice search is not supported in this browser');
+                  mobileSearchInputRef.current?.focus();
+                  return;
+                }
+                interface SpeechRecInstance {
+                  lang: string;
+                  interimResults: boolean;
+                  continuous: boolean;
+                  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+                  onerror: (() => void) | null;
+                  onend: (() => void) | null;
+                  start: () => void;
+                  stop: () => void;
+                }
+                const rec = new SpeechRecognitionCtor() as SpeechRecInstance;
+                rec.lang = navigator.language || 'en-US';
+                rec.interimResults = true;
+                rec.continuous = false;
+                rec.onresult = (event) => {
+                  let transcript = '';
+                  for (let i = 0; i < event.results.length; i += 1) {
+                    transcript += event.results[i][0]?.transcript ?? '';
+                  }
+                  setSearchQuery(transcript.trim());
+                };
+                rec.onerror = () => {
+                  setMobileVoiceListening(false);
+                  mobileSpeechRecRef.current = null;
+                };
+                rec.onend = () => {
+                  setMobileVoiceListening(false);
+                  mobileSpeechRecRef.current = null;
+                };
+                mobileSpeechRecRef.current = rec;
+                setMobileVoiceListening(true);
+                rec.start();
+              }}
+              aria-label={mobileVoiceListening ? 'Stop voice search' : 'Voice search'}
+              title={mobileVoiceListening ? 'Stop voice search' : 'Voice search'}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="22" />
+              </svg>
+            </button>
             <div className="mobile-search-menu-wrap" style={{ position: 'relative' }}>
               <button
                 type="button"
@@ -4443,6 +4510,28 @@ const [gridEditText, setGridEditText] = useState('');
         {error && <p className="error">{error}</p>}
 
         <div className="tasks-scroll">
+        {mobileView === 'search' && !searchQuery.trim() ? (
+          <div className="mobile-search-empty-state">
+            <div className="mobile-search-empty-illustration" aria-hidden="true">
+              <svg viewBox="0 0 112 112" fill="none">
+                <circle cx="32" cy="24" r="14" fill="rgba(160, 148, 138, 0.22)" />
+                <circle cx="86" cy="26" r="11" fill="rgba(160, 148, 138, 0.22)" />
+                <circle cx="30" cy="84" r="8" fill="rgba(160, 148, 138, 0.22)" />
+                <circle cx="36" cy="94" r="12" fill="rgba(160, 148, 138, 0.20)" />
+                <circle cx="51" cy="49" r="24" fill="rgba(165, 152, 142, 0.45)" />
+                <circle cx="61" cy="40" r="3.5" fill="rgba(225, 218, 212, 0.65)" />
+                <circle cx="64" cy="48" r="2.2" fill="rgba(225, 218, 212, 0.65)" />
+                <circle cx="51" cy="49" r="24" stroke="#7c8ce0" strokeWidth="8.5" />
+                <line x1="69" y1="67" x2="74" y2="72" stroke="#7c8ce0" strokeWidth="7" strokeLinecap="butt" />
+                <line x1="73" y1="71" x2="92" y2="90" stroke="#7c8ce0" strokeWidth="12" strokeLinecap="round" />
+              </svg>
+            </div>
+            <p className="mobile-search-empty-text">
+              What would you like to find? You can search within tasks, steps, and notes
+            </p>
+          </div>
+        ) : (
+        <>
 
         {searchQuery.trim() && (() => {
           const q = searchQuery.trim().toLowerCase();
@@ -4850,10 +4939,12 @@ const [gridEditText, setGridEditText] = useState('');
             </div>
           </section>
         )}
+        </>
+        )}
         </div>
 
         
-        {!searchQuery && activeItems.length === 0 && selection.type !== 'list' && !(selection.type === 'smart' && (selection.id === 'assigned-to-me' || selection.id === 'trash')) && (
+        {mobileView !== 'search' && !searchQuery && activeItems.length === 0 && selection.type !== 'list' && !(selection.type === 'smart' && (selection.id === 'assigned-to-me' || selection.id === 'trash')) && (
           <div className={`empty-state ${selection.type === 'smart' && selection.id === 'my-day' ? 'my-day-empty-state' : ''}`}>
             {selection.type === 'smart' && selection.id === 'my-day' && (
               <div className="empty-state-illustration" aria-hidden="true">
@@ -4892,7 +4983,8 @@ const [gridEditText, setGridEditText] = useState('');
           </div>
         )}
 
-        {selection.type === 'smart' &&
+        {mobileView !== 'search' &&
+          selection.type === 'smart' &&
           selection.id === 'assigned-to-me' &&
           !searchQuery && (
             <p className="notice">No tasks assigned to you yet.</p>
