@@ -4602,8 +4602,9 @@ button.primary.small {
 
 .tasks-scroll {
   min-height: 0;
-  padding: 0 0 78px;
+  padding: 0 0 8px;
   margin-left: -10px;
+  margin-bottom: calc(clamp(26px, 5.5vh, 58px) + 62px);
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -5215,7 +5216,8 @@ button.primary.small {
   }
 
   .tasks-scroll {
-    padding-bottom: 70px;
+    padding-bottom: 8px;
+    margin-bottom: 82px;
   }
 
   .detail-panel {
@@ -5827,6 +5829,7 @@ button.primary.small {
     flex: 1 1 auto;
     min-height: 0;
     margin-left: 0;
+    margin-bottom: 0;
     padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   }
 

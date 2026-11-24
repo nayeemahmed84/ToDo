@@ -136,6 +136,7 @@ export function initServiceWorker(callbacks: {
   onOfflineReady?: () => void;
 }): SwController {
   let updateSW: ((reloadPage?: boolean) => Promise<void>) | null = null;
+  let swRegistration: ServiceWorkerRegistration | null = null;
 
   if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
     updateSW = registerSW({
@@ -148,6 +149,7 @@ export function initServiceWorker(callbacks: {
       },
       onRegisteredSW(_swUrl, registration) {
         if (!registration) return;
+        swRegistration = registration;
         // Periodically check for updates (every 60 min)
         window.setInterval(() => {
           if (navigator.onLine) {
@@ -167,10 +169,31 @@ export function initServiceWorker(callbacks: {
 
   return {
     applyUpdate: async () => {
-      if (updateSW) {
-        await updateSW(true);
-      } else {
+      let reloaded = false;
+      const reloadOnce = () => {
+        if (reloaded) return;
+        reloaded = true;
         window.location.reload();
+      };
+
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('controllerchange', reloadOnce, { once: true });
+      }
+
+      // Fallback: if controllerchange doesn't fire (e.g. waiting SW already activated), reload anyway.
+      window.setTimeout(reloadOnce, 1200);
+
+      try {
+        if (swRegistration?.waiting) {
+          swRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+        if (updateSW) {
+          await updateSW(true);
+        } else {
+          reloadOnce();
+        }
+      } catch {
+        reloadOnce();
       }
     },
   };
