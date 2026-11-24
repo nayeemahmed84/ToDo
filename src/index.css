@@ -4605,6 +4605,14 @@ button.primary.small {
   padding: 0 0 78px;
   margin-left: -10px;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.tasks-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .add-task-row {
