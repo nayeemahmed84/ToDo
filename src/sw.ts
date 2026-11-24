@@ -4,19 +4,25 @@ import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
 import { NavigationRoute, registerRoute } from 'workbox-routing';
-import { CacheFirst } from 'workbox-strategies';
+import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 
 declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<{ url: string; revision: string | null }>;
 };
 
-self.skipWaiting();
 clientsClaim();
+
+// Support graceful update activation when the user clicks "Reload" on the update toast.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
-// SPA navigation fallback so deep links (e.g. /tasks/important, /tasks/planned) boot offline.
+// SPA navigation fallback so deep links (e.g. /tasks/important, /tasks/planned, /?action=new-task) boot offline.
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL('/index.html'), {
     denylist: [/^\/__/, /\/[^/?]+\.[^/]+$/],
@@ -34,8 +40,23 @@ registerRoute(
     plugins: [
       new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
-        maxEntries: 80,
+        maxEntries: 100,
         maxAgeSeconds: 30 * 24 * 60 * 60,
+      }),
+    ],
+  })
+);
+
+// Cache web fonts with StaleWhileRevalidate for instant offline typography.
+registerRoute(
+  ({ request }) => request.destination === 'font',
+  new StaleWhileRevalidate({
+    cacheName: 'todo-fonts-cache',
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
+      new ExpirationPlugin({
+        maxEntries: 30,
+        maxAgeSeconds: 365 * 24 * 60 * 60,
       }),
     ],
   })
@@ -60,15 +81,15 @@ self.addEventListener('push', (event) => {
   }
 
   const payload = raw.data ?? raw.notification ?? {};
-  const title = payload.title || 'ToDo Reminder';
+  const title = payload.title || 'To Do Reminder';
   const body = payload.body || 'You have a scheduled task reminder.';
   const url = payload.url || '/';
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon: '/icon.svg',
-      badge: '/icon.svg',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge-96.png',
       tag: payload.taskId ? `todo-reminder-${payload.taskId}` : 'todo-reminder',
       data: {
         url,
@@ -81,16 +102,23 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl =
-    (event.notification.data as { url?: string } | undefined)?.url || '/';
+  const data = (event.notification.data as { url?: string; taskId?: string | null; listId?: string | null } | undefined) ?? {};
+  const targetUrl = data.url || '/';
 
   event.waitUntil(
     self.clients
       .matchAll({ type: 'window', includeUncontrolled: true })
-      .then((clientList) => {
+      .then(async (clientList) => {
         for (const client of clientList) {
           if ('focus' in client) {
-            return client.focus();
+            await client.focus();
+            client.postMessage({
+              type: 'OPEN_NOTIFICATION',
+              url: targetUrl,
+              taskId: data.taskId ?? null,
+              listId: data.listId ?? null,
+            });
+            return client;
           }
         }
         return self.clients.openWindow(targetUrl);

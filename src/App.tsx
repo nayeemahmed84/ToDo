@@ -34,6 +34,8 @@ import { Sidebar } from './components/Sidebar';
 import { EmojiPicker } from './components/EmojiPicker';
 import { TaskDetail } from './components/TaskDetail';
 import { SyncStatus, TopBar } from './components/TopBar';
+import { PwaManager } from './components/PwaManager';
+import { PwaSharePayload, updateAppBadge } from './lib/pwa';
 import { AppSettings, DEFAULT_SETTINGS, SettingsModal } from './components/SettingsModal';
 import { ShareDialog } from './components/ShareDialog';
 import { CustomCalendarPicker } from './components/CustomCalendarPicker';
@@ -254,6 +256,8 @@ export function App() {
 
   const [sandExitingIds, setSandExitingIds] = useState<Set<string>>(() => new Set());
   const [sandEnteringIds, setSandEnteringIds] = useState<Set<string>>(() => new Set());
+  const [canInstallPwa, setCanInstallPwa] = useState(false);
+  const installPwaTriggerRef = useRef<(() => void) | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(() =>
     typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'online'
   );
@@ -1129,6 +1133,10 @@ const [gridEditText, setGridEditText] = useState('');
     }
     return result as Record<SmartListId, number> & Record<string, number>;
   }, [allItems, trashedItems.length, todayStr]);
+
+  useEffect(() => {
+    updateAppBadge(user ? counts['my-day'] : 0);
+  }, [user, counts]);
 
   const listTitleById = useMemo(() => {
     const map = new Map<string, string>();
@@ -3258,12 +3266,38 @@ const [gridEditText, setGridEditText] = useState('');
     <div className="app-shell" data-mobile-view={mobileView}>
       <TopBar
         syncStatus={syncStatus}
+        canInstall={canInstallPwa}
+        onInstallClick={() => installPwaTriggerRef.current?.()}
         onToggleSidebar={() => {
           if (window.innerWidth < 1024) {
             setSidebarOpen((v) => !v);
           } else {
             setSidebarCollapsed((v) => !v);
           }
+        }}
+      />
+      <PwaManager
+        isAuthenticated={Boolean(user)}
+        onCanInstallChange={setCanInstallPwa}
+        installTriggerRef={installPwaTriggerRef}
+        onOpenTask={(taskId, listId) => {
+          if (listId) {
+            setSelection({ type: 'list', id: listId });
+          }
+          setSelectedItemId(taskId);
+          setMobileView('list');
+        }}
+        onQuickNewTask={() => {
+          setAddRowExpanded(true);
+          setMobileView('list');
+          window.setTimeout(() => addTaskInputRef.current?.focus(), 60);
+        }}
+        onSharedTask={(payload: PwaSharePayload) => {
+          const combined = payload.note ? `${payload.title} — ${payload.note}` : payload.title;
+          setNewItemText(combined.slice(0, 300));
+          setAddRowExpanded(true);
+          setMobileView('list');
+          window.setTimeout(() => addTaskInputRef.current?.focus(), 60);
         }}
       />
       <div className="app-body">
