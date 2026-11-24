@@ -27,22 +27,41 @@
 
 * {
   box-sizing: border-box;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  scrollbar-width: thin;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    scrollbar-width: thin;
+  }
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
 }
 
-*::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
 }
 
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 *::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 4px;
+  background-color: var(--scrollbar-thumb);
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+  border-width: 2px;
 }
 
 body {
@@ -4586,7 +4605,6 @@ button.primary.small {
   padding: 0 0 78px;
   margin-left: -10px;
   overflow-y: auto;
-  scrollbar-color: rgba(255,255,255,.3) rgba(0,0,0,.08);
 }
 
 .add-task-row {
@@ -5246,17 +5264,6 @@ button.primary.small {
 
 .main-pane {
   padding-bottom: 72px;
-}
-
-.main-pane,
-.main-pane * {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.main-pane::-webkit-scrollbar,
-.main-pane *::-webkit-scrollbar {
-  display: none;
 }
 
 .task-row {
@@ -6390,10 +6397,6 @@ button.primary.small {
 
 :root[data-theme="light"] .toolbar-icon-button:hover {
   background: #FFFFFF;
-}
-
-:root[data-theme="light"] .tasks-scroll {
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
 }
 
 :root[data-theme="light"] .task-row {

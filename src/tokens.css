@@ -44,8 +44,9 @@
   --color-task-row-bg: #ffffff;
   --color-task-hover: #E5EEFA;
   --color-task-border: #EDEBE9;
-  --scrollbar-track: #F3F2F1;
-  --scrollbar-thumb: #C8C8C8;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.28);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.48);
   --shadow-menu: 0 8px 16px rgba(0, 0, 0, 0.14), 0 0 2px rgba(0, 0, 0, 0.12);
   --shadow-pane: -8px 0 16px rgba(0, 0, 0, 0.08);
   --shadow-auth: 0 10px 30px rgba(15, 23, 42, 0.08);
@@ -104,8 +105,9 @@
   --color-task-hover: #3a3a3a;
   --color-task-border: #303030;
   --color-top-bar-bg: #1b1b1b;
-  --scrollbar-track: #1E1E1E;
-  --scrollbar-thumb: #555555;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.48);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.7);
   --shadow-menu: 0 8px 16px rgba(0, 0, 0, 0.4), 0 0 2px rgba(0, 0, 0, 0.32);
   --shadow-pane: -8px 0 16px rgba(0, 0, 0, 0.4);
   --shadow-auth: 0 10px 30px rgba(0, 0, 0, 0.35);
