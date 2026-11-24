@@ -206,3 +206,24 @@ When it finishes, it will print your live website URL (like `https://your-projec
 - **Google Sign-In popup closes or says unauthorized domain** → Go to **Firebase Console → Authentication → Settings → Authorized domains** and make sure your website domain (or `localhost`) is listed.
 - **Permission denied in database** → Make sure you ran `firebase deploy --only firestore`.
 - **Keeping secrets safe on GitHub** → `.gitignore` automatically blocks `.env`, `.env.local`, `.dev.vars`, `.firebase/`, `.wrangler/`, and `*firebase-adminsdk*.json` / `service-account*.json`. Never remove those lines from `.gitignore`.
+- **Push notifications not arriving / `AbortError: Registration failed - push service error`**:
+  - Make sure `VITE_FIREBASE_VAPID_KEY` is set in `.env.local` and in your production hosting environment variables.
+  - **Brave Browser (Desktop)**:
+    1. Open `brave://settings/privacy` and enable **"Use Google services for push messaging"**, then restart/reload Brave.
+    2. Click the tune/lock icon in the address bar → **Site settings** → set **Notifications** to **Allow**.
+  - **Brave Browser (Mobile / Android)**:
+    1. Open Brave **Settings → Brave Shields & privacy** (or **Privacy and security**) and enable **"Use Google services for push messaging"** if available.
+    2. In Android **Settings → Apps → Brave → Notifications**, make sure notifications are **Allowed** (and site notifications are allowed in Brave's Site settings).
+    3. If Brave Android still fails to register FCM push (`AbortError`), install the PWA from **Chrome** or **Samsung Internet** on Android, which support Web Push/FCM out of the box.
+  - Disable any VPN or ad-blocker that blocks `fcm.googleapis.com` / `firebaseinstallations.googleapis.com`, and test in a normal (non-Incognito) window.
+  - Confirm **Reminder notifications** is **ON** in app **Settings** and `Notification.permission` is **Allowed**.
+
+---
+
+## Mobile Features & Gestures
+
+- **Predictive Back Gesture & Step-by-Step Back**: Swipe right from the left edge (or use the system Back button / top-left back arrow) to step back one level at a time (calendar picker → context menu → selection → task details → list → home).
+- **Pull to Refresh**: Swipe down from the top of a list to reload while staying on your current screen.
+- **Swipe Left to Delete**: Swipe left on any task row to reveal the delete action and release to remove it.
+- **Long-Press Multi-Select & Context Menu**: Long-press a task to enter selection mode, tap additional tasks to select them, and long-press again to open the context menu (**Cut**, **Copy**, **Move**, **Due date / Remove due date**, **Delete**).
+- **List & Group Context Menus**: Long-press any list or group in the sidebar to rename, move, share, or delete it.

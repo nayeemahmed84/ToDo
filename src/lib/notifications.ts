@@ -89,10 +89,16 @@ export async function registerDevicePushToken(
   if (!messaging) return 'unsupported';
 
   const serviceWorkerRegistration = await navigator.serviceWorker.ready;
-  const token = await getToken(messaging, {
-    vapidKey: VAPID_KEY,
-    serviceWorkerRegistration,
-  });
+  let token = '';
+  try {
+    token = await getToken(messaging, {
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration,
+    });
+  } catch (err) {
+    console.warn('FCM getToken failed:', err);
+    return 'unsupported';
+  }
   if (!token) return 'unsupported';
 
   const tokenId = await hashToken(token);

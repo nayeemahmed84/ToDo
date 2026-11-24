@@ -1119,6 +1119,28 @@ const [gridEditText, setGridEditText] = useState('');
 
   const notifiedLocalRef = useRef<Set<string>>(new Set());
 
+  const ensureNotificationPermission = async () => {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission === 'default') {
+      try {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted' && user) {
+          void registerDevicePushToken(user.uid);
+        }
+      } catch {
+        // ignore permission prompt errors
+      }
+    } else if (Notification.permission === 'granted' && user) {
+      void registerDevicePushToken(user.uid);
+    }
+  };
+
+  useEffect(() => {
+    if (addReminderAtMs) {
+      void ensureNotificationPermission();
+    }
+  }, [addReminderAtMs]);
+
   useEffect(() => {
     if (!user || !appSettings.reminderNotifications) return;
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
@@ -1160,7 +1182,7 @@ const [gridEditText, setGridEditText] = useState('');
       }
     };
     checkDueReminders();
-    const timer = window.setInterval(checkDueReminders, 30_000);
+    const timer = window.setInterval(checkDueReminders, 10_000);
     return () => window.clearInterval(timer);
   }, [user, appSettings.reminderNotifications, allItems]);
 
@@ -2320,6 +2342,9 @@ const [gridEditText, setGridEditText] = useState('');
     patch: Partial<TodoItem>,
     options?: { skipUndo?: boolean }
   ) => {
+    if (patch.reminderAtMs) {
+      void ensureNotificationPermission();
+    }
     const prevPatch: Partial<TodoItem> = {};
     for (const key of Object.keys(patch) as (keyof TodoItem)[]) {
       (prevPatch as Record<string, unknown>)[key] = item[key] ?? null;
