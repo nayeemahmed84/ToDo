@@ -5762,6 +5762,20 @@ const [gridEditText, setGridEditText] = useState('');
               </div>
             )}
           </div>
+          {effectiveItems.some((i) => Boolean(i.dueDate)) && (
+            <button
+              type="button"
+              className="context-menu-item"
+              onClick={async () => {
+                const snapshot = [...effectiveItems];
+                closeContextMenu(true);
+                await Promise.all(snapshot.map((i) => handleUpdateItem(i, { dueDate: null })));
+              }}
+            >
+              <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="calendar" /></span>
+              <span>Remove due date</span>
+            </button>
+          )}
           <div className="account-popover-divider" />
           <button
             type="button"
