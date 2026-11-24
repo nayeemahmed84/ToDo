@@ -29,7 +29,8 @@ interface TaskRowProps {
   onToggleDone: (item: TodoItem) => void;
   onToggleImportant: (item: TodoItem) => void;
   onOpen: (e: MouseEvent<HTMLButtonElement>, item: TodoItem) => void;
-  onLongPress?: (item: TodoItem) => void;
+  onLongPress?: (item: TodoItem, coords?: { x: number; y: number }) => void;
+  onDelete?: (item: TodoItem) => void;
   onContextMenu: (e: React.MouseEvent<HTMLLIElement>, item: TodoItem) => void;
 }
 
@@ -50,8 +51,12 @@ export function TaskRow({
   onToggleImportant,
   onOpen,
   onLongPress,
+  onDelete,
   onContextMenu,
 }: TaskRowProps) {
+  const [swipeX, setSwipeX] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const swipeStartRef = useRef<{ x: number; y: number; active: boolean } | null>(null);
   const [popping, setPopping] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
@@ -154,17 +159,74 @@ export function TaskRow({
       onTouchStart={(event) => {
         const target = event.target;
         if (target instanceof Element && target.closest('input, .star-btn')) return;
+        const touch = event.touches[0];
+        const coords = touch ? { x: touch.clientX, y: touch.clientY } : undefined;
+        if (onDelete && touch && window.matchMedia('(max-width: 767px)').matches) {
+          swipeStartRef.current = { x: touch.clientX, y: touch.clientY, active: false };
+        }
         clearLongPress();
         longPressedRef.current = false;
         longPressTimerRef.current = window.setTimeout(() => {
           longPressedRef.current = true;
-          onLongPress?.(item);
+          onLongPress?.(item, coords);
         }, 450);
       }}
-      onTouchMove={clearLongPress}
-      onTouchEnd={clearLongPress}
-      onTouchCancel={clearLongPress}
+      onTouchMove={(event) => {
+        clearLongPress();
+        const start = swipeStartRef.current;
+        if (!start || event.touches.length !== 1) return;
+        const touch = event.touches[0];
+        const dx = touch.clientX - start.x;
+        const dy = touch.clientY - start.y;
+        if (!start.active) {
+          if (dx < -10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+            start.active = true;
+            setIsSwiping(true);
+          } else if (Math.abs(dy) > 10 || dx > 10) {
+            swipeStartRef.current = null;
+            return;
+          }
+        }
+        if (start.active) {
+          setSwipeX(Math.max(-140, Math.min(0, dx)));
+        }
+      }}
+      onTouchEnd={() => {
+        clearLongPress();
+        if (swipeStartRef.current?.active) {
+          if (swipeX <= -85) {
+            onDelete?.(item);
+          }
+          setSwipeX(0);
+          setIsSwiping(false);
+        }
+        swipeStartRef.current = null;
+      }}
+      onTouchCancel={() => {
+        clearLongPress();
+        swipeStartRef.current = null;
+        setSwipeX(0);
+        setIsSwiping(false);
+      }}
     >
+      {swipeX < 0 && (
+        <div className="task-swipe-delete-bg" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          </svg>
+        </div>
+      )}
+      <div
+        className="task-row-slide"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'inherit',
+          width: '100%',
+          transform: swipeX ? `translateX(${swipeX}px)` : undefined,
+          transition: isSwiping ? 'none' : 'transform 0.2s ease',
+        }}
+      >
       <input
         type="checkbox"
         className="circle-check"
@@ -258,6 +320,7 @@ export function TaskRow({
           ))}
         </span>
       )}
+      </div>
     </li>
   );
 }

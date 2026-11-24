@@ -138,7 +138,15 @@ export function PwaManager({
             <button
               type="button"
               className="pwa-update-btn-primary"
-              onClick={() => void swController?.applyUpdate()}
+              onClick={() => {
+                try {
+                  const currentView = sessionStorage.getItem('todo_current_mobile_view');
+                  if (currentView) sessionStorage.setItem('todo_pull_refresh_view', currentView);
+                } catch {
+                  // ignore storage errors
+                }
+                void swController?.applyUpdate();
+              }}
             >
               Reload
             </button>

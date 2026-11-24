@@ -21,7 +21,7 @@ export default defineConfig({
         description: 'Fast, offline-ready tasks & shared lists across all your devices',
         lang: 'en',
         dir: 'ltr',
-        theme_color: '#2563eb',
+        theme_color: '#202020',
         background_color: '#202020',
         display: 'standalone',
         display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],

@@ -428,7 +428,18 @@ export function App() {
   const currentViewKey = `${selection.type}:${selection.id}`;
   const showCompleted = Boolean(completedExpandedByView[currentViewKey]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [mobileView, setMobileView] = useState<'home' | 'list' | 'search'>('home');
+  const [mobileView, setMobileView] = useState<'home' | 'list' | 'search'>(() => {
+    try {
+      const saved = sessionStorage.getItem('todo_pull_refresh_view');
+      if (saved === 'list' || saved === 'search' || saved === 'home') {
+        sessionStorage.removeItem('todo_pull_refresh_view');
+        return saved;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return 'home';
+  });
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
   const [mobileHideCompletedSearch, setMobileHideCompletedSearch] = useState(false);
   const [mobileSearchMenuOpen, setMobileSearchMenuOpen] = useState(false);
@@ -697,22 +708,34 @@ export function App() {
   };
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [pullRefreshY, setPullRefreshY] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [edgeSwipeX, setEdgeSwipeX] = useState(0);
   const selectionHistoryPushedRef = useRef(false);
   const detailHistoryPushedRef = useRef(false);
   const mobileViewHistoryPushedRef = useRef(false);
   const suppressPopStateCountRef = useRef(0);
   const mobileNavStateRef = useRef({
+    taskDatePickerOpen: false,
+    contextMenuOpen: false,
     selectedCount: 0,
     selectedItemId: null as string | null,
     mobileView: 'home' as 'home' | 'list' | 'search',
   });
   mobileNavStateRef.current = {
+    taskDatePickerOpen,
+    contextMenuOpen: Boolean(contextMenu),
     selectedCount: selectedIds.size,
     selectedItemId,
     mobileView,
   };
 
   useEffect(() => {
+    try {
+      sessionStorage.setItem('todo_current_mobile_view', mobileView);
+    } catch {
+      // ignore storage errors
+    }
     const isMobile = window.matchMedia('(max-width: 767px)').matches;
     if (!isMobile) return;
     if (mobileView !== 'home' && !mobileViewHistoryPushedRef.current) {
@@ -728,6 +751,11 @@ export function App() {
   }, [mobileView]);
 
   useEffect(() => {
+    try {
+      sessionStorage.setItem('todo_current_mobile_view', mobileView);
+    } catch {
+      // ignore storage errors
+    }
     const isMobile = window.matchMedia('(max-width: 767px)').matches;
     if (!isMobile) return;
     if (selectedItemId !== null && !detailHistoryPushedRef.current) {
@@ -762,6 +790,15 @@ export function App() {
         return;
       }
       const state = mobileNavStateRef.current;
+      if (state.taskDatePickerOpen) {
+        setTaskDatePickerOpen(false);
+        return;
+      }
+      if (state.contextMenuOpen) {
+        setContextMenu(null);
+        setTaskSubmenu(null);
+        return;
+      }
       if (selectionHistoryPushedRef.current || state.selectedCount > 0) {
         selectionHistoryPushedRef.current = false;
         setSelectedIds(new Set());
@@ -803,15 +840,34 @@ export function App() {
       }
     };
 
+    const onTouchMove = (e: TouchEvent) => {
+      if (!tracking || e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (dx > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        const state = mobileNavStateRef.current;
+        if (state.selectedItemId !== null || state.mobileView !== 'home') {
+          setEdgeSwipeX(Math.min(140, dx));
+        }
+      }
+    };
+
     const onTouchEnd = (e: TouchEvent) => {
       if (!tracking || e.changedTouches.length !== 1) return;
       tracking = false;
+      setEdgeSwipeX(0);
       const touch = e.changedTouches[0];
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
       if (dx > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
         const state = mobileNavStateRef.current;
-        if (state.selectedItemId !== null) {
+        if (state.taskDatePickerOpen) {
+          setTaskDatePickerOpen(false);
+        } else if (state.contextMenuOpen) {
+          setContextMenu(null);
+          setTaskSubmenu(null);
+        } else if (state.selectedItemId !== null) {
           setSelectedItemId(null);
         } else if (state.mobileView !== 'home') {
           setSearchQuery('');
@@ -822,10 +878,86 @@ export function App() {
     };
 
     window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
     window.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', onTouchEnd, { passive: true });
     return () => {
       window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    let startX = 0;
+    let startY = 0;
+    let pulling = false;
+    let currentPull = 0;
+
+    const getScrollTop = () => {
+      const el = document.querySelector<HTMLElement>('.tasks-scroll');
+      return el ? el.scrollTop : window.scrollY;
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (!window.matchMedia('(max-width: 767px)').matches || e.touches.length !== 1) {
+        pulling = false;
+        return;
+      }
+      if (e.target instanceof Element && e.target.closest('.context-menu, .modal-backdrop, .detail-panel')) {
+        pulling = false;
+        return;
+      }
+      if (getScrollTop() <= 1 && window.scrollY <= 1) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        pulling = true;
+        currentPull = 0;
+      } else {
+        pulling = false;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!pulling || e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      if (dy <= 0 || Math.abs(dx) > Math.abs(dy) * 1.2 || getScrollTop() > 1) {
+        if (currentPull === 0) pulling = false;
+        return;
+      }
+      currentPull = Math.min(96, Math.round(dy * 0.45));
+      setPullRefreshY(currentPull);
+    };
+
+    const onTouchEnd = () => {
+      if (!pulling) return;
+      pulling = false;
+      if (currentPull >= 64) {
+        setIsRefreshing(true);
+        setPullRefreshY(48);
+        try {
+          sessionStorage.setItem('todo_pull_refresh_view', mobileNavStateRef.current.mobileView);
+        } catch {
+          // ignore storage errors
+        }
+        window.location.reload();
+      } else {
+        setPullRefreshY(0);
+      }
+      currentPull = 0;
+    };
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
     };
   }, []);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -927,7 +1059,10 @@ const [gridEditText, setGridEditText] = useState('');
       setCompletedMoveOpen(false);
       setCompletedDatePickerOpen(false);
     };
-    const onScroll = () => {
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest('.context-menu')) {
+        return;
+      }
       setContextMenu(null);
       setTaskDatePickerOpen(false);
       setCompletedMenu(null);
@@ -1510,6 +1645,23 @@ const [gridEditText, setGridEditText] = useState('');
     }
     return null;
   }, [activeItems, allLists, searchQuery, selection, user?.uid]);
+
+  const taskMenuOpenedAtRef = useRef<number>(0);
+  const handleTaskLongPress = (t: TodoItem, coords?: { x: number; y: number }) => {
+    if (selectedIds.size > 0) {
+      if (!selectedIds.has(t.id)) {
+        setSelectedIds((prev) => new Set(prev).add(t.id));
+      }
+      taskMenuOpenedAtRef.current = Date.now();
+      setContextMenu({
+        x: coords?.x ?? Math.round(window.innerWidth / 2),
+        y: coords?.y ?? Math.round(window.innerHeight / 2),
+        item: t,
+      });
+      return;
+    }
+    setSelectedIds(new Set([t.id]));
+  };
 
   const handleOpen = (e: React.MouseEvent<HTMLButtonElement>, item: TodoItem) => {
     if (window.matchMedia('(max-width: 767px)').matches && selectedIds.size > 0) {
@@ -3523,9 +3675,12 @@ const [gridEditText, setGridEditText] = useState('');
           }}
           data-list-color={currentList ? currentList.color ?? 'blue' : smartTheme?.color ?? 'default'}
           data-wallpaper={currentWallpaper}
-          style={customBackgroundUrl ? {
-            backgroundImage: `linear-gradient(rgba(19, 19, 19, .10), rgba(17, 16, 15, .22)), url(${JSON.stringify(customBackgroundUrl)})`,
-          } : undefined}
+          style={{
+            ...(customBackgroundUrl ? {
+              backgroundImage: `linear-gradient(rgba(19, 19, 19, .10), rgba(17, 16, 15, .22)), url(${JSON.stringify(customBackgroundUrl)})`,
+            } : {}),
+            ...(edgeSwipeX > 0 ? { transform: `translateX(${Math.round(edgeSwipeX * 0.35)}px)`, transition: 'none' } : {}),
+          }}
         >
         {mobileView === 'search' ? (
           <div className="mobile-search-topbar">
@@ -4915,14 +5070,8 @@ const [gridEditText, setGridEditText] = useState('');
                     onToggleDone={handleToggleDone}
                     onToggleImportant={handleToggleImportant}
                     onOpen={handleOpen}
-                onLongPress={(t) => {
-                  setSelectedIds((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(t.id)) next.delete(t.id);
-                    else next.add(t.id);
-                    return next;
-                  });
-                }}
+                onLongPress={handleTaskLongPress}
+                onDelete={handleDeleteItem}
                     onContextMenu={(e) => {
                       if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
                       setContextMenu({ x: e.clientX, y: e.clientY, item });
@@ -5060,14 +5209,8 @@ const [gridEditText, setGridEditText] = useState('');
                         onToggleDone={handleToggleDone}
                         onToggleImportant={handleToggleImportant}
                         onOpen={handleOpen}
-                onLongPress={(t) => {
-                  setSelectedIds((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(t.id)) next.delete(t.id);
-                    else next.add(t.id);
-                    return next;
-                  });
-                }}
+                onLongPress={handleTaskLongPress}
+                onDelete={handleDeleteItem}
                         onContextMenu={(e) => {
                           if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
                           setContextMenu({ x: e.clientX, y: e.clientY, item });
@@ -5099,14 +5242,8 @@ const [gridEditText, setGridEditText] = useState('');
                 onToggleDone={handleToggleDone}
                 onToggleImportant={handleToggleImportant}
                 onOpen={handleOpen}
-                onLongPress={(t) => {
-                  setSelectedIds((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(t.id)) next.delete(t.id);
-                    else next.add(t.id);
-                    return next;
-                  });
-                }}
+                onLongPress={handleTaskLongPress}
+                onDelete={handleDeleteItem}
                 onContextMenu={(e) => {
                   if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
                   setContextMenu({ x: e.clientX, y: e.clientY, item });
@@ -5171,14 +5308,8 @@ const [gridEditText, setGridEditText] = useState('');
                       onToggleDone={handleToggleDone}
                       onToggleImportant={handleToggleImportant}
                       onOpen={handleOpen}
-                      onLongPress={(t) => {
-                        setSelectedIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(t.id)) next.delete(t.id);
-                          else next.add(t.id);
-                          return next;
-                        });
-                      }}
+                      onLongPress={handleTaskLongPress}
+                onDelete={handleDeleteItem}
                       onContextMenu={(e) => {
                         if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
                         setContextMenu({ x: e.clientX, y: e.clientY, item });
@@ -5479,12 +5610,45 @@ const [gridEditText, setGridEditText] = useState('');
           if (clearMulti && isMulti) setSelectedIds(new Set());
         };
         return (
+        <>
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 59,
+            background: 'transparent',
+          }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onTouchStart={(e) => {
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeContextMenu(false);
+          }}
+        />
         <div
           className="context-menu"
+          onClickCapture={(e) => {
+            if (Date.now() - taskMenuOpenedAtRef.current < 500) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }}
+          onMouseEnter={(e) => {
+            if (Date.now() - taskMenuOpenedAtRef.current < 500) {
+              e.stopPropagation();
+            }
+          }}
           style={{
-            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 500)),
+            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 600)),
             left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 292)),
-            maxHeight: 'calc(100vh - 16px)',
+            maxHeight: 'calc(100dvh - 16px)',
             overflowY: 'auto',
           }}
           onClick={(e) => e.stopPropagation()}
@@ -5572,7 +5736,7 @@ const [gridEditText, setGridEditText] = useState('');
               <div
                 className="context-menu context-menu-submenu"
                 style={{
-                  top: Math.max(8, Math.min(contextMenu.y + 120, window.innerHeight - 360)),
+                  top: Math.max(8, Math.min(contextMenu.y + 120, window.innerHeight - 440)),
                   left: Math.max(8, Math.min(contextMenu.x + 252, window.innerWidth - 320)),
                   width: 'auto',
                   minWidth: 'unset',
@@ -5614,7 +5778,7 @@ const [gridEditText, setGridEditText] = useState('');
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="move" /></span>
             {isMulti ? `Create new list from ${effectiveItems.length} tasks` : "Create new list from this task"}
           </button>
-          <div className="context-menu-submenu-wrap" onMouseEnter={(event) => openTaskSubmenu("move", event.currentTarget)} onMouseLeave={() => setTaskSubmenu(null)}>
+          <div className="context-menu-submenu-wrap" onMouseEnter={(event) => openTaskSubmenu("move", event.currentTarget)} onMouseLeave={() => { if (!window.matchMedia('(max-width: 767px)').matches) setTaskSubmenu(null); }}>
             <button
               type="button"
               className="context-menu-item"
@@ -5643,7 +5807,7 @@ const [gridEditText, setGridEditText] = useState('');
               </div>
             )}
           </div>
-          <div className="context-menu-submenu-wrap" onMouseEnter={(event) => openTaskSubmenu("copy", event.currentTarget)} onMouseLeave={() => setTaskSubmenu(null)}>
+          <div className="context-menu-submenu-wrap" onMouseEnter={(event) => openTaskSubmenu("copy", event.currentTarget)} onMouseLeave={() => { if (!window.matchMedia('(max-width: 767px)').matches) setTaskSubmenu(null); }}>
             <button
               type="button"
               className="context-menu-item"
@@ -5668,6 +5832,39 @@ const [gridEditText, setGridEditText] = useState('');
               </div>
             )}
           </div>
+          <button
+            type="button"
+            className="context-menu-item"
+            onClick={() => {
+              const snapshot = [...effectiveItems];
+              if (snapshot.length > 0) {
+                setTaskClipboard({ mode: 'cut', items: snapshot });
+              }
+              closeContextMenu(true);
+            }}
+          >
+            <span className="context-menu-icon" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" />
+                <path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12" />
+              </svg>
+            </span>
+            <span>{isMulti ? `Cut ${effectiveItems.length} tasks` : 'Cut'}</span>
+          </button>
+          <button
+            type="button"
+            className="context-menu-item"
+            onClick={() => {
+              const snapshot = [...effectiveItems];
+              if (snapshot.length > 0) {
+                setTaskClipboard({ mode: 'copy', items: snapshot });
+              }
+              closeContextMenu(true);
+            }}
+          >
+            <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="copy" /></span>
+            <span>{isMulti ? `Copy ${effectiveItems.length} tasks` : 'Copy'}</span>
+          </button>
           <div className="account-popover-divider" />
           <button
             type="button"
@@ -5694,6 +5891,7 @@ const [gridEditText, setGridEditText] = useState('');
             <span className="context-menu-shortcut">Delete</span>
           </button>
         </div>
+        </>
         );
       })()}
 
@@ -6023,6 +6221,19 @@ const [gridEditText, setGridEditText] = useState('');
         </div>
       )}
 
+      {(pullRefreshY > 8 || isRefreshing) && (
+        <div
+          className="pull-refresh-indicator"
+          role="status"
+          aria-live="polite"
+          style={{
+            opacity: isRefreshing ? 1 : Math.min(1, pullRefreshY / 64),
+            transform: `translate(-50%, ${Math.max(0, pullRefreshY - 16)}px)`,
+          }}
+        >
+          <span>{isRefreshing ? 'Refreshing…' : pullRefreshY >= 64 ? 'Release to refresh' : 'Pull to refresh'}</span>
+        </div>
+      )}
       {clipboardPresence.shouldRender && renderedClipboard && (
         <div
           className={`clipboard-toast ${clipboardPresence.isExiting ? 'exiting' : ''}`}
