@@ -5784,11 +5784,10 @@ button.primary.small {
   }
 
   .task-row {
-    background: var(--color-task-row-bg);
     border: none;
     border-radius: 8px;
     padding: 13px 14px;
-    margin-bottom: 4px;
+    margin-bottom: 0;
   }
 
   .app-shell[data-mobile-view="search"] .tasks-scroll {
