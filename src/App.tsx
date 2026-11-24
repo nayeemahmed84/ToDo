@@ -1182,8 +1182,17 @@ const [gridEditText, setGridEditText] = useState('');
       }
     };
     checkDueReminders();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkDueReminders();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     const timer = window.setInterval(checkDueReminders, 10_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(timer);
+    };
   }, [user, appSettings.reminderNotifications, allItems]);
 
   useEffect(() => {
