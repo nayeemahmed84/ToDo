@@ -43,6 +43,7 @@ import { appConfirm, appPrompt } from './lib/appDialog';
 import { playCompleteSound } from './lib/sound';
 import { suggestEmoji } from './lib/suggestEmoji';
 import { EmojiText, resolveEmojiShortcodes } from './lib/emoji';
+import { scoreTextMatch, scoreTodoItemMatch } from './lib/search';
 import { parseTaskInput } from './lib/parseTaskInput';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
 import { runViewTransition, useAnimatedPresence, useFlipList, useRetainedValue } from './lib/motion';
@@ -1129,16 +1130,27 @@ const [gridEditText, setGridEditText] = useState('');
     return result as Record<SmartListId, number> & Record<string, number>;
   }, [allItems, trashedItems.length, todayStr]);
 
+  const listTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const l of lists) map.set(l.id, l.title);
+    for (const l of sharedLists) map.set(l.id, l.title);
+    return map;
+  }, [lists, sharedLists]);
+
+  const searchScores = useMemo(() => {
+    const scores = new Map<string, number>();
+    if (!searchQuery.trim()) return scores;
+    for (const item of allItems) {
+      if (mobileHideCompletedSearch && item.done) continue;
+      const score = scoreTodoItemMatch(item, searchQuery, listTitleById.get(item.listId));
+      if (score > 0) scores.set(item.id, score);
+    }
+    return scores;
+  }, [allItems, searchQuery, mobileHideCompletedSearch, listTitleById]);
+
   const visibleItems = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      return allItems.filter(
-        (i) =>
-          (!mobileHideCompletedSearch || !i.done) &&
-          (i.text.toLowerCase().includes(q) ||
-            i.notes.toLowerCase().includes(q) ||
-            (i.steps ?? []).some((s) => s.text.toLowerCase().includes(q)))
-      );
+    if (searchQuery.trim()) {
+      return allItems.filter((i) => searchScores.has(i.id));
     }
     if (mobileView === 'search') {
       return [];
@@ -1168,10 +1180,14 @@ const [gridEditText, setGridEditText] = useState('');
       default:
         return allItems;
     }
-  }, [allItems, searchQuery, selection, todayStr, defaultTasksList, mobileHideCompletedSearch, mobileView]);
+  }, [allItems, searchQuery, searchScores, selection, todayStr, defaultTasksList, mobileView]);
 
   const sortedVisible = useMemo(() => {
     const arr = [...visibleItems];
+    if (searchQuery.trim()) {
+      arr.sort((a, b) => (searchScores.get(b.id) ?? 0) - (searchScores.get(a.id) ?? 0) || a.createdAtMs - b.createdAtMs);
+      return arr;
+    }
     const dir = sortAsc ? 1 : -1;
     if (sortBy === 'position') {
       arr.sort((a, b) => getTaskSortOrder(a) - getTaskSortOrder(b));
@@ -1196,7 +1212,7 @@ const [gridEditText, setGridEditText] = useState('');
       arr.sort((a, b) => (a.createdAtMs - b.createdAtMs) * dir);
     }
     return arr;
-  }, [visibleItems, sortBy, sortAsc, todayStr]);
+  }, [visibleItems, sortBy, sortAsc, todayStr, searchQuery, searchScores]);
 
   const activeItems = sortedVisible.filter((i) => !i.done || sandExitingIds.has(i.id));
   const completedItems = sortedVisible.filter((i) => i.done && !sandExitingIds.has(i.id));
@@ -4578,13 +4594,12 @@ const [gridEditText, setGridEditText] = useState('');
         <>
 
         {searchQuery.trim() && (() => {
-          const q = searchQuery.trim().toLowerCase();
-          const listCount = allLists.filter((l) => l.title.toLowerCase().includes(q)).length;
-          const groupCount = groups.filter((g) => g.title.toLowerCase().includes(q)).length;
+          const listCount = allLists.filter((l) => scoreTextMatch(l.title, searchQuery) > 0).length;
+          const groupCount = groups.filter((g) => scoreTextMatch(g.title, searchQuery) > 0).length;
           const allMatched = [...activeItems, ...completedItems];
           const taskCount = allMatched.length;
-          const noteCount = allMatched.filter((i) => (i.notes ?? '').toLowerCase().includes(q)).length;
-          const stepCount = allMatched.reduce((acc, i) => acc + (i.steps ?? []).filter((s) => s.text.toLowerCase().includes(q)).length, 0);
+          const noteCount = allMatched.filter((i) => scoreTextMatch(i.notes ?? '', searchQuery) > 0).length;
+          const stepCount = allMatched.reduce((acc, i) => acc + (i.steps ?? []).filter((s) => scoreTextMatch(s.text, searchQuery) > 0).length, 0);
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.82rem', color: 'var(--color-text-2)', marginBottom: '0.75rem', padding: '0 4px' }}>
               <div>{taskCount} Tasks, {noteCount} Notes, and {stepCount} Steps found</div>
@@ -4600,8 +4615,11 @@ const [gridEditText, setGridEditText] = useState('');
         })()}
 
         {searchQuery.trim() && (() => {
-          const q = searchQuery.trim().toLowerCase();
-          const matchedLists = allLists.filter((l) => l.title.toLowerCase().includes(q));
+          const matchedLists = allLists
+            .map((l) => ({ list: l, score: scoreTextMatch(l.title, searchQuery) }))
+            .filter((x) => x.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .map((x) => x.list);
           if (matchedLists.length === 0) return null;
           return (
             <section className="completed-section" style={{ marginBottom: '0.75rem' }}>
