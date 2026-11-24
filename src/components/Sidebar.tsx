@@ -139,6 +139,7 @@ export function Sidebar({
   const [lastClickedGroupId, setLastClickedGroupId] = useState<string | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressedIdRef = useRef<string | null>(null);
+  const menuOpenedAtRef = useRef<number>(0);
 
   const clearLongPress = () => {
     if (longPressTimerRef.current !== null) {
@@ -406,19 +407,18 @@ export function Sidebar({
           data-nav-item="true"
           title={collapsed ? list.title : undefined}
           className="nav-item-main"
-          onTouchStart={() => {
+          onTouchStart={(event) => {
             clearLongPress();
             longPressedIdRef.current = null;
+            const touch = event.touches[0];
+            if (!touch) return;
+            const x = touch.clientX;
+            const y = touch.clientY;
             longPressTimerRef.current = window.setTimeout(() => {
               longPressedIdRef.current = list.id;
-              setSelectedGroupIds(new Set());
-              setSelectedListIds((prev) => {
-                const next = new Set(prev);
-                if (next.has(list.id)) next.delete(list.id);
-                else next.add(list.id);
-                return next;
-              });
-              setLastClickedListId(list.id);
+              menuOpenedAtRef.current = Date.now();
+              setMoveToGroupOpen(false);
+              setSidebarMenu({ type: 'list', id: list.id, x, y });
             }, 450);
           }}
           onTouchMove={clearLongPress}
@@ -690,19 +690,18 @@ export function Sidebar({
                     onDragEnd={clearDragState}
                     onDragOver={(event) => handleGroupDragOver(event, group)}
                     onDrop={(event) => handleGroupDrop(event, group)}
-                    onTouchStart={() => {
+                    onTouchStart={(event) => {
                       clearLongPress();
                       longPressedIdRef.current = null;
+                      const touch = event.touches[0];
+                      if (!touch) return;
+                      const x = touch.clientX;
+                      const y = touch.clientY;
                       longPressTimerRef.current = window.setTimeout(() => {
                         longPressedIdRef.current = group.id;
-                        setSelectedListIds(new Set());
-                        setSelectedGroupIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(group.id)) next.delete(group.id);
-                          else next.add(group.id);
-                          return next;
-                        });
-                        setLastClickedGroupId(group.id);
+                        menuOpenedAtRef.current = Date.now();
+                        setMoveToGroupOpen(false);
+                        setSidebarMenu({ type: 'group', id: group.id, x, y });
                       }, 450);
                     }}
                     onTouchMove={clearLongPress}
@@ -839,6 +838,9 @@ export function Sidebar({
                 title="Name this list, then select enter to create it."
                 value={newListTitle}
                 onChange={(e) => setNewListTitle(e.target.value)}
+                onFocus={() => {
+                  if (groupFormOpen) setGroupFormOpen(false);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     setNewListTitle('');
@@ -846,6 +848,18 @@ export function Sidebar({
                   }
                 }}
               />
+              {newListTitle.trim() && (
+                <button
+                  type="submit"
+                  className="sidebar-input-submit"
+                  title="Create list"
+                  aria-label="Create list"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M22 2 11 13" /><path d="m22 2-7 20-4-9-9-4Z" />
+                  </svg>
+                </button>
+              )}
             </form>
             <button
               type="button"
@@ -885,6 +899,18 @@ export function Sidebar({
                     }
                   }}
                 />
+                {newGroupTitle.trim() && (
+                  <button
+                    type="submit"
+                    className="sidebar-input-submit"
+                    title="Create group"
+                    aria-label="Create group"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M5 12h14M13 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                )}
               </form>
             )}
           </div>
@@ -906,10 +932,39 @@ export function Sidebar({
         )}
   
       {sidebarMenu && (
-        <div
-          className="context-menu"
-          role="menu"
-          style={{
+        <>
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 'calc(var(--z-menu, 60) - 1)',
+              background: 'transparent',
+            }}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setSidebarMenu(null);
+              setMoveToGroupOpen(false);
+            }}
+          />
+          <div
+            className="context-menu"
+            role="menu"
+            onClickCapture={(e) => {
+              if (Date.now() - menuOpenedAtRef.current < 350) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            }}
+            style={{
             position: 'fixed',
             top: Math.min(sidebarMenu.y, Math.max(8, window.innerHeight - 440)),
             left: Math.min(sidebarMenu.x, Math.max(8, window.innerWidth - 292)),
@@ -1072,6 +1127,7 @@ export function Sidebar({
           })()
           }
         </div>
+        </>
       )}
     </aside>
     </>

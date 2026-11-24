@@ -697,6 +697,137 @@ export function App() {
   };
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const selectionHistoryPushedRef = useRef(false);
+  const detailHistoryPushedRef = useRef(false);
+  const mobileViewHistoryPushedRef = useRef(false);
+  const suppressPopStateCountRef = useRef(0);
+  const mobileNavStateRef = useRef({
+    selectedCount: 0,
+    selectedItemId: null as string | null,
+    mobileView: 'home' as 'home' | 'list' | 'search',
+  });
+  mobileNavStateRef.current = {
+    selectedCount: selectedIds.size,
+    selectedItemId,
+    mobileView,
+  };
+
+  useEffect(() => {
+    const isMobile = window.matchMedia('(max-width: 767px)').matches;
+    if (!isMobile) return;
+    if (mobileView !== 'home' && !mobileViewHistoryPushedRef.current) {
+      mobileViewHistoryPushedRef.current = true;
+      window.history.pushState({ ...(window.history.state ?? {}), mobileView: true }, '');
+    } else if (mobileView === 'home' && mobileViewHistoryPushedRef.current) {
+      mobileViewHistoryPushedRef.current = false;
+      if (window.history.state?.mobileView) {
+        suppressPopStateCountRef.current += 1;
+        window.history.back();
+      }
+    }
+  }, [mobileView]);
+
+  useEffect(() => {
+    const isMobile = window.matchMedia('(max-width: 767px)').matches;
+    if (!isMobile) return;
+    if (selectedItemId !== null && !detailHistoryPushedRef.current) {
+      detailHistoryPushedRef.current = true;
+      window.history.pushState({ ...(window.history.state ?? {}), mobileDetail: true }, '');
+    } else if (selectedItemId === null && detailHistoryPushedRef.current) {
+      detailHistoryPushedRef.current = false;
+      if (window.history.state?.mobileDetail) {
+        suppressPopStateCountRef.current += 1;
+        window.history.back();
+      }
+    }
+  }, [selectedItemId]);
+
+  useEffect(() => {
+    if (selectedIds.size > 0 && !selectionHistoryPushedRef.current) {
+      selectionHistoryPushedRef.current = true;
+      window.history.pushState({ ...(window.history.state ?? {}), mobileSelection: true }, '');
+    } else if (selectedIds.size === 0 && selectionHistoryPushedRef.current) {
+      selectionHistoryPushedRef.current = false;
+      if (window.history.state?.mobileSelection) {
+        suppressPopStateCountRef.current += 1;
+        window.history.back();
+      }
+    }
+  }, [selectedIds.size]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      if (suppressPopStateCountRef.current > 0) {
+        suppressPopStateCountRef.current -= 1;
+        return;
+      }
+      const state = mobileNavStateRef.current;
+      if (selectionHistoryPushedRef.current || state.selectedCount > 0) {
+        selectionHistoryPushedRef.current = false;
+        setSelectedIds(new Set());
+        return;
+      }
+      if (detailHistoryPushedRef.current || state.selectedItemId !== null) {
+        detailHistoryPushedRef.current = false;
+        setSelectedItemId(null);
+        return;
+      }
+      if (mobileViewHistoryPushedRef.current || state.mobileView !== 'home') {
+        mobileViewHistoryPushedRef.current = false;
+        setSearchQuery('');
+        setMobileSearchMenuOpen(false);
+        setMobileView('home');
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  useEffect(() => {
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (!window.matchMedia('(max-width: 767px)').matches || e.touches.length !== 1) {
+        tracking = false;
+        return;
+      }
+      const touch = e.touches[0];
+      if (touch.clientX <= 28) {
+        startX = touch.clientX;
+        startY = touch.clientY;
+        tracking = true;
+      } else {
+        tracking = false;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!tracking || e.changedTouches.length !== 1) return;
+      tracking = false;
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (dx > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        const state = mobileNavStateRef.current;
+        if (state.selectedItemId !== null) {
+          setSelectedItemId(null);
+        } else if (state.mobileView !== 'home') {
+          setSearchQuery('');
+          setMobileSearchMenuOpen(false);
+          setMobileView('home');
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, []);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [listPickerMenu, setListPickerMenu] = useState<{ mode: 'move' | 'copy'; items: TodoItem[] } | null>(null);
@@ -1381,6 +1512,16 @@ const [gridEditText, setGridEditText] = useState('');
   }, [activeItems, allLists, searchQuery, selection, user?.uid]);
 
   const handleOpen = (e: React.MouseEvent<HTMLButtonElement>, item: TodoItem) => {
+    if (window.matchMedia('(max-width: 767px)').matches && selectedIds.size > 0) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(item.id)) next.delete(item.id);
+        else next.add(item.id);
+        return next;
+      });
+      setLastSelectedId(item.id);
+      return;
+    }
     if (e.ctrlKey || e.metaKey) {
       setSelectedIds((prev) => {
         const next = new Set(prev);
@@ -3551,8 +3692,22 @@ const [gridEditText, setGridEditText] = useState('');
               type="button"
               className="mobile-topbar-icon-btn mobile-back-btn"
               onClick={() => {
-                setMobileAddOpen(false);
-                setListMenuOpen(false);
+                if (selectedIds.size > 0) {
+                  setSelectedIds(new Set());
+                  return;
+                }
+                if (selectedItemId !== null) {
+                  setSelectedItemId(null);
+                  return;
+                }
+                if (mobileAddOpen) {
+                  setMobileAddOpen(false);
+                  return;
+                }
+                if (listMenuOpen) {
+                  setListMenuOpen(false);
+                  return;
+                }
                 setMobileView('home');
               }}
               aria-label="Back to lists"
@@ -5775,6 +5930,30 @@ const [gridEditText, setGridEditText] = useState('');
             >
               Mark important
             </button>
+            <button
+              onClick={() => {
+                const items = allItems.filter((t) => selectedIds.has(t.id));
+                if (items.length > 0) {
+                  setTaskClipboard({ mode: 'copy', items });
+                }
+                setBulkMoveOpen(false);
+                setSelectedIds(new Set());
+              }}
+            >
+              Copy
+            </button>
+            <button
+              onClick={() => {
+                const items = allItems.filter((t) => selectedIds.has(t.id));
+                if (items.length > 0) {
+                  setTaskClipboard({ mode: 'cut', items });
+                }
+                setBulkMoveOpen(false);
+                setSelectedIds(new Set());
+              }}
+            >
+              Cut
+            </button>
             <div className="bulk-move-wrap">
               <button onClick={() => setBulkMoveOpen((v) => !v)}>
                 Move to &#9656;
@@ -5845,21 +6024,31 @@ const [gridEditText, setGridEditText] = useState('');
       )}
 
       {clipboardPresence.shouldRender && renderedClipboard && (
-        <div className={`clipboard-toast ${clipboardPresence.isExiting ? 'exiting' : ''}`} role="status" aria-live="polite">
+        <div
+          className={`clipboard-toast ${clipboardPresence.isExiting ? 'exiting' : ''}`}
+          role="status"
+          aria-live="polite"
+          onPointerDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           <span className="clipboard-toast-badge">
             {renderedClipboard.mode === 'cut' ? '✂ Cut' : '📋 Copied'} ({renderedClipboard.items.length})
           </span>
-          <span>
+          <span className="clipboard-toast-text">
             {renderedClipboard.items.length === 1
               ? `“${renderedClipboard.items[0].text}”`
-              : `${renderedClipboard.items.length} tasks`}{' '}
-            — press <kbd>Ctrl+V</kbd> in a list to paste
+              : `${renderedClipboard.items.length} tasks`}
+            <span className="clipboard-toast-hint"> — press <kbd>Ctrl+V</kbd> in a list to paste</span>
           </span>
           <span className="clipboard-toast-actions">
             <button
               type="button"
               className="clipboard-toast-paste"
-              onClick={() => void handlePasteClipboard()}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handlePasteClipboard();
+              }}
             >
               Paste here
             </button>
