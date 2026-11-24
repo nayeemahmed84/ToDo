@@ -12,14 +12,20 @@ interface CustomCalendarPickerProps {
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+function getCurrentTimeHHMM(): string {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
 export function CustomCalendarPicker({
   initialDate,
   todayStr,
   withTime = false,
-  initialTime = '10:00',
+  initialTime,
   onSave,
   onCancel,
 }: CustomCalendarPickerProps) {
+  const resolvedInitialTime = initialTime ?? getCurrentTimeHHMM();
   const [todayY, todayM] = todayStr.split('-').map(Number);
   const baseDate = initialDate || todayStr;
   const [initY, initM] = baseDate.split('-').map(Number);
@@ -30,7 +36,7 @@ export function CustomCalendarPicker({
   const [yearPageStart, setYearPageStart] = useState(() => Math.floor(initY / 12) * 12);
   const [selectedDate, setSelectedDate] = useState(baseDate >= todayStr ? baseDate : todayStr);
 
-  const [initH24, initMin] = initialTime.split(':').map((n) => Number(n) || 0);
+  const [initH24, initMin] = resolvedInitialTime.split(':').map((n) => Number(n) || 0);
   const [hourInput, setHourInput] = useState(() => String(initH24 % 12 === 0 ? 12 : initH24 % 12));
   const [minuteInput, setMinuteInput] = useState(() => String(initMin).padStart(2, '0'));
   const [ampm, setAmpm] = useState<'AM' | 'PM'>(() => (initH24 >= 12 ? 'PM' : 'AM'));
