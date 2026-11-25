@@ -6929,3 +6929,12 @@ a {
     display: inline-flex;
   }
 }
+
+.marquee-selection-box {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  border: 1px solid rgba(59, 130, 246, 0.85);
+  background: rgba(59, 130, 246, 0.16);
+  border-radius: 3px;
+}

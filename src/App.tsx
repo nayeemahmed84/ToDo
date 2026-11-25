@@ -965,7 +965,6 @@ export function App() {
     };
   }, []);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
-  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [listPickerMenu, setListPickerMenu] = useState<{ mode: 'move' | 'copy'; items: TodoItem[] } | null>(null);
   const [taskClipboard, setTaskClipboard] = useState<{ mode: 'copy' | 'cut'; items: TodoItem[] } | null>(null);
   const [clipboardToast, setClipboardToast] = useState<string | null>(null);
@@ -1584,6 +1583,92 @@ const [gridEditText, setGridEditText] = useState('');
     allItems.find((i) => i.id === selectedItemId) ?? null;
 
   const mainPaneRef = useRef<HTMLElement | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const marqueeJustFinishedRef = useRef(false);
+  const suppressNextContextMenuRef = useRef(false);
+
+  const handleMainPaneMouseDown = (e: React.MouseEvent<HTMLElement>) => {
+    if (window.matchMedia('(max-width: 767px)').matches) return;
+    if (e.button !== 0 && e.button !== 2) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    const blockedSelector = e.button === 0
+      ? '.task-row, button, a, input, select, textarea, [role="menu"], .context-menu, .add-task-row, .task-detail-panel, .modal-backdrop'
+      : 'button, a, input, select, textarea, [role="menu"], .context-menu, .add-task-row, .task-detail-panel, .modal-backdrop';
+    if (target.closest(blockedSelector)) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const button = e.button;
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    const initialSelected = new Set(selectedIds);
+    let isDragging = false;
+    let latestSelected = new Set<string>(additive ? initialSelected : []);
+
+    const updateSelectionFromRect = (rect: { left: number; top: number; width: number; height: number }) => {
+      const container = mainPaneRef.current;
+      if (!container) return;
+      const right = rect.left + rect.width;
+      const bottom = rect.top + rect.height;
+      const next = new Set<string>(additive ? initialSelected : []);
+      const rows = container.querySelectorAll<HTMLElement>('.task-row[data-task-id]');
+      rows.forEach((row) => {
+        const id = row.getAttribute('data-task-id');
+        if (!id) return;
+        const r = row.getBoundingClientRect();
+        const intersects = r.right >= rect.left && r.left <= right && r.bottom >= rect.top && r.top <= bottom;
+        if (intersects) next.add(id);
+      });
+      latestSelected = next;
+      setSelectedIds(next);
+    };
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (!isDragging && Math.hypot(dx, dy) < 5) return;
+      if (!isDragging) {
+        isDragging = true;
+        marqueeJustFinishedRef.current = true;
+        if (button === 2) {
+          suppressNextContextMenuRef.current = true;
+        }
+        setContextMenu(null);
+      }
+      const left = Math.min(startX, moveEvent.clientX);
+      const top = Math.min(startY, moveEvent.clientY);
+      const width = Math.abs(dx);
+      const height = Math.abs(dy);
+      const rect = { left, top, width, height };
+      setMarqueeRect(rect);
+      updateSelectionFromRect(rect);
+    };
+
+    const onMouseUp = (upEvent: MouseEvent) => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      if (!isDragging) return;
+      setMarqueeRect(null);
+      requestAnimationFrame(() => {
+        marqueeJustFinishedRef.current = false;
+      });
+      if (button === 2) {
+        setTimeout(() => {
+          suppressNextContextMenuRef.current = false;
+        }, 0);
+        if (latestSelected.size > 0) {
+          const pool = [...activeItems, ...completedItems, ...allItems, ...trashedItems];
+          const targetItem = pool.find((item) => latestSelected.has(item.id));
+          if (targetItem) {
+            setContextMenu({ x: upEvent.clientX, y: upEvent.clientY, item: targetItem });
+          }
+        }
+      }
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
   const flipOrderKey = `${currentViewKey}:${viewMode}:${showCompleted}:${activeItems.map((i) => i.id).join(',')}:${showCompleted ? completedItems.map((i) => i.id).join(',') : ''}`;
   useFlipList(mainPaneRef, flipOrderKey);
 
@@ -1597,7 +1682,6 @@ const [gridEditText, setGridEditText] = useState('');
       !searchQuery
   );
   const suggestionsPresence = useAnimatedPresence(suggestionsVisible, 200);
-  const bulkPresence = useAnimatedPresence(selectedIds.size > 0, 180);
   const undoPresence = useAnimatedPresence(Boolean(undoToast), 180);
   const renderedUndoToast = useRetainedValue(undoToast, undoPresence.shouldRender);
   const clipboardVisible = Boolean(taskClipboard && taskClipboard.items.length > 0 && !undoToast);
@@ -3022,7 +3106,7 @@ const [gridEditText, setGridEditText] = useState('');
         addDueMenuOpen || addRemindMenuOpen || addRepeatMenuOpen ||
         addDueCalendarOpen || addRemindCalendarOpen || settingsOpen ||
         shareListId || shortcutsOpen || whatsNewOpen || sidebarOpen || emojiPickerOpen ||
-        bulkMoveOpen || listPickerMenu || suggestionsOpen || mobileAddOpen ||
+        listPickerMenu || suggestionsOpen || mobileAddOpen ||
         document.querySelector('.context-menu, .sort-menu, .list-options-menu, .list-options-sort-submenu, .settings-backdrop, .modal-backdrop, .add-picker-wrap .top-bar-popover')
       );
       setContextMenu(null);
@@ -3043,7 +3127,6 @@ const [gridEditText, setGridEditText] = useState('');
       setShortcutsOpen(false);
       setSidebarOpen(false);
       setEmojiPickerOpen(false);
-      setBulkMoveOpen(false);
       setListPickerMenu(null);
       setSuggestionsOpen(false);
       setMobileAddOpen(false);
@@ -3721,7 +3804,19 @@ const [gridEditText, setGridEditText] = useState('');
 <main
           ref={mainPaneRef}
           className="main-pane"
+          onMouseDown={handleMainPaneMouseDown}
+          onContextMenuCapture={(e) => {
+            if (suppressNextContextMenuRef.current) {
+              e.preventDefault();
+              e.stopPropagation();
+              suppressNextContextMenuRef.current = false;
+            }
+          }}
           onClick={(e) => {
+            if (marqueeJustFinishedRef.current) {
+              marqueeJustFinishedRef.current = false;
+              return;
+            }
             if (selectedIds.size === 0 && !selectedItemId) return;
             const target = e.target as HTMLElement;
             if (!target.closest('.task-row, .bulk-bar, .add-task-row, button, a, input, select, textarea, [role="menu"]')) {
@@ -3738,6 +3833,17 @@ const [gridEditText, setGridEditText] = useState('');
             ...(edgeSwipeX > 0 ? { transform: `translateX(${Math.round(edgeSwipeX * 0.35)}px)`, transition: 'none' } : {}),
           }}
         >
+        {marqueeRect && (
+          <div
+            className="marquee-selection-box"
+            style={{
+              left: `${marqueeRect.left}px`,
+              top: `${marqueeRect.top}px`,
+              width: `${marqueeRect.width}px`,
+              height: `${marqueeRect.height}px`,
+            }}
+          />
+        )}
         {mobileView === 'search' ? (
           <div className="mobile-search-topbar">
             <button
@@ -5087,6 +5193,7 @@ const [gridEditText, setGridEditText] = useState('');
                   return (
                     <li
                       key={item.id}
+                      data-task-id={item.id}
                       className={`task-row has-meta ${isTrashSelected ? 'selected' : ''}`}
                       style={{ justifyContent: 'space-between', cursor: 'pointer' }}
                       onClick={(e) => {
@@ -6254,131 +6361,6 @@ const [gridEditText, setGridEditText] = useState('');
           </div>
         );
       })()}
-
-      {bulkPresence.shouldRender && (
-        <div className={`bulk-bar ${bulkPresence.isExiting ? 'exiting' : ''}`} role="region" aria-label="Bulk actions">
-          <span className="bulk-count">{selectedIds.size} selected</span>
-          <div className="bulk-actions">
-            <button
-              onClick={() => {
-                activeItems
-                  .filter((t) => selectedIds.has(t.id))
-                  .forEach((t) => handleUpdateItem(t, { myDayDate: todayStr }));
-                setSelectedIds(new Set());
-              }}
-            >
-              Add to My Day
-            </button>
-            <button
-              onClick={() => {
-                activeItems
-                  .filter((t) => selectedIds.has(t.id))
-                  .forEach((t) =>
-                    handleUpdateItem(t, {
-                      done: true,
-                      completedAtMs: Date.now(),
-                    })
-                  );
-                setSelectedIds(new Set());
-              }}
-            >
-              Mark complete
-            </button>
-            <button
-              onClick={() => {
-                activeItems
-                  .filter((t) => selectedIds.has(t.id))
-                  .forEach((t) => handleUpdateItem(t, { important: true }));
-                setSelectedIds(new Set());
-              }}
-            >
-              Mark important
-            </button>
-            <button
-              onClick={() => {
-                const items = allItems.filter((t) => selectedIds.has(t.id));
-                if (items.length > 0) {
-                  setTaskClipboard({ mode: 'copy', items });
-                }
-                setBulkMoveOpen(false);
-                setSelectedIds(new Set());
-              }}
-            >
-              Copy
-            </button>
-            <button
-              onClick={() => {
-                const items = allItems.filter((t) => selectedIds.has(t.id));
-                if (items.length > 0) {
-                  setTaskClipboard({ mode: 'cut', items });
-                }
-                setBulkMoveOpen(false);
-                setSelectedIds(new Set());
-              }}
-            >
-              Cut
-            </button>
-            <div className="bulk-move-wrap">
-              <button onClick={() => setBulkMoveOpen((v) => !v)}>
-                Move to &#9656;
-              </button>
-              {bulkMoveOpen && (
-                <div className="bulk-move-menu">
-                  {allLists.map((l) => (
-                    <button
-                      key={l.id}
-                      onClick={() => {
-                        activeItems
-                          .filter((t) => selectedIds.has(t.id))
-                          .forEach((t) => handleMoveToList(t, l.id));
-                        setBulkMoveOpen(false);
-                        setSelectedIds(new Set());
-                      }}
-                    >
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                        <span className="context-menu-icon" aria-hidden="true">
-                          {l.icon ? <span style={{ fontSize: '15px', lineHeight: 1 }}>{l.icon}</span> : <ContextMenuIcon kind="move" />}
-                        </span>
-                        <span>{l.title}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button
-              className="danger"
-              onClick={async () => {
-                if (
-                  selectedIds.size > 1 &&
-                  !(await appConfirm({
-                    title: 'Delete tasks',
-                    message: `Delete ${selectedIds.size} selected tasks?`,
-                    confirmLabel: 'Delete',
-                    danger: true,
-                  }))
-                ) {
-                  return;
-                }
-                activeItems
-                  .filter((t) => selectedIds.has(t.id))
-                  .forEach((t) => handleDeleteItem(t));
-                setSelectedIds(new Set());
-              }}
-            >
-              Delete
-            </button>
-            <button
-              onClick={() => {
-                setSelectedIds(new Set());
-                setBulkMoveOpen(false);
-              }}
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-      )}
 
       {undoPresence.shouldRender && renderedUndoToast && (
         <div className={`undo-toast ${undoPresence.isExiting ? 'exiting' : ''}`}>

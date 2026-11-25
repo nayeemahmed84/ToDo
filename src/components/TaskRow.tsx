@@ -148,6 +148,7 @@ export function TaskRow({
           transition: touchDragY ? 'none' : 'transform 0.15s ease, box-shadow 0.15s ease',
         } : {}),
       }}
+      data-task-id={item.id}
       className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''} ${clipboardState ? `clipboard-${clipboardState}` : ''}`}
       draggable={!window.matchMedia('(max-width: 767px)').matches}
       onDragStart={handleDragStart}
