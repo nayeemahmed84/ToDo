@@ -53,6 +53,7 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenShortcuts?: () => void;
   onOpenWhatsNew: () => void;
+  onMoveTasksToSmart?: (itemIds: string[], smartId: SmartListId) => Promise<void> | void;
   onSignOut: () => void;
 }
 
@@ -120,6 +121,7 @@ export function Sidebar({
   onOpenSettings,
   onOpenShortcuts,
   onMoveTasksToList,
+  onMoveTasksToSmart,
   onSignOut,
 }: SidebarProps) {
   const [newListTitle, setNewListTitle] = useState('');
@@ -640,6 +642,31 @@ export function Sidebar({
                 data-nav-item="true"
                 title={collapsed ? item.label : undefined}
                 className={`nav-item nav-item-${item.id} ${active ? 'active' : ''}`}
+                onDragOver={(event) => {
+                  if (event.dataTransfer.types.includes('application/x-todo-items')) {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                  }
+                }}
+                onDrop={async (event) => {
+                  if (!event.dataTransfer.types.includes('application/x-todo-items')) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const raw = event.dataTransfer.getData('application/x-todo-items');
+                  clearDragState();
+                  if (!raw) return;
+                  try {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                      await onMoveTasksToSmart?.(
+                        parsed.filter((id): id is string => typeof id === 'string'),
+                        item.id
+                      );
+                    }
+                  } catch {
+                    // ignore malformed drag payload
+                  }
+                }}
                 onClick={() => {
                   onSearchChange('');
                   onSelect({ type: 'smart', id: item.id });

@@ -905,7 +905,11 @@ export function App() {
         pulling = false;
         return;
       }
-      if (e.target instanceof Element && e.target.closest('.context-menu, .modal-backdrop, .detail-panel')) {
+      if (mobileNavStateRef.current.selectedCount > 0) {
+        pulling = false;
+        return;
+      }
+      if (e.target instanceof Element && e.target.closest('.context-menu, .modal-backdrop, .detail-panel, .task-drag-handle')) {
         pulling = false;
         return;
       }
@@ -3669,6 +3673,24 @@ const [gridEditText, setGridEditText] = useState('');
           onReorderList={handleReorderList}
           onReorderGroup={handleReorderGroup}
           onMoveTasksToList={handleMoveTasksToList}
+          onMoveTasksToSmart={async (itemIds, smartId) => {
+            const targets = allItems.filter((t) => itemIds.includes(t.id));
+            if (targets.length === 0) return;
+            if (smartId === 'trash') {
+              await Promise.all(targets.map((t) => handleDeleteItem(t)));
+            } else if (smartId === 'my-day') {
+              await Promise.all(targets.map((t) => handleUpdateItem(t, { myDayDate: todayStr })));
+            } else if (smartId === 'important') {
+              await Promise.all(targets.map((t) => handleUpdateItem(t, { important: true })));
+            } else if (smartId === 'planned') {
+              await Promise.all(targets.map((t) => handleUpdateItem(t, { dueDate: t.dueDate ?? todayStr })));
+            } else if (smartId === 'completed') {
+              await Promise.all(targets.map((t) => handleUpdateItem(t, { done: true, completedAtMs: Date.now() })));
+            } else if (smartId === 'tasks' && defaultTasksList) {
+              await handleMoveTasksToList(itemIds, defaultTasksList.id);
+            }
+            setSelectedIds(new Set());
+          }}
           onRenameGroup={async (id, title) => {
             await updateDoc(doc(db, 'groups', id), { title });
           }}
@@ -5029,10 +5051,20 @@ const [gridEditText, setGridEditText] = useState('');
                 <span>Items in Trash are kept for 30 days before being permanently deleted.</span>
               </span>
               {trashedItems.length > 0 && (
-                <button type="button" className="trash-btn trash-btn-danger" onClick={handleEmptyTrash}>
-                  <span aria-hidden="true">🧹</span>
-                  <span>Empty trash</span>
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="trash-btn trash-btn-restore"
+                    onClick={() => void Promise.all(trashedItems.map((i) => handleRestoreItem(i)))}
+                  >
+                    <span aria-hidden="true">♻️</span>
+                    <span>Restore all</span>
+                  </button>
+                  <button type="button" className="trash-btn trash-btn-danger" onClick={handleEmptyTrash}>
+                    <span aria-hidden="true">🧹</span>
+                    <span>Empty trash</span>
+                  </button>
+                </div>
               )}
             </div>
             {trashedItems.length === 0 ? (
@@ -5051,8 +5083,61 @@ const [gridEditText, setGridEditText] = useState('');
                   const deletedByLabel = item.deletedByUid === user?.uid
                     ? 'You'
                     : item.deletedByName || null;
+                  const isTrashSelected = selectedIds.has(item.id);
                   return (
-                    <li key={item.id} className="task-row has-meta" style={{ justifyContent: 'space-between' }}>
+                    <li
+                      key={item.id}
+                      className={`task-row has-meta ${isTrashSelected ? 'selected' : ''}`}
+                      style={{ justifyContent: 'space-between', cursor: 'pointer' }}
+                      onClick={(e) => {
+                        if (window.matchMedia('(max-width: 767px)').matches && selectedIds.size > 0) {
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(item.id)) next.delete(item.id);
+                            else next.add(item.id);
+                            return next;
+                          });
+                          setLastSelectedId(item.id);
+                          return;
+                        }
+                        if (e.ctrlKey || e.metaKey) {
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(item.id)) next.delete(item.id);
+                            else next.add(item.id);
+                            return next;
+                          });
+                          setLastSelectedId(item.id);
+                        } else if (e.shiftKey && lastSelectedId) {
+                          const idxA = trashedItems.findIndex((t) => t.id === lastSelectedId);
+                          const idxB = trashedItems.findIndex((t) => t.id === item.id);
+                          if (idxA !== -1 && idxB !== -1) {
+                            const [start, end] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
+                            setSelectedIds(new Set(trashedItems.slice(start, end + 1).map((t) => t.id)));
+                          }
+                        } else if (selectedIds.size > 0) {
+                          setSelectedIds(new Set());
+                        }
+                      }}
+                      onTouchStart={(e) => {
+                        if ((e.target as Element)?.closest('button')) return;
+                        const touch = e.touches[0];
+                        const coords = touch ? { x: touch.clientX, y: touch.clientY } : undefined;
+                        const timer = window.setTimeout(() => {
+                          handleTaskLongPress(item, coords);
+                        }, 450);
+                        const clear = () => window.clearTimeout(timer);
+                        e.currentTarget.addEventListener('touchend', clear, { once: true });
+                        e.currentTarget.addEventListener('touchmove', clear, { once: true });
+                        e.currentTarget.addEventListener('touchcancel', clear, { once: true });
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        if (selectedIds.size > 0 && !selectedIds.has(item.id)) setSelectedIds(new Set());
+                        taskMenuOpenedAtRef.current = Date.now();
+                        setContextMenu({ x: e.clientX, y: e.clientY, item });
+                      }}
+                    >
                       <div className="task-body" style={{ minWidth: 0 }}>
                         <span className="task-title" style={{ textDecoration: item.done ? 'line-through' : 'none', opacity: item.done ? 0.7 : 1 }}>
                           {item.text}
@@ -5629,8 +5714,9 @@ const [gridEditText, setGridEditText] = useState('');
 
       {contextMenu && (() => {
         const isMultiSelection = selectedIds.has(contextMenu.item.id) && selectedIds.size > 1;
+        const targetPool = selection.type === 'smart' && selection.id === 'trash' ? trashedItems : sortedVisible;
         const targetItems = isMultiSelection
-          ? sortedVisible.filter((i) => selectedIds.has(i.id))
+          ? targetPool.filter((i) => selectedIds.has(i.id))
           : [contextMenu.item];
         const effectiveItems = targetItems.length > 0 ? targetItems : [contextMenu.item];
         const isMulti = effectiveItems.length > 1;
@@ -5687,6 +5773,36 @@ const [gridEditText, setGridEditText] = useState('');
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {contextMenu.item.deletedAtMs ? (
+            <>
+              <button
+                type="button"
+                className="context-menu-item"
+                onClick={async () => {
+                  const snapshot = [...effectiveItems];
+                  closeContextMenu(true);
+                  await Promise.all(snapshot.map((i) => handleRestoreItem(i)));
+                }}
+              >
+                <span className="context-menu-icon" aria-hidden="true">♻️</span>
+                <span>{isMulti ? `Restore ${effectiveItems.length} tasks` : 'Restore'}</span>
+              </button>
+              <div className="account-popover-divider" />
+              <button
+                type="button"
+                className="context-menu-item danger"
+                onClick={async () => {
+                  const snapshot = [...effectiveItems];
+                  closeContextMenu(true);
+                  await Promise.all(snapshot.map((i) => handlePermanentDeleteItem(i)));
+                }}
+              >
+                <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="trash" /></span>
+                <span>{isMulti ? `Delete ${effectiveItems.length} forever` : 'Delete forever'}</span>
+              </button>
+            </>
+          ) : (
+            <>
           <button
             type="button"
             className="context-menu-item"
@@ -5938,6 +6054,8 @@ const [gridEditText, setGridEditText] = useState('');
             <span>{isMulti ? `Delete ${effectiveItems.length} tasks` : "Delete task"}</span>
             <span className="context-menu-shortcut">Delete</span>
           </button>
+            </>
+          )}
         </div>
         </>
         );

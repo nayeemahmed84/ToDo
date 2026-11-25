@@ -56,7 +56,16 @@ export function TaskRow({
 }: TaskRowProps) {
   const [swipeX, setSwipeX] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
+  const [touchDragY, setTouchDragY] = useState(0);
   const swipeStartRef = useRef<{ x: number; y: number; active: boolean } | null>(null);
+  const touchReorderRef = useRef<{
+    ready: boolean;
+    active: boolean;
+    startX: number;
+    startY: number;
+    targetId: string | null;
+    insertAfter: boolean;
+  } | null>(null);
   const [popping, setPopping] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
@@ -128,7 +137,17 @@ export function TaskRow({
   return (
     <li
       data-flip-id={item.id}
-      style={typeof index === 'number' ? ({ '--row-index': index } as CSSProperties) : undefined}
+      style={{
+        ...(typeof index === 'number' ? ({ '--row-index': index } as CSSProperties) : {}),
+        ...(dragging ? {
+          touchAction: 'none',
+          pointerEvents: touchDragY ? 'none' : undefined,
+          transform: touchDragY ? `translateY(${touchDragY}px) scale(1.02)` : 'scale(1.02)',
+          boxShadow: '0 10px 28px rgba(0, 0, 0, 0.35)',
+          zIndex: 25,
+          transition: touchDragY ? 'none' : 'transform 0.15s ease, box-shadow 0.15s ease',
+        } : {}),
+      }}
       className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''} ${clipboardState ? `clipboard-${clipboardState}` : ''}`}
       draggable={!window.matchMedia('(max-width: 767px)').matches}
       onDragStart={handleDragStart}
@@ -145,6 +164,7 @@ export function TaskRow({
       }}
       onContextMenu={(event) => {
         event.preventDefault();
+        if (window.matchMedia('(max-width: 767px)').matches) return;
         onContextMenu(event, item);
       }}
       onClick={(event) => {
@@ -164,15 +184,61 @@ export function TaskRow({
         if (onDelete && touch && window.matchMedia('(max-width: 767px)').matches) {
           swipeStartRef.current = { x: touch.clientX, y: touch.clientY, active: false };
         }
+        if (reorderable && touch && window.matchMedia('(max-width: 767px)').matches) {
+          touchReorderRef.current = {
+            ready: false,
+            active: false,
+            startX: touch.clientX,
+            startY: touch.clientY,
+            targetId: null,
+            insertAfter: false,
+          };
+        }
         clearLongPress();
         longPressedRef.current = false;
         longPressTimerRef.current = window.setTimeout(() => {
           longPressedRef.current = true;
-          onLongPress?.(item, coords);
+          if (touchReorderRef.current) {
+            touchReorderRef.current.ready = true;
+            setDragging(true);
+            try {
+              navigator.vibrate?.(15);
+            } catch {
+              // ignore unsupported vibrate
+            }
+          } else {
+            onLongPress?.(item, coords);
+          }
         }, 450);
       }}
       onTouchMove={(event) => {
+        const reorder = touchReorderRef.current;
+        if (reorder?.ready && event.touches.length === 1) {
+          const touch = event.touches[0];
+          const dy = touch.clientY - reorder.startY;
+          if (!reorder.active && Math.abs(dy) > 8) {
+            reorder.active = true;
+            setDragging(true);
+            swipeStartRef.current = null;
+          }
+          if (reorder.active) {
+            setTouchDragY(dy);
+            const el = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('li.task-row[data-flip-id]');
+            if (el instanceof HTMLElement) {
+              const tid = el.dataset.flipId;
+              if (tid && tid !== item.id) {
+                const rect = el.getBoundingClientRect();
+                reorder.targetId = tid;
+                reorder.insertAfter = touch.clientY > rect.top + rect.height / 2;
+              }
+            }
+            return;
+          }
+        }
         clearLongPress();
+        if (!reorder?.ready) {
+          touchReorderRef.current = null;
+        }
         const start = swipeStartRef.current;
         if (!start || event.touches.length !== 1) return;
         const touch = event.touches[0];
@@ -194,6 +260,16 @@ export function TaskRow({
       onTouchEnd={() => {
         clearLongPress();
         setDragging(false);
+        setTouchDragY(0);
+        const reorder = touchReorderRef.current;
+        touchReorderRef.current = null;
+        if (reorder?.ready) {
+          if (reorder.active && reorder.targetId) {
+            void onReorder?.(item.id, reorder.targetId, reorder.insertAfter);
+          } else {
+            onLongPress?.(item, { x: reorder.startX, y: reorder.startY });
+          }
+        }
         if (swipeStartRef.current?.active) {
           if (swipeX <= -85) {
             onDelete?.(item);
@@ -206,6 +282,7 @@ export function TaskRow({
       onTouchCancel={() => {
         clearLongPress();
         setDragging(false);
+        setTouchDragY(0);
         swipeStartRef.current = null;
         setSwipeX(0);
         setIsSwiping(false);

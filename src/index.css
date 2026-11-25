@@ -6911,3 +6911,21 @@ a {
   font-weight: 500;
   pointer-events: none;
 }
+
+.task-drag-handle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-2);
+  opacity: 0.65;
+  padding: 0.25rem 0.15rem;
+  margin-left: -0.25rem;
+  touch-action: none;
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .task-drag-handle {
+    display: inline-flex;
+  }
+}
