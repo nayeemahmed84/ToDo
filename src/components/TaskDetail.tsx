@@ -16,6 +16,13 @@ import {
   UserPlusIcon,
 } from './Icons';
 import { RepeatRule, TodoItem, TodoStep } from '../types/todo';
+import {
+  deleteAttachmentBlob,
+  getAttachmentBlob,
+  getPreviewableBlob,
+  isImageFile,
+  saveAttachmentBlob,
+} from '../lib/attachmentStorage';
 
 function addDaysStr(baseYmd: string, days: number): string {
   const [y, m, d] = baseYmd.split('-').map(Number);
@@ -74,6 +81,96 @@ export function TaskDetail({
   const [repeatDays, setRepeatDays] = useState<number[]>(item.repeatCustom?.days ?? []);
   const [assignNoteOpen, setAssignNoteOpen] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [attachmentThumbs, setAttachmentThumbs] = useState<Record<string, string>>({});
+  const [previewModal, setPreviewModal] = useState<{
+    attId: string;
+    name: string;
+    url: string;
+    kind: 'image' | 'pdf' | 'text';
+    textContent?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const createdUrls: string[] = [];
+    const atts = item.attachments ?? [];
+
+    (async () => {
+      const next: Record<string, string> = {};
+      for (const att of atts) {
+        if (!isImageFile(att.name, att.type)) continue;
+        try {
+          const blob = await getAttachmentBlob(att.id);
+          if (!blob || cancelled) continue;
+          const previewBlob = await getPreviewableBlob(blob, att.name, att.type);
+          if (cancelled) continue;
+          const url = URL.createObjectURL(previewBlob);
+          createdUrls.push(url);
+          next[att.id] = url;
+        } catch {
+          // Ignore preview errors for individual thumbnails
+        }
+      }
+      if (!cancelled) {
+        setAttachmentThumbs(next);
+      } else {
+        createdUrls.forEach((u) => URL.revokeObjectURL(u));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      createdUrls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [item.id, item.attachments]);
+
+  const handleDownloadAttachment = async (att: { id: string; name: string }) => {
+    setFileError(null);
+    const blob = await getAttachmentBlob(att.id);
+    if (!blob) {
+      setFileError('File data not found locally. Please re-add the file.');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = att.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handlePreviewAttachment = async (att: { id: string; name: string; type?: string }) => {
+    setFileError(null);
+    const blob = await getAttachmentBlob(att.id);
+    if (!blob) {
+      setFileError('File data not found locally. Please re-add the file.');
+      return;
+    }
+    if (isImageFile(att.name, att.type)) {
+      const previewBlob = await getPreviewableBlob(blob, att.name, att.type);
+      const url = URL.createObjectURL(previewBlob);
+      setPreviewModal({ attId: att.id, name: att.name, url, kind: 'image' });
+      return;
+    }
+    const lower = att.name.toLowerCase();
+    if (att.type === 'application/pdf' || lower.endsWith('.pdf')) {
+      const url = URL.createObjectURL(blob);
+      setPreviewModal({ attId: att.id, name: att.name, url, kind: 'pdf' });
+      return;
+    }
+    if (
+      att.type?.startsWith('text/') ||
+      ['.txt', '.md', '.json', '.csv', '.log', '.xml', '.yml', '.yaml'].some((ext) => lower.endsWith(ext))
+    ) {
+      const textContent = await blob.text();
+      setPreviewModal({ attId: att.id, name: att.name, url: '', kind: 'text', textContent });
+      return;
+    }
+    // Fallback: trigger download for non-previewable file types
+    await handleDownloadAttachment(att);
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newStep, setNewStep] = useState('');
   const [ownerDisplayName, setOwnerDisplayName] = useState<string | null>(
@@ -673,7 +770,7 @@ export function TaskDetail({
           ref={fileInputRef}
           type="file"
           style={{ display: 'none' }}
-          onChange={(e) => {
+          onChange={async (e) => {
             setFileError(null);
             const f = e.target.files?.[0];
             if (!f) return;
@@ -694,8 +791,16 @@ export function TaskDetail({
               e.target.value = '';
               return;
             }
+            const attId = String(Date.now());
+            try {
+              await saveAttachmentBlob(attId, f);
+            } catch {
+              setFileError('Failed to save file locally.');
+              e.target.value = '';
+              return;
+            }
             onUpdate(item, {
-              attachments: [...existing, { id: String(Date.now()), name: f.name, size: f.size, type: f.type }],
+              attachments: [...existing, { id: attId, name: f.name, size: f.size, type: f.type }],
             });
             e.target.value = '';
           }}
@@ -704,20 +809,218 @@ export function TaskDetail({
         {(item.attachments ?? []).map((att) => (
           <div
             key={att.id}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', marginTop: '4px' }}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '0.8rem',
+              marginTop: '6px',
+              padding: '4px 6px',
+              borderRadius: '6px',
+              background: 'var(--color-surface-2, rgba(255,255,255,0.04))',
+            }}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <PaperclipIcon size={14} /> {att.name} ({Math.max(1, Math.round(att.size / 1024))} KB)
-            </span>
             <button
               type="button"
-              className="clear-btn"
-              onClick={() => onUpdate(item, { attachments: (item.attachments ?? []).filter((a) => a.id !== att.id) })}
+              onClick={() => void handlePreviewAttachment(att)}
+              title="Click to preview"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'none',
+                border: 'none',
+                color: 'inherit',
+                padding: 0,
+                cursor: 'pointer',
+                textAlign: 'left',
+                minWidth: 0,
+                flex: 1,
+              }}
             >
-              ×
+              {attachmentThumbs[att.id] ? (
+                <img
+                  src={attachmentThumbs[att.id]}
+                  alt={att.name}
+                  style={{ width: '32px', height: '32px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }}
+                />
+              ) : (
+                <PaperclipIcon size={14} />
+              )}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {att.name} ({Math.max(1, Math.round(att.size / 1024))} KB)
+              </span>
             </button>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+              <button
+                type="button"
+                className="clear-btn"
+                title="Download"
+                aria-label={`Download ${att.name}`}
+                onClick={() => void handleDownloadAttachment(att)}
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                className="clear-btn"
+                title="Remove"
+                aria-label={`Remove ${att.name}`}
+                onClick={() => {
+                  void deleteAttachmentBlob(att.id);
+                  onUpdate(item, { attachments: (item.attachments ?? []).filter((a) => a.id !== att.id) });
+                }}
+              >
+                ×
+              </button>
+            </div>
           </div>
         ))}
+        {previewModal && (
+          <div
+            className="modal-backdrop"
+            style={{
+              zIndex: 10000,
+              background: 'rgba(0, 0, 0, 0.72)',
+              backdropFilter: 'blur(8px)',
+              padding: '24px',
+            }}
+            onClick={() => {
+              if (previewModal.url) URL.revokeObjectURL(previewModal.url);
+              setPreviewModal(null);
+            }}
+          >
+            <div
+              className="modal-card"
+              style={{
+                maxWidth: '880px',
+                width: '92vw',
+                maxHeight: '88vh',
+                display: 'flex',
+                flexDirection: 'column',
+                padding: 0,
+                borderRadius: '14px',
+                overflow: 'hidden',
+                background: 'var(--color-surface, #242424)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                boxShadow: '0 24px 64px rgba(0, 0, 0, 0.55)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '14px 18px',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                }}
+              >
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  <PaperclipIcon size={16} />
+                  <strong
+                    style={{
+                      fontSize: '0.92rem',
+                      fontWeight: 600,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {previewModal.name}
+                  </strong>
+                </div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      fontSize: '0.82rem',
+                      fontWeight: 500,
+                    }}
+                    onClick={() => void handleDownloadAttachment({ id: previewModal.attId, name: previewModal.name })}
+                  >
+                    Download
+                  </button>
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    aria-label="Close preview"
+                    style={{
+                      width: '30px',
+                      height: '30px',
+                      borderRadius: '8px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1.1rem',
+                    }}
+                    onClick={() => {
+                      if (previewModal.url) URL.revokeObjectURL(previewModal.url);
+                      setPreviewModal(null);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+              <div
+                style={{
+                  padding: '16px 18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'auto',
+                  background: 'rgba(0, 0, 0, 0.22)',
+                }}
+              >
+                {previewModal.kind === 'image' && (
+                  <img
+                    src={previewModal.url}
+                    alt={previewModal.name}
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '70vh',
+                      objectFit: 'contain',
+                      borderRadius: '8px',
+                      boxShadow: '0 8px 28px rgba(0, 0, 0, 0.35)',
+                    }}
+                  />
+                )}
+                {previewModal.kind === 'pdf' && (
+                  <iframe
+                    src={previewModal.url}
+                    title={previewModal.name}
+                    style={{ width: '100%', height: '70vh', border: 'none', borderRadius: '8px' }}
+                  />
+                )}
+                {previewModal.kind === 'text' && (
+                  <pre
+                    style={{
+                      margin: 0,
+                      width: '100%',
+                      padding: '14px 16px',
+                      maxHeight: '70vh',
+                      overflow: 'auto',
+                      background: 'rgba(0, 0, 0, 0.3)',
+                      borderRadius: '8px',
+                      fontSize: '0.82rem',
+                      lineHeight: 1.5,
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {previewModal.textContent}
+                  </pre>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {customRepeatOpen && (
