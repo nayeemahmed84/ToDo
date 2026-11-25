@@ -46,6 +46,20 @@ export async function deleteAttachmentBlob(id: string): Promise<void> {
   });
 }
 
+export function sanitizeFileName(name: string): string {
+  const base = name.split(/[/\\]/).pop() ?? '';
+  const dotIdx = base.lastIndexOf('.');
+  const rawExt = dotIdx > 0 ? base.slice(dotIdx + 1).toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  let hash = '';
+  for (let i = 0; i < 8; i++) {
+    hash += chars[bytes[i] % chars.length];
+  }
+  return rawExt ? `${hash}.${rawExt}` : hash;
+}
+
 export function isHeicFile(name: string, type?: string): boolean {
   const lower = name.toLowerCase();
   return (

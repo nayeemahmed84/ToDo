@@ -560,7 +560,7 @@ export function App() {
         // Ignore storage quota errors so state updates still succeed
       }
       if (patch.themeMode !== undefined) {
-        const isDark = patch.themeMode === "dark" || (patch.themeMode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        const isDark = patch.themeMode === "dark" || patch.themeMode === "glass-dark" || (patch.themeMode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
         setDarkMode(isDark);
         localStorage.setItem("todo-dark", isDark ? "1" : "0");
       }
@@ -628,8 +628,8 @@ export function App() {
   const [addDueDate, setAddDueDate] = useState<string | null>(null);
   const [addRepeat, setAddRepeat] = useState<RepeatRule>('none');
   const [darkMode, setDarkMode] = useState(() => {
-    if (appSettings.themeMode === 'dark') return true;
-    if (appSettings.themeMode === 'light') return false;
+    if (appSettings.themeMode === 'dark' || appSettings.themeMode === 'glass-dark') return true;
+    if (appSettings.themeMode === 'light' || appSettings.themeMode === 'glass-light') return false;
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
@@ -642,10 +642,16 @@ export function App() {
   }, [listMenuOpen]);
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    const resolvedTheme =
+      appSettings.themeMode === 'glass-light' || appSettings.themeMode === 'glass-dark'
+        ? appSettings.themeMode
+        : darkMode
+          ? 'dark'
+          : 'light';
+    document.documentElement.setAttribute('data-theme', resolvedTheme);
     const topBarColor = getComputedStyle(document.documentElement).getPropertyValue('--color-top-bar-bg').trim();
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', topBarColor);
-  }, [darkMode]);
+  }, [darkMode, appSettings.themeMode]);
 
   useEffect(() => {
     const syncSidebarBreakpoint = () => {
@@ -663,6 +669,7 @@ export function App() {
     const sync = () => {
       const isDark =
         appSettings.themeMode === 'dark' ||
+        appSettings.themeMode === 'glass-dark' ||
         (appSettings.themeMode === 'system' && mq.matches);
       setDarkMode(isDark);
       localStorage.setItem('todo-dark', isDark ? '1' : '0');
@@ -3179,7 +3186,7 @@ const [gridEditText, setGridEditText] = useState('');
 
     // Global modifier shortcuts (work even when focused inside inputs)
     if (mod && !e.altKey) {
-      if (e.key === '1' || (lowerKey === 'b' && !e.shiftKey)) {
+      if (lowerKey === 'b' && !e.shiftKey) {
         e.preventDefault();
         if (window.innerWidth <= 900) {
           setSidebarOpen((v) => !v);
@@ -3204,27 +3211,9 @@ const [gridEditText, setGridEditText] = useState('');
         }
         return;
       }
-      if (lowerKey === 'n' && !e.shiftKey) {
-        e.preventDefault();
-        if (window.innerWidth <= 900) {
-          setMobileView('list');
-          setMobileAddOpen(true);
-          setTimeout(() => mobileAddInputRef.current?.focus(), 60);
-        } else {
-          setAddRowExpanded(true);
-          setTimeout(() => addTaskInputRef.current?.focus(), 40);
-        }
-        return;
-      }
       if (e.key === ',' && !e.shiftKey) {
         e.preventDefault();
         setSettingsOpen(true);
-        return;
-      }
-      if (e.shiftKey && lowerKey === 'd') {
-        e.preventDefault();
-        const nextDark = !darkMode;
-        updateAppSettings({ themeMode: nextDark ? 'dark' : 'light', themeModeExplicit: true });
         return;
       }
       if (e.shiftKey && lowerKey === 'l') {
@@ -3270,13 +3259,6 @@ const [gridEditText, setGridEditText] = useState('');
         });
         return;
       }
-      if (lowerKey === 'u' && !e.shiftKey && (!isInput || isEmptyAddInput || inDetailPane) && targetTasks.length > 0) {
-        e.preventDefault();
-        targetTasks.forEach((t) => {
-          if (t.done) handleUpdateItem(t, { done: false, completedAtMs: null });
-        });
-        return;
-      }
       const hasInputSelection =
         target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
           ? (target.selectionStart ?? 0) !== (target.selectionEnd ?? 0)
@@ -3306,6 +3288,35 @@ const [gridEditText, setGridEditText] = useState('');
         void handlePasteClipboard();
         return;
       }
+    }
+
+    // Alt+N (New task), Alt+T (Toggle My Day), Alt+Shift+D (Toggle theme)
+    if (e.altKey && !mod && !e.shiftKey && lowerKey === 'n') {
+      e.preventDefault();
+      if (window.innerWidth <= 900) {
+        setMobileView('list');
+        setMobileAddOpen(true);
+        setTimeout(() => mobileAddInputRef.current?.focus(), 60);
+      } else {
+        setAddRowExpanded(true);
+        setTimeout(() => addTaskInputRef.current?.focus(), 40);
+      }
+      return;
+    }
+    if (e.altKey && !mod && !e.shiftKey && lowerKey === 't' && targetTasks.length > 0) {
+      e.preventDefault();
+      const todayIso = new Date().toISOString().slice(0, 10);
+      targetTasks.forEach((t) => {
+        const inMyDay = t.myDayDate === todayIso;
+        handleUpdateItem(t, { myDayDate: inMyDay ? null : todayIso });
+      });
+      return;
+    }
+    if (e.altKey && !mod && e.shiftKey && lowerKey === 'd') {
+      e.preventDefault();
+      const nextDark = !darkMode;
+      updateAppSettings({ themeMode: nextDark ? 'dark' : 'light', themeModeExplicit: true });
+      return;
     }
 
     // Alt + 1..8 smart list switching (works anywhere)
@@ -5922,7 +5933,7 @@ const [gridEditText, setGridEditText] = useState('');
           >
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="sun" /></span>
             <span>{allInMyDay ? "Remove from My Day" : "Add to My Day"}</span>
-            <span className="context-menu-shortcut">Ctrl+T</span>
+            <span className="context-menu-shortcut">Alt+T</span>
           </button>
           <button
             type="button"
@@ -5951,7 +5962,7 @@ const [gridEditText, setGridEditText] = useState('');
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="check" /></span>
             <span>{allDone ? "Mark as not completed" : "Mark as completed"}</span>
           </button>
-          <div className="account-popover-divider" />
+          <div className="context-menu-divider" />
           <button
             type="button"
             className="context-menu-item"
@@ -6033,7 +6044,7 @@ const [gridEditText, setGridEditText] = useState('');
               <span>Remove due date</span>
             </button>
           )}
-          <div className="account-popover-divider" />
+          <div className="context-menu-divider" />
           <button
             type="button"
             className="context-menu-item"
@@ -6136,7 +6147,7 @@ const [gridEditText, setGridEditText] = useState('');
             <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="copy" /></span>
             <span>{isMulti ? `Copy ${effectiveItems.length} tasks` : 'Copy'}</span>
           </button>
-          <div className="account-popover-divider" />
+          <div className="context-menu-divider" />
           <button
             type="button"
             className="context-menu-item danger"
@@ -6198,7 +6209,7 @@ const [gridEditText, setGridEditText] = useState('');
             >
               <span className="context-menu-icon" aria-hidden="true"><ContextMenuIcon kind="sun" /></span>
               <span>{allInMyDay ? 'Remove from My Day' : 'Add to My Day'}</span>
-              <span className="context-menu-shortcut">Ctrl+T</span>
+              <span className="context-menu-shortcut">Alt+T</span>
             </button>
             <button
               type="button"

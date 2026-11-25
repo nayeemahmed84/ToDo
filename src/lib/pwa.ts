@@ -137,11 +137,53 @@ export function initServiceWorker(callbacks: {
 }): SwController {
   let updateSW: ((reloadPage?: boolean) => Promise<void>) | null = null;
   let swRegistration: ServiceWorkerRegistration | null = null;
+  const appBootTime = Date.now();
+  const FRESH_LOAD_WINDOW_MS = 15_000;
+
+  const applyUpdate = async () => {
+    let reloaded = false;
+    const reloadOnce = () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    };
+
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('controllerchange', reloadOnce, { once: true });
+    }
+
+    // Fallback: if controllerchange doesn't fire (e.g. waiting SW already activated), reload anyway.
+    window.setTimeout(reloadOnce, 1200);
+
+    if (swRegistration?.waiting) {
+      swRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    }
+    if (updateSW) {
+      await updateSW(true);
+    }
+  };
 
   if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
     updateSW = registerSW({
       immediate: true,
       onNeedRefresh() {
+        const isFreshLoad = Date.now() - appBootTime < FRESH_LOAD_WINDOW_MS;
+        let recentlyAutoUpdated = false;
+        try {
+          const last = Number(sessionStorage.getItem('pwa_auto_updated_at') ?? '0');
+          recentlyAutoUpdated = Date.now() - last < 10_000;
+        } catch {
+          // Ignore storage errors
+        }
+        if (isFreshLoad && !recentlyAutoUpdated) {
+          try {
+            sessionStorage.setItem('pwa_auto_updated_at', String(Date.now()));
+          } catch {
+            // Ignore storage errors
+          }
+          void applyUpdate();
+          return;
+        }
         callbacks.onNeedRefresh();
       },
       onOfflineReady() {

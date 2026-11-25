@@ -21,6 +21,7 @@ import {
   getAttachmentBlob,
   getPreviewableBlob,
   isImageFile,
+  sanitizeFileName,
   saveAttachmentBlob,
 } from '../lib/attachmentStorage';
 
@@ -89,6 +90,31 @@ export function TaskDetail({
     kind: 'image' | 'pdf' | 'text';
     textContent?: string;
   } | null>(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
+
+  useEffect(() => {
+    if (!previewModal) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (previewModal.kind === 'image') {
+          const delta = e.deltaY < 0 ? 0.15 : -0.15;
+          setPreviewZoom((z) => Math.min(4, Math.max(0.5, Number((z + delta).toFixed(2)))));
+        }
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 1) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => {
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('touchmove', onTouchMove);
+    };
+  }, [previewModal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +177,7 @@ export function TaskDetail({
     if (isImageFile(att.name, att.type)) {
       const previewBlob = await getPreviewableBlob(blob, att.name, att.type);
       const url = URL.createObjectURL(previewBlob);
+      setPreviewZoom(1);
       setPreviewModal({ attId: att.id, name: att.name, url, kind: 'image' });
       return;
     }
@@ -799,8 +826,9 @@ export function TaskDetail({
               e.target.value = '';
               return;
             }
+            const safeName = sanitizeFileName(f.name);
             onUpdate(item, {
-              attachments: [...existing, { id: attId, name: f.name, size: f.size, type: f.type }],
+              attachments: [...existing, { id: attId, name: safeName, size: f.size, type: f.type }],
             });
             e.target.value = '';
           }}
@@ -934,6 +962,37 @@ export function TaskDetail({
                   </strong>
                 </div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                  {previewModal.kind === 'image' && (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginRight: '4px' }}>
+                      <button
+                        type="button"
+                        className="clear-btn"
+                        title="Zoom out"
+                        aria-label="Zoom out"
+                        onClick={() => setPreviewZoom((z) => Math.max(0.5, Number((z - 0.25).toFixed(2))))}
+                      >
+                        −
+                      </button>
+                      <button
+                        type="button"
+                        className="clear-btn"
+                        title="Reset zoom"
+                        style={{ fontSize: '0.78rem', minWidth: '46px' }}
+                        onClick={() => setPreviewZoom(1)}
+                      >
+                        {Math.round(previewZoom * 100)}%
+                      </button>
+                      <button
+                        type="button"
+                        className="clear-btn"
+                        title="Zoom in"
+                        aria-label="Zoom in"
+                        onClick={() => setPreviewZoom((z) => Math.min(4, Number((z + 0.25).toFixed(2))))}
+                      >
+                        +
+                      </button>
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="btn-secondary"
@@ -970,6 +1029,12 @@ export function TaskDetail({
                 </div>
               </div>
               <div
+                onWheel={(e) => {
+                  if (previewModal.kind !== 'image') return;
+                  e.preventDefault();
+                  const delta = e.deltaY < 0 ? 0.2 : -0.2;
+                  setPreviewZoom((z) => Math.min(4, Math.max(0.5, Number((z + delta).toFixed(2)))));
+                }}
                 style={{
                   padding: '16px 18px',
                   display: 'flex',
@@ -983,12 +1048,17 @@ export function TaskDetail({
                   <img
                     src={previewModal.url}
                     alt={previewModal.name}
+                    onDoubleClick={() => setPreviewZoom((z) => (z === 1 ? 2 : 1))}
                     style={{
                       maxWidth: '100%',
                       maxHeight: '70vh',
                       objectFit: 'contain',
                       borderRadius: '8px',
                       boxShadow: '0 8px 28px rgba(0, 0, 0, 0.35)',
+                      transform: `scale(${previewZoom})`,
+                      transformOrigin: 'center center',
+                      transition: 'transform 0.12s ease',
+                      cursor: previewZoom > 1 ? 'zoom-out' : 'zoom-in',
                     }}
                   />
                 )}

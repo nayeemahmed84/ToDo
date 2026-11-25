@@ -7,7 +7,7 @@ export interface AppSettings {
   moveStarredToTop: boolean;
   playCompletionSound: boolean;
   reminderNotifications: boolean;
-  themeMode: 'light' | 'dark' | 'system';
+  themeMode: 'light' | 'dark' | 'glass-light' | 'glass-dark' | 'system';
   themeModeExplicit: boolean;
   smartImportant: boolean;
   smartPlanned: boolean;
@@ -157,6 +157,8 @@ export function SettingsModal({
               >
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
+                <option value="glass-light">iOS Glass Light</option>
+                <option value="glass-dark">iOS Glass Dark</option>
                 <option value="system">System</option>
               </select>
             </div>
