@@ -10,11 +10,16 @@ import {
 import {
   arrayRemove,
   arrayUnion,
+  collection,
+  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  query,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 
 const PROJECT_ID = 'todo-pwa-rules-test';
@@ -250,6 +255,41 @@ describe('Firestore security rules', () => {
       await assertSucceeds(updateDoc(doc(db, 'groups', 'group-1'), { title: 'Work & Projects' }));
       await assertFails(updateDoc(doc(db, 'groups', 'group-1'), { ownerUid: MEMBER_UID }));
       await assertSucceeds(deleteDoc(doc(db, 'groups', 'group-1')));
+    });
+  });
+
+  describe('app collection and collectionGroup queries', () => {
+    it('allows all app queries for owners and members and denies unfiltered queries', async () => {
+      const ownerDb = testEnv.authenticatedContext(OWNER_UID).firestore();
+      const memberDb = testEnv.authenticatedContext(MEMBER_UID).firestore();
+      const outsiderDb = testEnv.authenticatedContext(OUTSIDER_UID).firestore();
+
+      // Owned lists query
+      await assertSucceeds(
+        getDocs(query(collection(ownerDb, 'lists'), where('ownerUid', '==', OWNER_UID)))
+      );
+      // Shared lists query (array-contains)
+      await assertSucceeds(
+        getDocs(query(collection(memberDb, 'lists'), where('memberUids', 'array-contains', MEMBER_UID)))
+      );
+      await assertSucceeds(
+        getDocs(query(collection(outsiderDb, 'lists'), where('memberUids', 'array-contains', OUTSIDER_UID)))
+      );
+      // Owned items collectionGroup query
+      await assertSucceeds(
+        getDocs(query(collectionGroup(ownerDb, 'items'), where('ownerUid', '==', OWNER_UID)))
+      );
+      // Owned groups query
+      await assertSucceeds(
+        getDocs(query(collection(ownerDb, 'groups'), where('ownerUid', '==', OWNER_UID)))
+      );
+      // Shared list items subcollection query
+      await assertSucceeds(getDocs(collection(memberDb, 'lists', 'list-1', 'items')));
+
+      // Unfiltered lists query must still be denied
+      await assertFails(getDocs(collection(outsiderDb, 'lists')));
+      // Outsider reading items of list-1 must still be denied
+      await assertFails(getDocs(collection(outsiderDb, 'lists', 'list-1', 'items')));
     });
   });
 });

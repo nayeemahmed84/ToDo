@@ -91,7 +91,9 @@ service cloud.firestore {
     }
 
     match /lists/{listId} {
-      allow read: if isOwnerOfData(resource.data) || isMemberOfData(resource.data);
+      allow read: if isSignedIn()
+        && (resource.data.ownerUid == request.auth.uid
+            || (resource.data.memberUids != null && request.auth.uid in resource.data.memberUids));
       allow create: if isSignedIn()
         && request.resource.data.ownerUid == request.auth.uid
         && (!('memberUids' in request.resource.data)
