@@ -60,10 +60,18 @@ export interface TodoItem {
   dueDate: string | null;   // YYYY-MM-DD
   reminderAtMs?: number | null;
   reminderNotified?: boolean;
+  reminderStatus?: 'pending' | 'claimed' | 'delivered' | 'retry' | null;
+  reminderClaimedAtMs?: number | null;
+  reminderClaimExpiresAtMs?: number | null;
+  reminderAttempts?: number;
+  reminderNextRetryAtMs?: number | null;
+  reminderLastError?: string | null;
+  reminderDeliveredTokenIds?: string[];
   repeat?: RepeatRule;
   repeatCustom?: { interval: number; unit: 'days' | 'weeks' | 'months' | 'years'; days: number[] } | null;
+  recurrenceSpawned?: boolean;
   assignedTo?: string | null;
-  attachments?: { id: string; name: string; size: number; type?: string }[];
+  attachments?: { id: string; name: string; size: number; type?: string; missing?: boolean }[];
   category: CategoryColor | null;
   notes: string;
   steps: TodoStep[];

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { isIosNonStandalone, isNotificationApiSupported } from '../lib/notifications';
+import type { BackupImportMode, ParsedBackupPackage } from '../lib/backup';
 
 export interface AppSettings {
   confirmBeforeDelete: boolean;
@@ -45,8 +46,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
 interface SettingsModalProps {
   settings: AppSettings;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
-  onExportJson: () => void;
-  onImportJson: (file: File) => Promise<{ lists: number; items: number; groups: number }>;
+  onExportJson: () => Promise<{ items: number; trashedItems: number; warnings: string[] }>;
+  onInspectBackup: (file: File) => Promise<ParsedBackupPackage>;
+  onImportBackup: (
+    pkg: ParsedBackupPackage,
+    mode: BackupImportMode,
+    onProgress?: (status: string) => void
+  ) => Promise<{ lists: number; items: number; groups: number; attachments: number; missingAttachments: number }>;
+  onRollbackPartialImport: () => Promise<number>;
+  hasPartialImport: boolean;
   onClose: () => void;
 }
 
@@ -81,12 +89,19 @@ export function SettingsModal({
   settings,
   onUpdateSettings,
   onExportJson,
-  onImportJson,
+  onInspectBackup,
+  onImportBackup,
+  onRollbackPartialImport,
+  hasPartialImport,
   onClose,
 }: SettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [backupFeedback, setBackupFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [importProgress, setImportProgress] = useState<string | null>(null);
+  const [preflight, setPreflight] = useState<ParsedBackupPackage | null>(null);
+  const [importMode, setImportMode] = useState<BackupImportMode>('copy');
+  const [backupFeedback, setBackupFeedback] = useState<{ kind: 'success' | 'error'; text: string; warnings?: string[] } | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -199,9 +214,25 @@ export function SettingsModal({
             <button
               type="button"
               className="settings-action-btn primary"
-              onClick={() => {
-                onExportJson();
-                setBackupFeedback({ kind: 'success', text: 'Full backup exported.' });
+              disabled={exporting || importing}
+              onClick={async () => {
+                setExporting(true);
+                setBackupFeedback(null);
+                try {
+                  const res = await onExportJson();
+                  setBackupFeedback({
+                    kind: 'success',
+                    text: `Full backup exported (${res.items} tasks including ${res.trashedItems} in Trash).`,
+                    warnings: res.warnings.length > 0 ? res.warnings : undefined,
+                  });
+                } catch (err) {
+                  setBackupFeedback({
+                    kind: 'error',
+                    text: err instanceof Error ? err.message : 'Failed to export backup.',
+                  });
+                } finally {
+                  setExporting(false);
+                }
               }}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -209,12 +240,12 @@ export function SettingsModal({
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              <span>Export everything</span>
+              <span>{exporting ? 'Exporting…' : 'Export everything'}</span>
             </button>
             <button
               type="button"
               className="settings-action-btn"
-              disabled={importing}
+              disabled={importing || exporting}
               onClick={() => fileInputRef.current?.click()}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -222,37 +253,156 @@ export function SettingsModal({
                 <polyline points="17 8 12 3 7 8" />
                 <line x1="12" y1="3" x2="12" y2="15" />
               </svg>
-              <span>{importing ? 'Importing…' : 'Import JSON backup'}</span>
+              <span>{importing ? (importProgress || 'Importing…') : 'Import backup (.zip / .json)'}</span>
             </button>
           </div>
+          {preflight && (
+            <div
+              style={{
+                marginTop: '10px',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-bg)',
+                fontSize: '0.82rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>Backup preflight (v{preflight.summary.schemaVersion})</div>
+              <div style={{ color: 'var(--color-text-2)' }}>
+                {preflight.summary.groups} folder(s), {preflight.summary.lists} list(s), {preflight.summary.activeItems} active task(s), {preflight.summary.trashedItems} trashed task(s), {preflight.summary.restorableAttachments}/{preflight.summary.totalAttachments} attachment file(s) ready.
+              </div>
+              {preflight.warnings.length > 0 && (
+                <div style={{ color: '#f59e0b', fontSize: '0.78rem' }}>
+                  {preflight.warnings.slice(0, 5).map((w, idx) => (
+                    <div key={idx}>• {w}</div>
+                  ))}
+                  {preflight.warnings.length > 5 && <div>• …and {preflight.warnings.length - 5} more warning(s)</div>}
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="backup-import-mode"
+                    checked={importMode === 'copy'}
+                    onChange={() => setImportMode('copy')}
+                  />
+                  <span>Import as copies (keep existing data)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="backup-import-mode"
+                    checked={importMode === 'replace'}
+                    onChange={() => setImportMode('replace')}
+                  />
+                  <span>Replace my account data (deletes your owned lists &amp; tasks first)</span>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="chip-btn"
+                  disabled={importing}
+                  onClick={() => setPreflight(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="chip-btn"
+                  disabled={importing}
+                  style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+                  onClick={async () => {
+                    setImporting(true);
+                    setImportProgress('Starting import…');
+                    setBackupFeedback(null);
+                    try {
+                      const summary = await onImportBackup(preflight, importMode, setImportProgress);
+                      setPreflight(null);
+                      setBackupFeedback({
+                        kind: 'success',
+                        text: `Imported ${summary.groups} folder(s), ${summary.lists} list(s), ${summary.items} task(s), and ${summary.attachments} attachment file(s).${summary.missingAttachments > 0 ? ` (${summary.missingAttachments} attachment file(s) were unavailable.)` : ''}`,
+                      });
+                    } catch (err) {
+                      setBackupFeedback({
+                        kind: 'error',
+                        text: err instanceof Error ? err.message : 'Failed to import backup.',
+                      });
+                    } finally {
+                      setImporting(false);
+                      setImportProgress(null);
+                    }
+                  }}
+                >
+                  {importing ? 'Importing…' : 'Start import'}
+                </button>
+              </div>
+            </div>
+          )}
+          {hasPartialImport && !importing && (
+            <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.8rem', color: '#f59e0b' }}>
+              <span>A previous import stopped partway through.</span>
+              <button
+                type="button"
+                className="chip-btn"
+                onClick={async () => {
+                  setImporting(true);
+                  try {
+                    const removed = await onRollbackPartialImport();
+                    setBackupFeedback({
+                      kind: 'success',
+                      text: `Removed ${removed} partially imported record(s).`,
+                    });
+                  } catch (err) {
+                    setBackupFeedback({
+                      kind: 'error',
+                      text: err instanceof Error ? err.message : 'Failed to remove partial import.',
+                    });
+                  } finally {
+                    setImporting(false);
+                  }
+                }}
+              >
+                Remove partial import
+              </button>
+            </div>
+          )}
           {backupFeedback && (
             <div className={`settings-backup-feedback ${backupFeedback.kind}`} role="status">
-              {backupFeedback.text}
+              <div>{backupFeedback.text}</div>
+              {backupFeedback.warnings && backupFeedback.warnings.length > 0 && (
+                <div style={{ marginTop: '4px', fontSize: '0.76rem', opacity: 0.9 }}>
+                  {backupFeedback.warnings.slice(0, 4).map((w, idx) => (
+                    <div key={idx}>• {w}</div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/json"
+            accept=".zip,application/zip,application/json,.json"
             style={{ display: 'none' }}
             onChange={async (e) => {
               const f = e.target.files?.[0];
               if (!f) return;
-              setImporting(true);
               setBackupFeedback(null);
               try {
-                const summary = await onImportJson(f);
-                setBackupFeedback({
-                  kind: 'success',
-                  text: `Imported ${summary.lists} list${summary.lists === 1 ? '' : 's'} and ${summary.items} task${summary.items === 1 ? '' : 's'}.`,
-                });
+                const parsed = await onInspectBackup(f);
+                setPreflight(parsed);
+                setImportMode('copy');
               } catch (err) {
+                setPreflight(null);
                 setBackupFeedback({
                   kind: 'error',
-                  text: err instanceof Error ? err.message : 'Failed to import backup.',
+                  text: err instanceof Error ? err.message : 'Invalid backup file.',
                 });
               } finally {
-                setImporting(false);
                 e.target.value = '';
               }
             }}

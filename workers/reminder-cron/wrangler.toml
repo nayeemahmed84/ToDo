@@ -9,3 +9,6 @@ crons = ["* * * * *"]
 #   npx wrangler secret put FIREBASE_PROJECT_ID
 #   npx wrangler secret put FIREBASE_CLIENT_EMAIL
 #   npx wrangler secret put FIREBASE_PRIVATE_KEY
+#
+# Optional: enable operator-only manual POST /run triggers:
+#   npx wrangler secret put REMINDER_RUN_SECRET

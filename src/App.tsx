@@ -3,6 +3,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import {
   addDoc,
+  arrayRemove,
   arrayUnion,
   collection,
   collectionGroup,
@@ -47,6 +48,23 @@ import { suggestEmoji } from './lib/suggestEmoji';
 import { EmojiText, resolveEmojiShortcodes } from './lib/emoji';
 import { scoreTextMatch, scoreTodoItemMatch } from './lib/search';
 import { parseTaskInput } from './lib/parseTaskInput';
+import {
+  buildNextRecurringItemPayload,
+  getNextRepeatDate,
+} from './lib/recurrence';
+import {
+  buildBackupArchive,
+  LAST_IMPORT_BATCH_KEY,
+  parseBackupBytes,
+  type BackupImportMode,
+  type ParsedBackupPackage,
+  type PartialImportRecord,
+} from './lib/backup';
+import {
+  deleteAttachmentBlob,
+  getAttachmentBlob,
+  saveAttachmentBlob,
+} from './lib/attachmentStorage';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
 import { runViewTransition, useAnimatedPresence, useFlipList, useRetainedValue } from './lib/motion';
 import { blobToDataUrl, compressBackgroundImage, isSupportedImageFile } from './lib/imageCompression';
@@ -78,16 +96,6 @@ function getTodayStr(): string {
 
 function getTaskSortOrder(item: TodoItem): number {
   return item.sortOrder ?? -item.createdAtMs;
-}
-
-function getNextRepeatDate(baseYmd: string, rule: RepeatRule): string {
-  const [y, m, d] = baseYmd.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  if (rule === 'daily') dt.setDate(dt.getDate() + 1);
-  else if (rule === 'weekly') dt.setDate(dt.getDate() + 7);
-  else if (rule === 'monthly') dt.setMonth(dt.getMonth() + 1);
-  else if (rule === 'yearly') dt.setFullYear(dt.getFullYear() + 1);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -200,6 +208,7 @@ function ContextMenuIcon({ kind }: { kind: 'sun' | 'star' | 'check' | 'calendar'
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
+  const recurringSpawnedIdsRef = useRef<Set<string>>(new Set());
   const [authReady, setAuthReady] = useState(false);
   const [lists, setLists] = useState<TodoList[]>([]);
 
@@ -1188,6 +1197,10 @@ const [gridEditText, setGridEditText] = useState('');
           void showLocalNotification('Task Reminder', item.text, item.id);
           void updateDoc(doc(db, 'lists', item.listId, 'items', item.id), {
             reminderNotified: true,
+            reminderStatus: 'delivered',
+            reminderClaimExpiresAtMs: null,
+            reminderNextRetryAtMs: null,
+            reminderLastError: null,
           }).catch(() => {});
         }
       }
@@ -1267,6 +1280,7 @@ const [gridEditText, setGridEditText] = useState('');
       dueDate: (data.dueDate as string | null) ?? null,
       repeat: (data.repeat as RepeatRule) ?? 'none',
       repeatCustom: (data.repeatCustom as TodoItem['repeatCustom']) ?? null,
+      recurrenceSpawned: Boolean(data.recurrenceSpawned),
       reminderAtMs: (data.reminderAtMs as number | null) ?? null,
       reminderNotified: Boolean(data.reminderNotified),
       assignedTo: (data.assignedTo as string | null) ?? null,
@@ -2209,9 +2223,10 @@ const [gridEditText, setGridEditText] = useState('');
 
   const handleDeleteList = async (listId: string) => {
     if (!user) return;
+    const targetList = allLists.find((l) => l.id === listId);
+    if (!targetList || targetList.ownerUid !== user.uid) return;
     setError(null);
     try {
-      const targetList = allLists.find((l) => l.id === listId);
       const listItems = allItems.filter((i) => i.listId === listId);
       await Promise.all(
         listItems.map((i) =>
@@ -2456,11 +2471,31 @@ const [gridEditText, setGridEditText] = useState('');
     }
     const extraReminderReset =
       patch.reminderAtMs !== undefined && patch.reminderNotified === undefined
-        ? { reminderNotified: false }
+        ? {
+            reminderNotified: false,
+            reminderStatus: patch.reminderAtMs ? 'pending' : null,
+            reminderClaimedAtMs: null,
+            reminderClaimExpiresAtMs: null,
+            reminderAttempts: 0,
+            reminderNextRetryAtMs: null,
+            reminderLastError: null,
+            reminderDeliveredTokenIds: [],
+          }
         : {};
+    const shouldSpawnRecurring =
+      patch.done === true &&
+      !item.done &&
+      !item.recurrenceSpawned &&
+      Boolean(item.repeat && item.repeat !== 'none') &&
+      Boolean(user) &&
+      !recurringSpawnedIdsRef.current.has(item.id);
+    if (shouldSpawnRecurring) {
+      recurringSpawnedIdsRef.current.add(item.id);
+    }
     await updateDoc(doc(db, 'lists', item.listId, 'items', item.id), {
       ...patch,
       ...extraReminderReset,
+      ...(shouldSpawnRecurring ? { recurrenceSpawned: true } : {}),
       updatedAtMs: Date.now(),
       updatedAt: serverTimestamp(),
       updatedByUid: user?.uid ?? item.ownerUid,
@@ -2482,26 +2517,24 @@ const [gridEditText, setGridEditText] = useState('');
     }
     if (patch.done === true) {
       if (soundEnabled) playCompleteSound();
-      if (item.repeat && item.repeat !== 'none' && user) {
-        const nextDue = getNextRepeatDate(
-          item.dueDate ?? todayStr,
-          item.repeat
-        );
-        await addDoc(collection(db, 'lists', item.listId, 'items'), {
-          listId: item.listId,
-          ownerUid: user.uid,
-          text: item.text,
-          done: false,
-          important: item.important,
-          myDayDate: null,
-          dueDate: nextDue,
-          repeat: item.repeat,
-          category: item.category ?? null,
-          notes: item.notes,
-          steps: item.steps.map((s) => ({ ...s, done: false })),
-          createdAtMs: Date.now(),
-          completedAtMs: null,
+      if (shouldSpawnRecurring && user) {
+        const nextDue = getNextRepeatDate({
+          baseDate: item.dueDate,
+          rule: item.repeat,
+          custom: item.repeatCustom,
+          referenceDate: todayStr,
         });
+        if (nextDue) {
+          await addDoc(
+            collection(db, 'lists', item.listId, 'items'),
+            buildNextRecurringItemPayload({
+              item,
+              nextDue,
+              creatorUid: user.uid,
+              creatorName: user.displayName?.trim() || user.email?.trim() || null,
+            })
+          );
+        }
       }
     }
   };
@@ -2953,72 +2986,210 @@ const [gridEditText, setGridEditText] = useState('');
     }
   };
 
-  const handleImportJson = async (
-    file: File
-  ): Promise<{ lists: number; items: number; groups: number }> => {
+  const [hasPartialImport, setHasPartialImport] = useState<boolean>(() => {
+    try {
+      return Boolean(localStorage.getItem(LAST_IMPORT_BATCH_KEY));
+    } catch {
+      return false;
+    }
+  });
+
+  const handleInspectBackup = async (file: File): Promise<ParsedBackupPackage> => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return parseBackupBytes(bytes);
+  };
+
+  const handleRollbackPartialImport = async (): Promise<number> => {
+    if (!user) throw new Error('Sign in to remove a partial import.');
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(LAST_IMPORT_BATCH_KEY);
+    } catch {
+      raw = null;
+    }
+    if (!raw) {
+      setHasPartialImport(false);
+      return 0;
+    }
+    const record = JSON.parse(raw) as PartialImportRecord;
+    const ops: Array<() => { ref: ReturnType<typeof doc> }> = [
+      ...record.itemPaths.map((p) => () => ({ ref: doc(db, 'lists', p.listId, 'items', p.itemId) })),
+      ...record.listIds.map((id) => () => ({ ref: doc(db, 'lists', id) })),
+      ...record.groupIds.map((id) => () => ({ ref: doc(db, 'groups', id) })),
+    ];
+    for (let start = 0; start < ops.length; start += 400) {
+      const batch = writeBatch(db);
+      for (const op of ops.slice(start, start + 400)) {
+        batch.delete(op().ref);
+      }
+      await batch.commit();
+    }
+    for (const attId of record.attachmentIds ?? []) {
+      try {
+        await deleteAttachmentBlob(attId);
+      } catch {
+        // ignore local cleanup errors
+      }
+    }
+    try {
+      localStorage.removeItem(LAST_IMPORT_BATCH_KEY);
+    } catch {
+      // ignore storage errors
+    }
+    setHasPartialImport(false);
+    return ops.length;
+  };
+
+  const handleImportBackup = async (
+    pkg: ParsedBackupPackage,
+    mode: BackupImportMode,
+    onProgress?: (status: string) => void
+  ): Promise<{ lists: number; items: number; groups: number; attachments: number; missingAttachments: number }> => {
     if (!user) throw new Error('Sign in to import a backup.');
     setError(null);
+    const { manifest, attachmentBlobs } = pkg;
+    const batchId = crypto.randomUUID();
+    const partialRecord: PartialImportRecord = {
+      batchId,
+      createdAtMs: Date.now(),
+      groupIds: [],
+      listIds: [],
+      itemPaths: [],
+      attachmentIds: [],
+    };
+    const persistPartial = () => {
+      try {
+        localStorage.setItem(LAST_IMPORT_BATCH_KEY, JSON.stringify(partialRecord));
+        setHasPartialImport(true);
+      } catch {
+        // ignore storage errors
+      }
+    };
+
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as {
-        groups?: Array<Partial<TodoGroup> & { id?: string }>;
-        lists?: Array<Partial<TodoList> & { id?: string }>;
-        items?: Array<Partial<TodoItem>>;
-        settings?: Partial<AppSettings>;
-      };
-      if (
-        !parsed ||
-        typeof parsed !== 'object' ||
-        (!Array.isArray(parsed.lists) &&
-          !Array.isArray(parsed.items) &&
-          !Array.isArray(parsed.groups) &&
-          !parsed.settings)
-      ) {
-        throw new Error('Invalid backup file format.');
+      // If mode === 'replace', remove only the current user's owned groups, lists, and items
+      if (mode === 'replace') {
+        onProgress?.('Clearing existing owned data…');
+        const ownedListIds = new Set(lists.filter((l) => l.ownerUid === user.uid).map((l) => l.id));
+        const deleteRefs = [
+          ...rawItems
+            .filter((i) => ownedListIds.has(i.listId) || i.ownerUid === user.uid)
+            .map((i) => doc(db, 'lists', i.listId, 'items', i.id)),
+          ...lists.filter((l) => l.ownerUid === user.uid).map((l) => doc(db, 'lists', l.id)),
+          ...groups.filter((g) => g.ownerUid === user.uid).map((g) => doc(db, 'groups', g.id)),
+        ];
+        for (let start = 0; start < deleteRefs.length; start += 400) {
+          const batch = writeBatch(db);
+          deleteRefs.slice(start, start + 400).forEach((ref) => batch.delete(ref));
+          await batch.commit();
+        }
       }
 
+      // 1. Pre-allocate Firestore IDs and remap all relationships before writing
       const groupIdMap = new Map<string, string>();
-      let importedGroups = 0;
-      for (const g of parsed.groups ?? []) {
-        const ref = await addDoc(collection(db, 'groups'), {
-          title: g.title || 'Imported Group',
-          ownerUid: user.uid,
-          collapsed: Boolean(g.collapsed),
-          sortOrder: typeof g.sortOrder === 'number' ? g.sortOrder : Date.now(),
-          createdAt: serverTimestamp(),
-          ...(g.icon ? { icon: g.icon } : {}),
-        });
+      const groupWrites: Array<{ id: string; ref: ReturnType<typeof doc>; data: Record<string, unknown> }> = [];
+      for (const g of manifest.groups) {
+        const ref = doc(collection(db, 'groups'));
         if (g.id) groupIdMap.set(g.id, ref.id);
-        importedGroups += 1;
-      }
-
-      const idMap = new Map<string, string>();
-      let importedLists = 0;
-      for (const l of parsed.lists ?? []) {
-        const mappedGroupId =
-          l.groupId && groupIdMap.has(l.groupId) ? groupIdMap.get(l.groupId)! : null;
-        const ref = await addDoc(collection(db, 'lists'), {
-          title: l.title || 'Imported List',
-          ownerUid: user.uid,
-          createdAt: serverTimestamp(),
-          ...(l.icon ? { icon: l.icon } : {}),
-          ...(l.color ? { color: l.color } : {}),
-          ...(l.background ? { background: l.background } : {}),
-          ...(typeof l.sortOrder === 'number' ? { sortOrder: l.sortOrder } : {}),
-          ...(mappedGroupId ? { groupId: mappedGroupId } : {}),
+        groupWrites.push({
+          id: ref.id,
+          ref,
+          data: {
+            title: g.title || 'Imported Group',
+            ownerUid: user.uid,
+            collapsed: Boolean(g.collapsed),
+            sortOrder: typeof g.sortOrder === 'number' ? g.sortOrder : Date.now(),
+            createdAt: serverTimestamp(),
+            importBatchId: batchId,
+            ...(g.icon ? { icon: g.icon } : {}),
+          },
         });
-        if (l.id) idMap.set(l.id, ref.id);
-        importedLists += 1;
       }
 
-      let importedItems = 0;
-      const itemsToImport = parsed.items ?? [];
-      if (itemsToImport.length > 0) {
-        const fallbackListId = await ensureDefaultList();
-        for (const item of itemsToImport) {
-          const targetListId =
-            (item.listId && idMap.get(item.listId)) || fallbackListId;
-          await addDoc(collection(db, 'lists', targetListId, 'items'), {
+      const listIdMap = new Map<string, string>();
+      const listWrites: Array<{ id: string; ref: ReturnType<typeof doc>; data: Record<string, unknown> }> = [];
+      for (const l of manifest.lists) {
+        const ref = doc(collection(db, 'lists'));
+        if (l.id) listIdMap.set(l.id, ref.id);
+        const mappedGroupId = l.groupId && groupIdMap.has(l.groupId) ? groupIdMap.get(l.groupId)! : null;
+        // Personal restore: always owned by current user with no foreign memberUids
+        listWrites.push({
+          id: ref.id,
+          ref,
+          data: {
+            title: l.title || 'Imported List',
+            ownerUid: user.uid,
+            memberUids: [],
+            createdAt: serverTimestamp(),
+            importBatchId: batchId,
+            ...(l.icon ? { icon: l.icon } : {}),
+            ...(l.color ? { color: l.color } : {}),
+            ...(l.background ? { background: l.background } : {}),
+            ...(typeof l.sortOrder === 'number' ? { sortOrder: l.sortOrder } : {}),
+            ...(mappedGroupId ? { groupId: mappedGroupId } : {}),
+          },
+        });
+      }
+
+      const attachmentManifestById = new Map(
+        (manifest.attachments ?? []).map((entry) => [entry.id, entry])
+      );
+      const attachmentIdMap = new Map<string, { newId: string; missing: boolean }>();
+      let restoredAttachmentsCount = 0;
+      let missingAttachmentsCount = 0;
+
+      const itemsToImport = manifest.items ?? [];
+      let fallbackListId: string | null = null;
+      if (itemsToImport.some((i) => !i.listId || !listIdMap.has(i.listId))) {
+        fallbackListId = await ensureDefaultList();
+      }
+
+      const itemWrites: Array<{
+        listId: string;
+        itemId: string;
+        ref: ReturnType<typeof doc>;
+        data: Record<string, unknown>;
+      }> = [];
+
+      for (const item of itemsToImport) {
+        const targetListId = (item.listId && listIdMap.get(item.listId)) || fallbackListId!;
+        const ref = doc(collection(db, 'lists', targetListId, 'items'));
+        const remappedAttachments = [];
+        for (const att of item.attachments ?? []) {
+          if (!att?.id) continue;
+          let mapped = attachmentIdMap.get(att.id);
+          if (!mapped) {
+            const newAttId = crypto.randomUUID();
+            const entry = attachmentManifestById.get(att.id);
+            const rawBytes = entry?.archivePath ? attachmentBlobs.get(entry.archivePath) : undefined;
+            if (rawBytes) {
+              const bytesCopy = new Uint8Array(rawBytes.byteLength);
+              bytesCopy.set(rawBytes);
+              const blob = new Blob([bytesCopy], { type: att.type || entry?.type || 'application/octet-stream' });
+              await saveAttachmentBlob(newAttId, blob);
+              partialRecord.attachmentIds.push(newAttId);
+              restoredAttachmentsCount++;
+              mapped = { newId: newAttId, missing: false };
+            } else {
+              missingAttachmentsCount++;
+              mapped = { newId: newAttId, missing: true };
+            }
+            attachmentIdMap.set(att.id, mapped);
+          }
+          remappedAttachments.push({
+            id: mapped.newId,
+            name: att.name,
+            size: att.size,
+            ...(att.type ? { type: att.type } : {}),
+            ...(mapped.missing ? { missing: true } : {}),
+          });
+        }
+
+        itemWrites.push({
+          listId: targetListId,
+          itemId: ref.id,
+          ref,
+          data: {
             listId: targetListId,
             ownerUid: user.uid,
             text: item.text || 'Untitled task',
@@ -3027,36 +3198,97 @@ const [gridEditText, setGridEditText] = useState('');
             myDayDate: item.myDayDate ?? null,
             dueDate: item.dueDate ?? null,
             reminderAtMs: item.reminderAtMs ?? null,
+            reminderNotified:
+              typeof item.reminderNotified === 'boolean' ? item.reminderNotified : false,
+            reminderStatus: item.reminderAtMs
+              ? (item.reminderNotified ? 'delivered' : 'pending')
+              : null,
             repeat: item.repeat ?? 'none',
+            repeatCustom: item.repeatCustom ?? null,
+            recurrenceSpawned: Boolean(item.recurrenceSpawned),
+            assignedTo: null,
             category: item.category ?? null,
             notes: item.notes ?? '',
             steps: Array.isArray(item.steps) ? item.steps : [],
-            attachments: Array.isArray(item.attachments) ? item.attachments : [],
+            attachments: remappedAttachments,
             sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : Date.now(),
             createdAtMs: item.createdAtMs ?? Date.now(),
             completedAtMs: item.completedAtMs ?? null,
             deletedAtMs: item.deletedAtMs ?? null,
-          });
-          importedItems += 1;
+            importBatchId: batchId,
+          },
+        });
+      }
+
+      // 2. Commit all writes in bounded batches of 400
+      type WriteOp =
+        | { kind: 'group'; id: string; ref: ReturnType<typeof doc>; data: Record<string, unknown> }
+        | { kind: 'list'; id: string; ref: ReturnType<typeof doc>; data: Record<string, unknown> }
+        | { kind: 'item'; listId: string; itemId: string; ref: ReturnType<typeof doc>; data: Record<string, unknown> };
+
+      const allOps: WriteOp[] = [
+        ...groupWrites.map((w) => ({ kind: 'group' as const, ...w })),
+        ...listWrites.map((w) => ({ kind: 'list' as const, ...w })),
+        ...itemWrites.map((w) => ({ kind: 'item' as const, ...w })),
+      ];
+
+      const totalBatches = Math.max(1, Math.ceil(allOps.length / 400));
+      for (let batchIdx = 0; batchIdx < allOps.length; batchIdx += 400) {
+        const chunk = allOps.slice(batchIdx, batchIdx + 400);
+        const batchNum = Math.floor(batchIdx / 400) + 1;
+        onProgress?.(`Writing batch ${batchNum}/${totalBatches}…`);
+        const batch = writeBatch(db);
+        for (const op of chunk) {
+          batch.set(op.ref, op.data);
         }
+        await batch.commit();
+        for (const op of chunk) {
+          if (op.kind === 'group') partialRecord.groupIds.push(op.id);
+          else if (op.kind === 'list') partialRecord.listIds.push(op.id);
+          else partialRecord.itemPaths.push({ listId: op.listId, itemId: op.itemId });
+        }
+        persistPartial();
       }
 
-      if (parsed.settings && typeof parsed.settings === 'object') {
-        updateAppSettings(parsed.settings);
+      if (manifest.settings && typeof manifest.settings === 'object') {
+        updateAppSettings(manifest.settings);
       }
 
-      return { lists: importedLists, items: importedItems, groups: importedGroups };
+      try {
+        localStorage.removeItem(LAST_IMPORT_BATCH_KEY);
+      } catch {
+        // ignore storage errors
+      }
+      setHasPartialImport(false);
+
+      return {
+        groups: groupWrites.length,
+        lists: listWrites.length,
+        items: itemWrites.length,
+        attachments: restoredAttachmentsCount,
+        missingAttachments: missingAttachmentsCount,
+      };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to import JSON';
+      const committedCount =
+        partialRecord.groupIds.length +
+        partialRecord.listIds.length +
+        partialRecord.itemPaths.length;
+      const baseMsg = err instanceof Error ? err.message : 'Failed to import backup';
+      const msg =
+        committedCount > 0
+          ? `${baseMsg} (${committedCount} record(s) were written before stopping; use "Remove partial import" to clean up.)`
+          : baseMsg;
       setError(msg);
       throw new Error(msg);
     }
   };
 
-  const handleExportJson = () => {
-    const payload = {
-      version: '0.1.0',
-      exportedAt: new Date().toISOString(),
+  const handleExportJson = async (): Promise<{
+    items: number;
+    trashedItems: number;
+    warnings: string[];
+  }> => {
+    const { zipBytes, missingAttachmentWarnings } = await buildBackupArchive({
       account: user
         ? {
             uid: user.uid,
@@ -3072,17 +3304,26 @@ const [gridEditText, setGridEditText] = useState('');
       },
       groups,
       lists: allLists,
-      items: allItems,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: 'application/json',
+      items: rawItems,
+      readAttachmentBlob: getAttachmentBlob,
     });
+    const zipCopy = new Uint8Array(zipBytes.byteLength);
+    zipCopy.set(zipBytes);
+    const blob = new Blob([zipCopy], { type: 'application/zip' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `todo-backup-${todayStr}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `todo-backup-${todayStr}.zip`;
+      a.click();
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    return {
+      items: rawItems.length,
+      trashedItems: trashedItems.length,
+      warnings: missingAttachmentWarnings,
+    };
   };
 
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -4670,7 +4911,7 @@ const [gridEditText, setGridEditText] = useState('');
                       </button>
                     );
                   })()}
-                  {selection.type === 'list' && (
+                  {selection.type === 'list' && currentList?.ownerUid === user.uid && (
                     <>
                       <div className="account-popover-divider" />
                       <button type="button" role="menuitem" className="account-popover-item list-menu-item danger" onClick={() => { setListMenuOpen(false); handleDeleteList(selection.id); }}>
@@ -6717,7 +6958,10 @@ const [gridEditText, setGridEditText] = useState('');
           settings={appSettings}
           onUpdateSettings={updateAppSettings}
           onExportJson={handleExportJson}
-          onImportJson={handleImportJson}
+          onInspectBackup={handleInspectBackup}
+          onImportBackup={handleImportBackup}
+          onRollbackPartialImport={handleRollbackPartialImport}
+          hasPartialImport={hasPartialImport}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -6734,9 +6978,8 @@ const [gridEditText, setGridEditText] = useState('');
               });
             }}
             onRemoveMember={async (uid) => {
-              const existing = targetList.memberUids ?? [];
               await updateDoc(doc(db, 'lists', targetList.id), {
-                memberUids: existing.filter((m) => m !== uid),
+                memberUids: arrayRemove(uid),
               });
             }}
             onClose={() => setShareListId(null)}

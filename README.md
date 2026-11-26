@@ -146,6 +146,8 @@ cd workers/reminder-cron
    npx wrangler secret put FIREBASE_PRIVATE_KEY
    ```
    > **Tip for `FIREBASE_PRIVATE_KEY`:** Copy everything between the quotes `"..."` (including `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----\n`).
+   >
+   > **Optional manual trigger secret:** Scheduled reminders run automatically via Cloudflare Cron. If you also want to manually trigger `POST /run` as an operator, set a random secret with `npx wrangler secret put REMINDER_RUN_SECRET` and pass it in the `Authorization: Bearer <secret>` header (never in URLs or client code). Without `REMINDER_RUN_SECRET`, `/run` rejects all requests.
 
 3. Deploy the Worker:
    ```bash
@@ -227,3 +229,23 @@ When it finishes, it will print your live website URL (like `https://your-projec
 - **Swipe Left to Delete**: Swipe left on any task row to reveal the delete action and release to remove it.
 - **Long-Press Multi-Select & Context Menu**: Long-press a task to enter selection mode, tap additional tasks to select them, and long-press again to open the context menu (**Cut**, **Copy**, **Move**, **Due date / Remove due date**, **Delete**).
 - **List & Group Context Menus**: Long-press any list or group in the sidebar to rename, move, share, or delete it.
+
+---
+
+## Testing & Verification
+
+Run the automated test suite and type checks locally (no Firebase production credentials required):
+
+```bash
+# Unit tests (recurrence, natural-language parsing, search, backup/restore, reminder worker)
+npm test
+
+# Type-check the Cloudflare reminder worker
+npm run typecheck:worker
+
+# Production type-check and build
+npm run build
+
+# Firestore security rules tests (requires Java 21+ for Firebase Emulator)
+npm run test:rules
+```

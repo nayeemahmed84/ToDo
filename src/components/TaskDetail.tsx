@@ -851,23 +851,28 @@ export function TaskDetail({
           >
             <button
               type="button"
-              onClick={() => void handlePreviewAttachment(att)}
-              title="Click to preview"
+              disabled={Boolean(att.missing)}
+              onClick={() => {
+                if (att.missing) return;
+                void handlePreviewAttachment(att);
+              }}
+              title={att.missing ? 'File data was not included in backup' : 'Click to preview'}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '8px',
                 background: 'none',
                 border: 'none',
-                color: 'inherit',
+                color: att.missing ? 'var(--color-text-2)' : 'inherit',
                 padding: 0,
-                cursor: 'pointer',
+                cursor: att.missing ? 'not-allowed' : 'pointer',
+                opacity: att.missing ? 0.75 : 1,
                 textAlign: 'left',
                 minWidth: 0,
                 flex: 1,
               }}
             >
-              {attachmentThumbs[att.id] ? (
+              {attachmentThumbs[att.id] && !att.missing ? (
                 <img
                   src={attachmentThumbs[att.id]}
                   alt={att.name}
@@ -877,19 +882,21 @@ export function TaskDetail({
                 <PaperclipIcon size={14} />
               )}
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {att.name} ({Math.max(1, Math.round(att.size / 1024))} KB)
+                {att.name} ({Math.max(1, Math.round(att.size / 1024))} KB){att.missing ? ' — file unavailable' : ''}
               </span>
             </button>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-              <button
-                type="button"
-                className="clear-btn"
-                title="Download"
-                aria-label={`Download ${att.name}`}
-                onClick={() => void handleDownloadAttachment(att)}
-              >
-                ↓
-              </button>
+              {!att.missing && (
+                <button
+                  type="button"
+                  className="clear-btn"
+                  title="Download"
+                  aria-label={`Download ${att.name}`}
+                  onClick={() => void handleDownloadAttachment(att)}
+                >
+                  ↓
+                </button>
+              )}
               <button
                 type="button"
                 className="clear-btn"
@@ -1116,40 +1123,43 @@ export function TaskDetail({
               <option value="years">years</option>
             </select>
           </div>
-          <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
-            {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((dLabel, idx) => {
-              const active = repeatDays.includes(idx);
-              return (
-                <button
-                  key={dLabel}
-                  type="button"
-                  onClick={() => setRepeatDays((prev) => (prev.includes(idx) ? prev.filter((x) => x !== idx) : [...prev, idx]))}
-                  style={{
-                    padding: '3px 6px',
-                    fontSize: '0.75rem',
-                    borderRadius: '4px',
-                    border: '1px solid var(--color-border)',
-                    background: active ? 'var(--color-accent)' : 'transparent',
-                    color: active ? 'var(--color-text-inverse)' : 'var(--color-text)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {dLabel}
-                </button>
-              );
-            })}
-          </div>
+          {repeatUnit === 'weeks' && (
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
+              {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((dLabel, idx) => {
+                const active = repeatDays.includes(idx);
+                return (
+                  <button
+                    key={dLabel}
+                    type="button"
+                    onClick={() => setRepeatDays((prev) => (prev.includes(idx) ? prev.filter((x) => x !== idx) : [...prev, idx]))}
+                    style={{
+                      padding: '3px 6px',
+                      fontSize: '0.75rem',
+                      borderRadius: '4px',
+                      border: '1px solid var(--color-border)',
+                      background: active ? 'var(--color-accent)' : 'transparent',
+                      color: active ? 'var(--color-text-inverse)' : 'var(--color-text)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {dLabel}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
             <button type="button" className="chip-btn" onClick={() => setCustomRepeatOpen(false)}>
               Cancel
             </button>
             <button
               type="button"
-              disabled={repeatDays.length === 0}
+              disabled={repeatUnit === 'weeks' && repeatDays.length === 0}
               className="chip-btn"
-              style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)', opacity: repeatDays.length === 0 ? 0.5 : 1 }}
+              style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)', opacity: repeatUnit === 'weeks' && repeatDays.length === 0 ? 0.5 : 1 }}
               onClick={() => {
-                onUpdate(item, { repeat: 'custom', repeatCustom: { interval: repeatInterval, unit: repeatUnit, days: repeatDays } });
+                const sortedDays = repeatUnit === 'weeks' ? [...repeatDays].sort((a, b) => a - b) : [];
+                onUpdate(item, { repeat: 'custom', repeatCustom: { interval: repeatInterval, unit: repeatUnit, days: sortedDays } });
                 setCustomRepeatOpen(false);
               }}
             >

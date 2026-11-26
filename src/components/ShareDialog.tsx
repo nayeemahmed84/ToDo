@@ -200,38 +200,40 @@ export function ShareDialog({
           </div>
         </div>
 
-        <form onSubmit={handleInvite} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Invite via email</label>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <input
-              type="email"
-              placeholder="Enter email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{ flex: 1, padding: '6px 8px', fontSize: '0.85rem', background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
-            />
-            <button
-              type="submit"
-              disabled={!isValidEmail}
-              style={{
-                background: 'var(--color-accent)',
-                color: 'var(--color-text-inverse)',
-                border: 'none',
-                borderRadius: '4px',
-                padding: '6px 14px',
-                fontSize: '0.85rem',
-                cursor: isValidEmail ? 'pointer' : 'not-allowed',
-                opacity: isValidEmail ? 1 : 0.5,
-              }}
-            >
-              Invite
-            </button>
-          </div>
-          {email.trim().length > 0 && !isValidEmail && (
-            <div style={{ fontSize: '0.78rem', color: 'var(--color-danger)' }}>Enter a valid email address</div>
-          )}
-          {statusMsg && <div style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>{statusMsg}</div>}
-        </form>
+        {isOwner && (
+          <form onSubmit={handleInvite} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Invite via email</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="email"
+                placeholder="Enter email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{ flex: 1, padding: '6px 8px', fontSize: '0.85rem', background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
+              />
+              <button
+                type="submit"
+                disabled={!isValidEmail}
+                style={{
+                  background: 'var(--color-accent)',
+                  color: 'var(--color-text-inverse)',
+                  border: 'none',
+                  borderRadius: '4px',
+                  padding: '6px 14px',
+                  fontSize: '0.85rem',
+                  cursor: isValidEmail ? 'pointer' : 'not-allowed',
+                  opacity: isValidEmail ? 1 : 0.5,
+                }}
+              >
+                Invite
+              </button>
+            </div>
+            {email.trim().length > 0 && !isValidEmail && (
+              <div style={{ fontSize: '0.78rem', color: 'var(--color-danger)' }}>Enter a valid email address</div>
+            )}
+            {statusMsg && <div style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>{statusMsg}</div>}
+          </form>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
           <div style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>
