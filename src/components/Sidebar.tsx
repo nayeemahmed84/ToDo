@@ -1,4 +1,5 @@
 import { DragEvent as ReactDragEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { User } from 'firebase/auth';
 import { SmartListId, TodoGroup, TodoList, ViewSelection } from '../types/todo';
 import { EmojiPicker } from './EmojiPicker';
@@ -397,7 +398,6 @@ export function Sidebar({
         onDrop={(event) => handleListDrop(event, list)}
         onContextMenu={(event) => {
           event.preventDefault();
-          onSelect({ type: 'list', id: list.id });
           setMoveToGroupOpen(false);
           setSidebarMenu({ type: 'list', id: list.id, x: event.clientX, y: event.clientY });
         }}
@@ -958,7 +958,7 @@ export function Sidebar({
           </div>
         )}
   
-      {sidebarMenu && (
+      {sidebarMenu && createPortal(
         <>
           <div
             aria-hidden="true"
@@ -1154,7 +1154,8 @@ export function Sidebar({
           })()
           }
         </div>
-        </>
+        </>,
+        document.body
       )}
     </aside>
     </>

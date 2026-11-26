@@ -620,6 +620,7 @@ export function App() {
   const [taskSubmenu, setTaskSubmenu] = useState<"move" | "copy" | null>(null);
   const [taskSubmenuPosition, setTaskSubmenuPosition] = useState<ContextSubmenuPosition | null>(null);
   const headerTitleInputRef = useRef<HTMLInputElement>(null);
+  const headerTitleBeforeEditRef = useRef<string | null>(null);
   const backgroundImageInputRef = useRef<HTMLInputElement>(null);
   const addTaskFormRef = useRef<HTMLFormElement>(null);
   const addTaskInputRef = useRef<HTMLInputElement>(null);
@@ -3739,6 +3740,11 @@ const [gridEditText, setGridEditText] = useState('');
           collapsed={sidebarCollapsed}
           onClose={() => setSidebarOpen(false)}
           onSelect={(sel) => {
+            if (sel.type === selection.type && sel.id === selection.id) {
+              setMobileView('list');
+              setMobileAddOpen(false);
+              return;
+            }
             runViewTransition(() => {
               setSelection(sel);
               setMobileView('list');
@@ -4136,6 +4142,9 @@ const [gridEditText, setGridEditText] = useState('');
                     aria-label="List name"
                     className="header-title-input"
                     value={currentTitle}
+                    onFocus={(e) => {
+                      headerTitleBeforeEditRef.current = e.target.value.trim();
+                    }}
                     onChange={(e) => {
                       const val = e.target.value;
                       setLists((prev) => prev.map((list) =>
@@ -4144,8 +4153,12 @@ const [gridEditText, setGridEditText] = useState('');
                     }}
                     onBlur={(e) => {
                       const trimmed = e.target.value.trim();
+                      const didTitleChange =
+                        headerTitleBeforeEditRef.current !== null &&
+                        trimmed !== headerTitleBeforeEditRef.current;
+                      headerTitleBeforeEditRef.current = null;
                       if (trimmed) {
-                        const suggestedIcon = suggestEmoji(trimmed);
+                        const suggestedIcon = didTitleChange ? suggestEmoji(trimmed) : null;
                         updateDoc(doc(db, 'lists', selection.id), {
                           title: trimmed,
                           ...(suggestedIcon ? { icon: suggestedIcon } : {}),
