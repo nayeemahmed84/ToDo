@@ -5000,7 +5000,7 @@ button.primary.small {
 
 .detail-schedule-section {
   position: relative;
-  padding: 0 14px;
+  padding: 0;
 }
 
 .detail-schedule-section + .detail-schedule-section {
@@ -5013,7 +5013,7 @@ button.primary.small {
   min-height: 48px;
   align-items: center;
   gap: 12px;
-  padding: 0 2px;
+  padding: 0 14px;
   border: 0;
   background: transparent;
   color: #d1d1d1;
@@ -5216,7 +5216,7 @@ button.primary.small {
 
 .detail-note-card {
   min-height: 76px;
-  padding: 14px 16px;
+  padding: 14px;
 }
 
 .detail-panel textarea.notes-input {
@@ -7634,8 +7634,8 @@ a {
 
 :root[data-theme="dark"] .detail-schedule-trigger:hover,
 :root[data-theme="dark"] .detail-schedule-trigger[aria-expanded="true"] {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
+  background: transparent;
+  color: #fff;
 }
 
 :root[data-theme="dark"] .add-step-form input {
@@ -7842,8 +7842,8 @@ a {
 
 :root[data-theme="dark"] .detail-schedule-trigger:hover,
 :root[data-theme="dark"] .detail-schedule-trigger[aria-expanded="true"] {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
+  background: transparent;
+  color: #fff;
 }
 
 :root[data-theme="dark"] .add-step-form input {
