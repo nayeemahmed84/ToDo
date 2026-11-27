@@ -1,7 +1,7 @@
-import { RepeatRule } from '../types/todo';
+import { RepeatRule, TaskPriority } from '../types/todo';
 
 export interface ParsedTaskInput {
-  /** Cleaned task title with date/time/repeat phrases removed */
+  /** Cleaned task title with date/time/repeat/tag/priority/estimate phrases removed */
   title: string;
   /** YYYY-MM-DD */
   dueDate: string | null;
@@ -9,7 +9,13 @@ export interface ParsedTaskInput {
   reminderAtMs: number | null;
   /** Detected recurrence rule */
   repeat: RepeatRule | null;
-  /** Whether any smart schedule was detected */
+  /** Extracted #hashtags (lowercase, deduplicated) */
+  tags: string[];
+  /** Extracted priority (!p1..p4 or !urgent/!high) */
+  priority: TaskPriority | null;
+  /** Extracted effort estimate in minutes (~15m, ~1h, ~1.5h) */
+  estimateMinutes: number | null;
+  /** Whether any smart schedule or metadata was detected */
   hasMatch: boolean;
 }
 
@@ -68,7 +74,16 @@ function getNextWeekdayDate(now: Date, targetDay: number, forceNextWeek: boolean
 export function parseTaskInput(rawText: string, now = new Date()): ParsedTaskInput {
   const original = rawText.trim();
   if (!original) {
-    return { title: '', dueDate: null, reminderAtMs: null, repeat: null, hasMatch: false };
+    return {
+      title: '',
+      dueDate: null,
+      reminderAtMs: null,
+      repeat: null,
+      tags: [],
+      priority: null,
+      estimateMinutes: null,
+      hasMatch: false,
+    };
   }
 
   let working = original;
@@ -76,6 +91,9 @@ export function parseTaskInput(rawText: string, now = new Date()): ParsedTaskInp
   let timeHour: number | null = null;
   let timeMinute = 0;
   let repeat: RepeatRule | null = null;
+  const tags: string[] = [];
+  let priority: TaskPriority | null = null;
+  let estimateMinutes: number | null = null;
   let hasExplicitDate = false;
   let hasExplicitTime = false;
 
@@ -86,6 +104,36 @@ export function parseTaskInput(rawText: string, now = new Date()): ParsedTaskInp
       working = `${working.slice(0, m.index)} ${working.slice(m.index + m[0].length)}`.replace(/\s+/g, ' ').trim();
     }
   };
+
+  // 0a. Extract #hashtags (e.g. #work, #q4-launch)
+  working = working
+    .replace(/(^|\s)#([a-zA-Z0-9][a-zA-Z0-9_-]{0,31})\b/g, (_full, prefix: string, tag: string) => {
+      const normalized = tag.toLowerCase();
+      if (!tags.includes(normalized)) tags.push(normalized);
+      return prefix;
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // 0b. Extract priority tokens (!p1..p4, !urgent, !high, !med, !low)
+  stripMatch(/(?:^|\s)!(p1|p2|p3|p4|urgent|high|medium|med|low)\b/i, (m) => {
+    const token = m[1].toLowerCase();
+    if (token === 'p1' || token === 'urgent' || token === 'high') priority = 'p1';
+    else if (token === 'p2' || token === 'medium' || token === 'med') priority = 'p2';
+    else if (token === 'p3' || token === 'low') priority = 'p3';
+    else if (token === 'p4') priority = 'p4';
+  });
+
+  // 0c. Extract effort estimates (~15m, ~30min, ~1h, ~1.5h, ~2hrs)
+  stripMatch(/(?:^|\s)~(\d+(?:\.\d+)?)\s*(m|min|mins|h|hr|hrs)\b/i, (m) => {
+    const amount = parseFloat(m[1]);
+    const unit = m[2].toLowerCase();
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const mins = unit.startsWith('h') ? Math.round(amount * 60) : Math.round(amount);
+    if (mins > 0 && mins <= 24 * 60) {
+      estimateMinutes = mins;
+    }
+  });
 
   // 1. Recurrence phrases: "every day", "every Monday", "every weekday", "daily", "weekly", etc.
   stripMatch(
@@ -311,7 +359,13 @@ export function parseTaskInput(rawText: string, now = new Date()): ParsedTaskInp
   // Clean up dangling prepositions left at the end (e.g. "Pay bill by")
   working = working.replace(/\b(?:by|on|at|for|due|before|until)\s*$/i, '').replace(/\s+/g, ' ').trim();
 
-  const hasMatch = hasExplicitDate || hasExplicitTime || repeat !== null;
+  const hasMatch =
+    hasExplicitDate ||
+    hasExplicitTime ||
+    repeat !== null ||
+    tags.length > 0 ||
+    priority !== null ||
+    estimateMinutes !== null;
   const dueDate = dueDateObj ? toYmd(dueDateObj) : null;
   let reminderAtMs: number | null = null;
   if (hasExplicitTime && timeHour !== null && dueDateObj) {
@@ -324,6 +378,9 @@ export function parseTaskInput(rawText: string, now = new Date()): ParsedTaskInp
     dueDate,
     reminderAtMs,
     repeat,
+    tags,
+    priority,
+    estimateMinutes,
     hasMatch,
   };
 }

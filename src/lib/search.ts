@@ -141,6 +141,12 @@ export function scoreTodoItemMatch(
     return titleScore + 200;
   }
 
+  const tagsText = (item.tags ?? []).join(' ');
+  const tagScore = tagsText ? scoreTextMatch(tagsText, normQuery) : 0;
+  if (tagScore > 0) {
+    return tagScore + 150;
+  }
+
   let bestStepScore = 0;
   for (const step of item.steps ?? []) {
     const s = scoreTextMatch(step.text, normQuery);
@@ -155,11 +161,13 @@ export function scoreTodoItemMatch(
     return notesScore + 50;
   }
 
-  // Cross-field match: e.g. query tokens split across title, steps, notes, and list title
+  // Cross-field match: e.g. query tokens split across title, tags, steps, notes, comments, and list title
   const combined = [
     item.text,
+    tagsText,
     ...(item.steps ?? []).map((s) => s.text),
     item.notes ?? '',
+    ...(item.comments ?? []).map((c) => c.text),
     listTitle ?? '',
   ]
     .filter(Boolean)

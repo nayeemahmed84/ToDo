@@ -48,6 +48,14 @@ import { suggestEmoji } from './lib/suggestEmoji';
 import { EmojiText, resolveEmojiShortcodes } from './lib/emoji';
 import { scoreTextMatch, scoreTodoItemMatch } from './lib/search';
 import { parseTaskInput } from './lib/parseTaskInput';
+import { FocusTimerBar } from './components/FocusTimerBar';
+import { PlannedCalendarView } from './components/PlannedCalendarView';
+import { InsightsModal } from './components/InsightsModal';
+import { CommandPalette } from './components/CommandPalette';
+import { TemplatesModal } from './components/TemplatesModal';
+import { downloadIcsFile } from './lib/ical';
+import { isVoiceCaptureSupported, startVoiceCapture, type VoiceCaptureHandle } from './lib/voiceCapture';
+import type { ListTemplate, TaskActivity } from './types/todo';
 import {
   buildNextRecurringItemPayload,
   getNextRepeatDate,
@@ -467,13 +475,28 @@ export function App() {
   const [addRowExpanded, setAddRowExpanded] = useState(false);
   const [addInputFocused, setAddInputFocused] = useState(false);
   const [suggestionsLimit, setSuggestionsLimit] = useState(10);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  const [focusInitialMinutes, setFocusInitialMinutes] = useState<number | undefined>(undefined);
+  const [plannedCalendarMode, setPlannedCalendarMode] = useState(false);
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const voiceHandleRef = useRef<VoiceCaptureHandle | null>(null);
 
   useEffect(() => {
     setEmojiPickerOpen(false);
+    setActiveTagFilter(null);
   }, [selection.type, selection.id, searchQuery]);
 
   useEffect(() => {
     const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         const searchEl = document.querySelector<HTMLInputElement>('.search-input');
@@ -1276,6 +1299,16 @@ const [gridEditText, setGridEditText] = useState('');
       text: (data.text as string) ?? '',
       done: Boolean(data.done),
       important: Boolean(data.important),
+      priority: (data.priority as TodoItem['priority']) ?? null,
+      estimateMinutes: typeof data.estimateMinutes === 'number' ? data.estimateMinutes : null,
+      tags: Array.isArray(data.tags) ? data.tags.filter((t): t is string => typeof t === 'string') : [],
+      blockedByIds: Array.isArray(data.blockedByIds)
+        ? data.blockedByIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      focusMinutes: typeof data.focusMinutes === 'number' ? data.focusMinutes : 0,
+      focusSessions: typeof data.focusSessions === 'number' ? data.focusSessions : 0,
+      comments: Array.isArray(data.comments) ? data.comments : [],
+      activity: Array.isArray(data.activity) ? data.activity : [],
       myDayDate: (data.myDayDate as string | null) ?? null,
       dueDate: (data.dueDate as string | null) ?? null,
       repeat: (data.repeat as RepeatRule) ?? 'none',
@@ -1523,6 +1556,9 @@ const [gridEditText, setGridEditText] = useState('');
       arr.sort((a, b) => getTaskSortOrder(a) - getTaskSortOrder(b));
     } else if (sortBy === 'importance') {
       arr.sort((a, b) => (Number(b.important) - Number(a.important)) * dir || a.createdAtMs - b.createdAtMs);
+    } else if (sortBy === 'priority') {
+      const rank = (p?: TodoItem['priority']) => (p === 'p1' ? 1 : p === 'p2' ? 2 : p === 'p3' ? 3 : p === 'p4' ? 4 : 5);
+      arr.sort((a, b) => (rank(a.priority) - rank(b.priority)) * dir || a.createdAtMs - b.createdAtMs);
     } else if (sortBy === 'dueDate') {
       arr.sort((a, b) => {
         if (!a.dueDate && !b.dueDate) return a.createdAtMs - b.createdAtMs;
@@ -1544,8 +1580,45 @@ const [gridEditText, setGridEditText] = useState('');
     return arr;
   }, [visibleItems, sortBy, sortAsc, todayStr, searchQuery, searchScores]);
 
-  const activeItems = sortedVisible.filter((i) => !i.done || sandExitingIds.has(i.id));
-  const completedItems = sortedVisible.filter((i) => i.done && !sandExitingIds.has(i.id));
+  const allViewTags = useMemo(() => {
+    const countsByTag = new Map<string, number>();
+    for (const item of visibleItems) {
+      for (const tag of item.tags ?? []) {
+        countsByTag.set(tag, (countsByTag.get(tag) ?? 0) + 1);
+      }
+    }
+    return Array.from(countsByTag.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([tag, count]) => ({ tag, count }));
+  }, [visibleItems]);
+
+  const tagFilteredVisible = useMemo(() => {
+    if (!activeTagFilter) return sortedVisible;
+    return sortedVisible.filter((i) => (i.tags ?? []).includes(activeTagFilter));
+  }, [sortedVisible, activeTagFilter]);
+
+  const activeItems = tagFilteredVisible.filter((i) => !i.done || sandExitingIds.has(i.id));
+  const completedItems = tagFilteredVisible.filter((i) => i.done && !sandExitingIds.has(i.id));
+
+  const incompleteItemIds = useMemo(
+    () => new Set(allItems.filter((i) => !i.done && !i.deletedAtMs).map((i) => i.id)),
+    [allItems]
+  );
+
+  const getBlockedCount = (item: TodoItem): number => {
+    if (!item.blockedByIds?.length) return 0;
+    return item.blockedByIds.filter((id) => incompleteItemIds.has(id)).length;
+  };
+
+  const myDayPlannedMinutes = useMemo(() => {
+    if (selection.type !== 'smart' || selection.id !== 'my-day') return 0;
+    return activeItems.reduce((sum, item) => sum + (item.estimateMinutes ?? 0), 0);
+  }, [selection, activeItems]);
+
+  const focusTask = useMemo(
+    () => (focusTaskId ? allItems.find((i) => i.id === focusTaskId) ?? null : null),
+    [focusTaskId, allItems]
+  );
   const reorderListId =
     selection.type === 'list'
       ? selection.id
@@ -2426,6 +2499,9 @@ const [gridEditText, setGridEditText] = useState('');
         reminderAtMs: resolvedReminderAtMs,
         reminderNotified: false,
         repeat: resolvedRepeat,
+        tags: parsed?.tags ?? [],
+        priority: parsed?.priority ?? null,
+        estimateMinutes: parsed?.estimateMinutes ?? null,
         notes: '',
         category: null,
         steps: [],
@@ -2492,10 +2568,37 @@ const [gridEditText, setGridEditText] = useState('');
     if (shouldSpawnRecurring) {
       recurringSpawnedIdsRef.current.add(item.id);
     }
+    const actorName = user?.displayName?.trim() || user?.email?.trim() || 'You';
+    let activityNote: string | null = null;
+    if (patch.done === true && !item.done) activityNote = 'marked this task complete';
+    else if (patch.done === false && item.done) activityNote = 'reopened this task';
+    else if (patch.dueDate !== undefined && patch.dueDate !== item.dueDate) {
+      activityNote = patch.dueDate ? `set due date to ${patch.dueDate}` : 'cleared the due date';
+    } else if (patch.priority !== undefined && patch.priority !== item.priority) {
+      activityNote = patch.priority ? `set priority to ${patch.priority.toUpperCase()}` : 'cleared priority';
+    } else if (patch.focusMinutes !== undefined && patch.focusMinutes !== item.focusMinutes) {
+      const diff = Math.max(1, (patch.focusMinutes ?? 0) - (item.focusMinutes ?? 0));
+      activityNote = `logged ${diff}m of focus time`;
+    } else if (patch.comments && patch.comments.length > (item.comments?.length ?? 0)) {
+      activityNote = 'added a comment';
+    }
+    const nextActivity: TaskActivity[] | undefined = activityNote
+      ? [
+          ...(item.activity ?? []).slice(-29),
+          {
+            id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            text: activityNote,
+            actorName,
+            createdAtMs: Date.now(),
+          },
+        ]
+      : undefined;
+
     await updateDoc(doc(db, 'lists', item.listId, 'items', item.id), {
       ...patch,
       ...extraReminderReset,
       ...(shouldSpawnRecurring ? { recurrenceSpawned: true } : {}),
+      ...(nextActivity ? { activity: nextActivity } : {}),
       updatedAtMs: Date.now(),
       updatedAt: serverTimestamp(),
       updatedByUid: user?.uid ?? item.ownerUid,
@@ -3928,6 +4031,176 @@ const [gridEditText, setGridEditText] = useState('');
     );
   }
 
+  const handleVoiceToggle = () => {
+    if (voiceListening) {
+      voiceHandleRef.current?.stop();
+      voiceHandleRef.current = null;
+      setVoiceListening(false);
+      return;
+    }
+    const handle = startVoiceCapture({
+      onTranscript: (text) => {
+        setNewItemText(text);
+        setSmartParseEnabled(true);
+        setAddRowExpanded(true);
+      },
+      onError: () => {
+        setVoiceListening(false);
+        voiceHandleRef.current = null;
+      },
+      onEnd: () => {
+        setVoiceListening(false);
+        voiceHandleRef.current = null;
+      },
+    });
+    if (handle) {
+      voiceHandleRef.current = handle;
+      setVoiceListening(true);
+    }
+  };
+
+  const handleQuickAddTaskText = async (rawText: string, overrideDueDate?: string) => {
+    if (!user || !rawText.trim()) return;
+    const targetListId = await ensureDefaultList();
+    const parsed = parseTaskInput(rawText);
+    const addedText = parsed.hasMatch ? parsed.title : rawText.trim();
+    const dueDate = overrideDueDate ?? parsed.dueDate ?? null;
+    await addDoc(collection(db, 'lists', targetListId, 'items'), {
+      listId: targetListId,
+      ownerUid: user.uid,
+      createdByName: user.displayName?.trim() || user.email?.trim() || null,
+      text: addedText,
+      done: false,
+      important: false,
+      myDayDate: selection.type === 'smart' && selection.id === 'my-day' && !overrideDueDate ? todayStr : null,
+      dueDate,
+      reminderAtMs: parsed.reminderAtMs ?? null,
+      reminderNotified: false,
+      repeat: parsed.repeat ?? 'none',
+      tags: parsed.tags,
+      priority: parsed.priority,
+      estimateMinutes: parsed.estimateMinutes,
+      notes: '',
+      category: null,
+      steps: [],
+      createdAtMs: Date.now(),
+      completedAtMs: null,
+    });
+  };
+
+  const handleLogFocusMinutes = async (task: TodoItem, minutes: number) => {
+    if (minutes <= 0) return;
+    await handleUpdateItem(
+      task,
+      {
+        focusMinutes: (task.focusMinutes ?? 0) + minutes,
+        focusSessions: (task.focusSessions ?? 0) + 1,
+      },
+      { skipUndo: true }
+    );
+  };
+
+  const handleSaveListAsTemplate = async (listId: string) => {
+    const sourceList = allLists.find((l) => l.id === listId);
+    if (!sourceList) return;
+    const sourceTasks = allItems
+      .filter((i) => i.listId === listId && !i.deletedAtMs)
+      .map((i) => ({
+        text: i.text,
+        notes: i.notes || undefined,
+        priority: i.priority ?? null,
+        estimateMinutes: i.estimateMinutes ?? null,
+        tags: i.tags?.length ? i.tags : undefined,
+        steps: i.steps?.length ? i.steps.map((s) => ({ text: s.text })) : undefined,
+      }));
+    const newTpl: ListTemplate = {
+      id: `tpl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: sourceList.title,
+      icon: sourceList.icon ?? null,
+      color: sourceList.color,
+      background: sourceList.background,
+      tasks: sourceTasks,
+      createdAtMs: Date.now(),
+    };
+    updateAppSettings({
+      listTemplates: [newTpl, ...(appSettings.listTemplates ?? [])],
+    });
+    setTemplatesOpen(true);
+  };
+
+  const handleInstantiateTemplate = async (template: ListTemplate) => {
+    if (!user) return;
+    const listRef = await addDoc(collection(db, 'lists'), {
+      title: template.title,
+      ownerUid: user.uid,
+      icon: template.icon ?? suggestEmoji(template.title),
+      color: template.color ?? 'blue',
+      background: template.background ?? 'plain',
+      sortOrder: lists.length,
+      createdAt: serverTimestamp(),
+    });
+    const baseMs = Date.now();
+    await Promise.all(
+      template.tasks.map((t, idx) =>
+        addDoc(collection(db, 'lists', listRef.id, 'items'), {
+          listId: listRef.id,
+          ownerUid: user.uid,
+          createdByName: user.displayName?.trim() || user.email?.trim() || null,
+          text: t.text,
+          done: false,
+          important: false,
+          myDayDate: null,
+          dueDate: null,
+          reminderAtMs: null,
+          reminderNotified: false,
+          repeat: 'none',
+          tags: t.tags ?? [],
+          priority: t.priority ?? null,
+          estimateMinutes: t.estimateMinutes ?? null,
+          notes: t.notes ?? '',
+          category: null,
+          steps: (t.steps ?? []).map((s, sIdx) => ({
+            id: `s-${baseMs}-${idx}-${sIdx}`,
+            text: s.text,
+            done: false,
+          })),
+          sortOrder: idx,
+          createdAtMs: baseMs + idx,
+          completedAtMs: null,
+        })
+      )
+    );
+    setSelection({ type: 'list', id: listRef.id });
+    setMobileView('list');
+  };
+
+  const handleDeleteTemplate = (templateId: string) => {
+    updateAppSettings({
+      listTemplates: (appSettings.listTemplates ?? []).filter((t) => t.id !== templateId),
+    });
+  };
+
+  const handleCycleTheme = () => {
+    const order: AppSettings['themeMode'][] = ['light', 'dark', 'glass-light', 'glass-dark'];
+    const idx = order.indexOf(appSettings.themeMode);
+    const next = order[(idx + 1) % order.length];
+    updateAppSettings({ themeMode: next, themeModeExplicit: true });
+  };
+
+  const handleCompleteTaskFromNotification = (taskId: string) => {
+    const target = allItems.find((i) => i.id === taskId);
+    if (target && !target.done) {
+      void handleUpdateItem(target, { done: true, completedAtMs: Date.now() });
+    }
+  };
+
+  const handleSnoozeTaskFromNotification = (taskId: string, minutes: number) => {
+    const target = allItems.find((i) => i.id === taskId);
+    if (target) {
+      void handleUpdateItem(target, { reminderAtMs: Date.now() + minutes * 60 * 1000 });
+    }
+  };
+
   return (
     <>
     <div className="app-shell" data-mobile-view={mobileView}>
@@ -3935,6 +4208,9 @@ const [gridEditText, setGridEditText] = useState('');
         syncStatus={syncStatus}
         canInstall={canInstallPwa}
         onInstallClick={() => installPwaTriggerRef.current?.()}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onOpenInsights={() => setInsightsOpen(true)}
+        onOpenTemplates={() => setTemplatesOpen(true)}
         onToggleSidebar={() => {
           if (window.innerWidth < 1024) {
             setSidebarOpen((v) => !v);
@@ -3954,6 +4230,8 @@ const [gridEditText, setGridEditText] = useState('');
           setSelectedItemId(taskId);
           setMobileView('list');
         }}
+        onCompleteTaskFromNotification={handleCompleteTaskFromNotification}
+        onSnoozeTaskFromNotification={handleSnoozeTaskFromNotification}
         onQuickNewTask={() => {
           setAddRowExpanded(true);
           setMobileView('list');
@@ -4005,6 +4283,7 @@ const [gridEditText, setGridEditText] = useState('');
           onDeleteList={handleDeleteList}
           onShareList={(id) => setShareListId(id)}
           onDuplicateList={(id) => handleDuplicateList(id)}
+          onSaveListAsTemplate={(id) => void handleSaveListAsTemplate(id)}
           onPrintList={(id) => setPrintListId(id)}
           mutedListIds={appSettings.mutedListIds}
           onToggleListNotifications={toggleListNotifications}
@@ -4425,10 +4704,43 @@ const [gridEditText, setGridEditText] = useState('');
                     day: 'numeric',
                     month: 'long',
                   })}
+                  {myDayPlannedMinutes > 0 && (
+                    <span className="subtitle-effort-pill">
+                      {' · '}
+                      {myDayPlannedMinutes >= 60
+                        ? `${Math.floor(myDayPlannedMinutes / 60)}h${myDayPlannedMinutes % 60 ? ` ${myDayPlannedMinutes % 60}m` : ''}`
+                        : `${myDayPlannedMinutes}m`}{' '}
+                      planned
+                    </span>
+                  )}
                 </p>
               )}
           </div>
           <div className="header-toolbar">
+            {selection.type === 'smart' && selection.id === 'planned' && !searchQuery && (
+              <>
+                <button
+                  type="button"
+                  className={`toolbar-btn themed ${plannedCalendarMode ? 'active' : ''}`}
+                  onClick={() => setPlannedCalendarMode((v) => !v)}
+                  title={plannedCalendarMode ? 'Switch to List view' : 'Switch to Calendar view'}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <path d="M16 2v4M8 2v4M3 10h18" />
+                  </svg>
+                  <span>{plannedCalendarMode ? 'List' : 'Calendar'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-btn themed"
+                  onClick={() => downloadIcsFile(allItems, allLists)}
+                  title="Export scheduled tasks to .ics calendar file"
+                >
+                  <span>.ics</span>
+                </button>
+              </>
+            )}
             <div className="view-tabs" role="tablist" aria-label="View mode">
               <button
                 role="tab"
@@ -5050,6 +5362,7 @@ const [gridEditText, setGridEditText] = useState('');
               <span>Sorted by {({
   position: 'position',
   importance: 'importance',
+  priority: 'priority',
   dueDate: 'due date',
   myDay: 'added to My Day',
   alphabetical: 'alphabetical',
@@ -5231,6 +5544,22 @@ const [gridEditText, setGridEditText] = useState('');
                     </div>
                   )}
                 </div>
+                {isVoiceCaptureSupported() && (
+                  <button
+                    type="button"
+                    className={`add-task-icon-btn voice-capture-btn ${voiceListening ? 'listening' : ''}`}
+                    onClick={handleVoiceToggle}
+                    title={voiceListening ? 'Stop voice capture' : 'Voice to task (dictate)'}
+                    aria-label={voiceListening ? 'Stop voice capture' : 'Voice to task'}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  </button>
+                )}
                 {newItemText.trim() && (
                   <button type="submit" className="add-task-icon-btn add-task-send-btn" title="Add task" aria-label="Add task">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -5264,6 +5593,21 @@ const [gridEditText, setGridEditText] = useState('');
                   🔁 {parsedNewTask.repeat.charAt(0).toUpperCase() + parsedNewTask.repeat.slice(1)}
                 </span>
               )}
+              {parsedNewTask.priority && (
+                <span className={`smart-parse-chip prio-${parsedNewTask.priority}`}>
+                  ⚑ {parsedNewTask.priority.toUpperCase()}
+                </span>
+              )}
+              {parsedNewTask.estimateMinutes && (
+                <span className="smart-parse-chip">
+                  ⏱ ~{parsedNewTask.estimateMinutes >= 60 ? `${Number((parsedNewTask.estimateMinutes / 60).toFixed(1))}h` : `${parsedNewTask.estimateMinutes}m`}
+                </span>
+              )}
+              {parsedNewTask.tags.map((tag) => (
+                <span key={tag} className="smart-parse-chip">
+                  #{tag}
+                </span>
+              ))}
             </span>
             <button
               type="button"
@@ -5274,6 +5618,28 @@ const [gridEditText, setGridEditText] = useState('');
             >
               Keep raw text
             </button>
+          </div>
+        )}
+
+        {allViewTags.length > 0 && (
+          <div className="tag-filter-bar" role="region" aria-label="Filter by tag">
+            <button
+              type="button"
+              className={`tag-filter-chip ${activeTagFilter === null ? 'active' : ''}`}
+              onClick={() => setActiveTagFilter(null)}
+            >
+              All
+            </button>
+            {allViewTags.map(({ tag, count }) => (
+              <button
+                key={tag}
+                type="button"
+                className={`tag-filter-chip ${activeTagFilter === tag ? 'active' : ''}`}
+                onClick={() => setActiveTagFilter((prev) => (prev === tag ? null : tag))}
+              >
+                #{tag} <span className="tag-filter-count">{count}</span>
+              </button>
+            ))}
           </div>
         )}
 
@@ -5539,6 +5905,19 @@ const [gridEditText, setGridEditText] = useState('');
               </ul>
             )}
           </section>
+        ) : selection.type === 'smart' && selection.id === 'planned' && plannedCalendarMode && !searchQuery ? (
+          <PlannedCalendarView
+            items={allItems}
+            lists={allLists}
+            todayStr={todayStr}
+            onSelectTask={(item) => {
+              setSelectedItemId(item.id);
+              setMobileView('list');
+            }}
+            onToggleDone={handleToggleDone}
+            onRescheduleTask={(item, newDueDate) => handleUpdateItem(item, { dueDate: newDueDate })}
+            onQuickAddForDate={(dateYmd, title) => handleQuickAddTaskText(title, dateYmd)}
+          />
         ) : (plannedGroups ?? categoryGroups) ? (
           (plannedGroups ?? categoryGroups)!.map((group) => (
             <section key={group.label} className="completed-section">
@@ -5557,6 +5936,12 @@ const [gridEditText, setGridEditText] = useState('');
                     reorderable={canReorderItems}
                     sandState={getSandState(item.id)}
                     clipboardState={getClipboardState(item.id)}
+                    blockedCount={getBlockedCount(item)}
+                    onStartFocus={(t, minutes) => {
+              setFocusInitialMinutes(minutes);
+              setFocusTaskId(t.id);
+            }}
+                    onTagClick={(tag) => setActiveTagFilter((prev) => (prev === tag ? null : tag))}
                     onReorder={handleReorderItems}
                     onToggleDone={handleToggleDone}
                     onToggleImportant={handleToggleImportant}
@@ -5697,6 +6082,12 @@ const [gridEditText, setGridEditText] = useState('');
                         showListMeta={false}
                         sandState={getSandState(item.id)}
                     clipboardState={getClipboardState(item.id)}
+                        blockedCount={getBlockedCount(item)}
+                        onStartFocus={(t, minutes) => {
+              setFocusInitialMinutes(minutes);
+              setFocusTaskId(t.id);
+            }}
+                        onTagClick={(tag) => setActiveTagFilter((prev) => (prev === tag ? null : tag))}
                         onToggleDone={handleToggleDone}
                         onToggleImportant={handleToggleImportant}
                         onOpen={handleOpen}
@@ -5729,6 +6120,12 @@ const [gridEditText, setGridEditText] = useState('');
                 reorderable={canReorderItems}
                 sandState={getSandState(item.id)}
                 clipboardState={getClipboardState(item.id)}
+                blockedCount={getBlockedCount(item)}
+                onStartFocus={(t, minutes) => {
+              setFocusInitialMinutes(minutes);
+              setFocusTaskId(t.id);
+            }}
+                onTagClick={(tag) => setActiveTagFilter((prev) => (prev === tag ? null : tag))}
                 onReorder={handleReorderItems}
                 onToggleDone={handleToggleDone}
                 onToggleImportant={handleToggleImportant}
@@ -6868,9 +7265,15 @@ const [gridEditText, setGridEditText] = useState('');
             item={renderedDetailItem}
             todayStr={todayStr}
             currentUserId={user?.uid ?? ''}
+            currentUserName={user?.displayName?.trim() || user?.email?.trim() || 'You'}
+            allItems={allItems}
             listTitle={itemParentList?.title}
             listIcon={itemParentList?.icon}
             exiting={detailPresence.isExiting}
+            onStartFocus={(t, minutes) => {
+              setFocusInitialMinutes(minutes);
+              setFocusTaskId(t.id);
+            }}
             onClose={() => setSelectedItemId(null)}
             onUpdate={handleUpdateItem}
             onDelete={handleDeleteItem}
@@ -6962,7 +7365,78 @@ const [gridEditText, setGridEditText] = useState('');
           onImportBackup={handleImportBackup}
           onRollbackPartialImport={handleRollbackPartialImport}
           hasPartialImport={hasPartialImport}
+          onExportIcs={() => downloadIcsFile(allItems, allLists)}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {focusTask && (
+        <FocusTimerBar
+          task={focusTask}
+          initialMinutes={focusInitialMinutes}
+          playSound={soundEnabled}
+          onLogFocusMinutes={handleLogFocusMinutes}
+          onCompleteTask={handleToggleDone}
+          onClose={() => {
+            setFocusTaskId(null);
+            setFocusInitialMinutes(undefined);
+          }}
+        />
+      )}
+      {commandPaletteOpen && (
+        <CommandPalette
+          lists={allLists}
+          items={allItems}
+          onSelectView={(sel) => {
+            setSelection(sel);
+            setMobileView('list');
+          }}
+          onSelectTask={(item) => {
+            setSelection({ type: 'list', id: item.listId });
+            setSelectedItemId(item.id);
+            setMobileView('list');
+          }}
+          onQuickAddTask={(text) => handleQuickAddTaskText(text)}
+          onCycleTheme={handleCycleTheme}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenInsights={() => setInsightsOpen(true)}
+          onOpenTemplates={() => setTemplatesOpen(true)}
+          onExportIcs={() => downloadIcsFile(allItems, allLists)}
+          onCreateList={handleCreateList}
+          onClose={() => setCommandPaletteOpen(false)}
+        />
+      )}
+      {insightsOpen && (
+        <InsightsModal
+          items={allItems}
+          todayStr={todayStr}
+          tomorrowStr={tomorrowStr}
+          onRolloverToTomorrow={async (ids) => {
+            const targets = allItems.filter((i) => ids.includes(i.id));
+            await Promise.all(
+              targets.map((t) =>
+                handleUpdateItem(t, { myDayDate: null, dueDate: tomorrowStr })
+              )
+            );
+          }}
+          onMoveToMyDay={async (ids) => {
+            const targets = allItems.filter((i) => ids.includes(i.id));
+            await Promise.all(
+              targets.map((t) =>
+                handleUpdateItem(t, { myDayDate: todayStr, dueDate: todayStr })
+              )
+            );
+          }}
+          onClose={() => setInsightsOpen(false)}
+        />
+      )}
+      {templatesOpen && (
+        <TemplatesModal
+          customTemplates={appSettings.listTemplates ?? []}
+          lists={allLists.filter((l) => !l.isDefaultTasksList)}
+          onInstantiateTemplate={handleInstantiateTemplate}
+          onSaveListAsTemplate={handleSaveListAsTemplate}
+          onDeleteTemplate={handleDeleteTemplate}
+          onClose={() => setTemplatesOpen(false)}
         />
       )}
       {shareListId && (() => {

@@ -16,6 +16,8 @@ interface PwaManagerProps {
   onCanInstallChange?: (canInstall: boolean) => void;
   installTriggerRef?: React.MutableRefObject<(() => void) | null>;
   onOpenTask?: (taskId: string, listId?: string | null) => void;
+  onCompleteTaskFromNotification?: (taskId: string, listId?: string | null) => void;
+  onSnoozeTaskFromNotification?: (taskId: string, minutes: number, listId?: string | null) => void;
   onQuickNewTask?: () => void;
   onSharedTask?: (payload: PwaSharePayload) => void;
 }
@@ -25,6 +27,8 @@ export function PwaManager({
   onCanInstallChange,
   installTriggerRef,
   onOpenTask,
+  onCompleteTaskFromNotification,
+  onSnoozeTaskFromNotification,
   onQuickNewTask,
   onSharedTask,
 }: PwaManagerProps) {
@@ -101,20 +105,31 @@ export function PwaManager({
     const handleMessage = (event: MessageEvent) => {
       const data = event.data as {
         type?: string;
+        action?: string | null;
         taskId?: string | null;
         listId?: string | null;
       } | null;
       if (data?.type === 'OPEN_NOTIFICATION' && data.taskId) {
         onOpenTask?.(data.taskId, data.listId);
+      } else if (data?.type === 'NOTIFICATION_ACTION' && data.taskId) {
+        if (data.action === 'complete') {
+          onCompleteTaskFromNotification?.(data.taskId, data.listId);
+        } else if (data.action === 'snooze-15') {
+          onSnoozeTaskFromNotification?.(data.taskId, 15, data.listId);
+        } else if (data.action === 'snooze-60') {
+          onSnoozeTaskFromNotification?.(data.taskId, 60, data.listId);
+        } else {
+          onOpenTask?.(data.taskId, data.listId);
+        }
       }
     };
     navigator.serviceWorker.addEventListener('message', handleMessage);
     return () => {
       navigator.serviceWorker.removeEventListener('message', handleMessage);
     };
-  }, [onOpenTask]);
+  }, [onOpenTask, onCompleteTaskFromNotification, onSnoozeTaskFromNotification]);
 
-  // 4. Handle PWA manifest shortcuts & Web Share Target once authenticated
+  // 4. Handle PWA manifest shortcuts, Web Share Target & notification actions once authenticated
   useEffect(() => {
     if (!isAuthenticated) return;
     const action = consumePwaLaunchAction();
@@ -123,8 +138,12 @@ export function PwaManager({
       onQuickNewTask?.();
     } else if (action.type === 'share' && action.share) {
       onSharedTask?.(action.share);
+    } else if (action.type === 'notif-complete' && action.taskId) {
+      onCompleteTaskFromNotification?.(action.taskId, action.listId);
+    } else if (action.type === 'notif-snooze' && action.taskId) {
+      onSnoozeTaskFromNotification?.(action.taskId, action.minutes ?? 15, action.listId);
     }
-  }, [isAuthenticated, onQuickNewTask, onSharedTask]);
+  }, [isAuthenticated, onQuickNewTask, onSharedTask, onCompleteTaskFromNotification, onSnoozeTaskFromNotification]);
 
   return (
     <>

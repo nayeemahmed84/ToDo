@@ -5,6 +5,9 @@ interface TopBarProps {
   syncStatus?: SyncStatus;
   canInstall?: boolean;
   onInstallClick?: () => void;
+  onOpenCommandPalette?: () => void;
+  onOpenInsights?: () => void;
+  onOpenTemplates?: () => void;
 }
 
 export function TopBar({
@@ -12,6 +15,9 @@ export function TopBar({
   syncStatus = 'online',
   canInstall = false,
   onInstallClick,
+  onOpenCommandPalette,
+  onOpenInsights,
+  onOpenTemplates,
 }: TopBarProps) {
   return (
     <header className="top-bar">
@@ -35,6 +41,54 @@ export function TopBar({
         <span className="top-bar-wordmark">To Do</span>
       </div>
       <div className="top-bar-spacer" />
+      <div className="top-bar-quick-actions">
+        {onOpenCommandPalette && (
+          <button
+            type="button"
+            className="top-bar-action-btn"
+            onClick={onOpenCommandPalette}
+            title="Command Palette (Ctrl+K)"
+            aria-label="Open Command Palette"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <span className="top-bar-action-kbd">⌘K</span>
+          </button>
+        )}
+        {onOpenInsights && (
+          <button
+            type="button"
+            className="top-bar-action-btn"
+            onClick={onOpenInsights}
+            title="Daily Review & Productivity Insights"
+            aria-label="Open Daily Review and Insights"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="18" y1="20" x2="18" y2="10" />
+              <line x1="12" y1="20" x2="12" y2="4" />
+              <line x1="6" y1="20" x2="6" y2="14" />
+            </svg>
+          </button>
+        )}
+        {onOpenTemplates && (
+          <button
+            type="button"
+            className="top-bar-action-btn"
+            onClick={onOpenTemplates}
+            title="List Templates & Checklists"
+            aria-label="Open List Templates"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+            </svg>
+          </button>
+        )}
+      </div>
       {syncStatus !== 'online' && (
         <div
           className={`top-bar-sync-pill status-${syncStatus}`}

@@ -39,6 +39,7 @@ interface SidebarProps {
   onDeleteList: (listId: string) => Promise<void>;
   onShareList?: (listId: string) => void;
   onDuplicateList?: (listId: string) => void;
+  onSaveListAsTemplate?: (listId: string) => void;
   onPrintList?: (listId: string) => void;
   mutedListIds?: string[];
   onToggleListNotifications?: (listId: string) => void;
@@ -108,6 +109,7 @@ export function Sidebar({
   onDeleteList,
   onShareList,
   onDuplicateList,
+  onSaveListAsTemplate,
   onPrintList,
   mutedListIds,
   onToggleListNotifications,
@@ -1123,6 +1125,11 @@ export function Sidebar({
                 {canManage && (
                   <button type="button" role="menuitem" className="context-menu-item" onClick={() => { const id = list.id; stopMenu(); onDuplicateList?.(id); }}>
                     <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg></span>Duplicate list
+                  </button>
+                )}
+                {onSaveListAsTemplate && (
+                  <button type="button" role="menuitem" className="context-menu-item" onClick={() => { const id = list.id; stopMenu(); onSaveListAsTemplate(id); }}>
+                    <span className="context-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></svg></span>Save as template
                   </button>
                 )}
                 <button type="button" role="menuitem" className="context-menu-item" onClick={() => { const id = list.id; stopMenu(); if (onPrintList) onPrintList(id); else window.print(); }}>

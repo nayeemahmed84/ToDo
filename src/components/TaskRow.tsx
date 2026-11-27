@@ -25,6 +25,9 @@ interface TaskRowProps {
   reorderable?: boolean;
   sandState?: 'dissolve' | 'materialize' | null;
   clipboardState?: 'copy' | 'cut' | null;
+  blockedCount?: number;
+  onStartFocus?: (item: TodoItem, minutes?: number) => void;
+  onTagClick?: (tag: string) => void;
   onReorder?: (draggedItemId: string, targetItemId: string, insertAfter: boolean) => void | Promise<void>;
   onToggleDone: (item: TodoItem) => void;
   onToggleImportant: (item: TodoItem) => void;
@@ -46,6 +49,9 @@ export function TaskRow({
   reorderable = false,
   sandState = null,
   clipboardState = null,
+  blockedCount = 0,
+  onStartFocus,
+  onTagClick,
   onReorder,
   onToggleDone,
   onToggleImportant,
@@ -82,7 +88,9 @@ export function TaskRow({
   const hasMeta = Boolean(
     showListMeta || item.dueDate || item.reminderAtMs ||
     (item.repeat && item.repeat !== 'none') || item.myDayDate === todayStr ||
-    item.steps.length || item.notes || item.attachments?.length
+    item.steps.length || item.notes || item.attachments?.length ||
+    item.priority || item.estimateMinutes || item.tags?.length ||
+    item.comments?.length || (item.focusMinutes ?? 0) > 0 || blockedCount > 0
   );
 
   const handleToggleImportant = (event: MouseEvent<HTMLButtonElement>) => {
@@ -149,7 +157,7 @@ export function TaskRow({
         } : {}),
       }}
       data-task-id={item.id}
-      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''} ${clipboardState ? `clipboard-${clipboardState}` : ''}`}
+      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${blockedCount > 0 && !item.done ? 'blocked' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''} ${clipboardState ? `clipboard-${clipboardState}` : ''}`}
       draggable={!window.matchMedia('(max-width: 767px)').matches}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
@@ -369,9 +377,66 @@ export function TaskRow({
                 {item.attachments.length}
               </span>
             )}
+            {item.priority && (
+              <span className={`task-meta-badge prio-${item.priority}`} title={`Priority ${item.priority.toUpperCase()}`}>
+                {item.priority.toUpperCase()}
+              </span>
+            )}
+            {item.estimateMinutes && (
+              <span className="task-meta-icon" title={`Estimated effort: ${item.estimateMinutes} min`}>
+                ~{item.estimateMinutes >= 60 ? `${Number((item.estimateMinutes / 60).toFixed(1))}h` : `${item.estimateMinutes}m`}
+              </span>
+            )}
+            {(item.focusMinutes ?? 0) > 0 && (
+              <span className="task-meta-icon" title={`Focused ${item.focusMinutes} min`}>
+                ⏱ {item.focusMinutes}m
+              </span>
+            )}
+            {blockedCount > 0 && !item.done && (
+              <span className="task-meta-badge task-meta-blocked" title={`Waiting on ${blockedCount} incomplete task(s)`}>
+                ⏳ Waiting ({blockedCount})
+              </span>
+            )}
+            {!!item.comments?.length && (
+              <span className="task-meta-icon" title={`${item.comments.length} comment(s)`}>
+                💬 {item.comments.length}
+              </span>
+            )}
+            {(item.tags ?? []).map((tag) => (
+              <span
+                key={tag}
+                className="task-meta-tag"
+                onClick={(e) => {
+                  if (!onTagClick) return;
+                  e.stopPropagation();
+                  onTagClick(tag);
+                }}
+                title={`Filter by #${tag}`}
+              >
+                #{tag}
+              </span>
+            ))}
           </div>
         )}
       </button>
+      {onStartFocus && !item.done && (
+        <button
+          type="button"
+          className="task-focus-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onStartFocus(item);
+          }}
+          title="Start focus timer"
+          aria-label={`Start focus timer for ${item.text}`}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="13" r="8" />
+            <path d="M12 9v4l2.5 1.5" />
+            <path d="M9 2h6" />
+          </svg>
+        </button>
+      )}
       <button
         type="button"
         className={`star-btn ${item.important ? 'active' : ''} ${popping ? 'popping' : ''}`}

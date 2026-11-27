@@ -56,6 +56,9 @@ describe('parseTaskInput', () => {
       dueDate: null,
       reminderAtMs: null,
       repeat: null,
+      tags: [],
+      priority: null,
+      estimateMinutes: null,
       hasMatch: false,
     });
   });

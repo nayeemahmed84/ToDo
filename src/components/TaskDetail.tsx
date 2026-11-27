@@ -15,7 +15,9 @@ import {
   TrashIcon,
   UserPlusIcon,
 } from './Icons';
-import { RepeatRule, TodoItem, TodoStep } from '../types/todo';
+import { RepeatRule, TaskPriority, TodoItem, TodoStep } from '../types/todo';
+import { RichNotesEditor } from './RichNotesEditor';
+import { AppSelect } from './AppSelect';
 import {
   deleteAttachmentBlob,
   getAttachmentBlob,
@@ -35,9 +37,12 @@ interface TaskDetailProps {
   item: TodoItem;
   todayStr: string;
   currentUserId: string;
+  currentUserName?: string;
+  allItems?: TodoItem[];
   listTitle?: string;
   listIcon?: string | null;
   exiting?: boolean;
+  onStartFocus?: (item: TodoItem, minutes?: number) => void;
   onClose: () => void;
   onUpdate: (item: TodoItem, patch: Partial<TodoItem>) => Promise<void>;
   onDelete: (item: TodoItem) => Promise<void>;
@@ -47,15 +52,33 @@ export function TaskDetail({
   item,
   todayStr,
   currentUserId,
+  currentUserName = 'You',
+  allItems = [],
   listTitle,
   listIcon,
   exiting = false,
+  onStartFocus,
   onClose,
   onUpdate,
   onDelete,
 }: TaskDetailProps) {
   const [title, setTitle] = useState(item.text);
   const [notes, setNotes] = useState(item.notes);
+  const [tagInput, setTagInput] = useState('');
+  const [commentInput, setCommentInput] = useState('');
+  const [socialTab, setSocialTab] = useState<'comments' | 'activity'>('comments');
+  const [blockerSelectId, setBlockerSelectId] = useState('');
+  const [focusDurationMin, setFocusDurationMin] = useState<number>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('todo.focusDurationsMin') || '{}') as { focus?: number };
+      if (typeof saved.focus === 'number' && saved.focus >= 1 && saved.focus <= 180) {
+        return Math.round(saved.focus);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+    return 25;
+  });
   const [paneWidth, setPaneWidth] = useState(() => {
     const saved = Number(localStorage.getItem("todo-detail-width"));
     return saved >= 320 && saved <= 1015 ? saved : 360;
@@ -274,12 +297,6 @@ export function TaskDetail({
     const trimmed = title.trim();
     if (trimmed && trimmed !== item.text) {
       onUpdate(item, { text: trimmed });
-    }
-  };
-
-  const handleNotesBlur = () => {
-    if (notes !== item.notes) {
-      onUpdate(item, { notes });
     }
   };
 
@@ -1112,16 +1129,17 @@ export function TaskDetail({
               style={{ width: '56px' }}
               aria-label="Repeat interval"
             />
-            <select
+            <AppSelect
+              ariaLabel="Recurrence type"
               value={repeatUnit}
-              onChange={(e) => setRepeatUnit(e.target.value as 'days' | 'weeks' | 'months' | 'years')}
-              aria-label="Recurrence type"
-            >
-              <option value="days">days</option>
-              <option value="weeks">weeks</option>
-              <option value="months">months</option>
-              <option value="years">years</option>
-            </select>
+              options={[
+                { value: 'days', label: 'days' },
+                { value: 'weeks', label: 'weeks' },
+                { value: 'months', label: 'months' },
+                { value: 'years', label: 'years' },
+              ]}
+              onChange={(val) => setRepeatUnit(val as 'days' | 'weeks' | 'months' | 'years')}
+            />
           </div>
           {repeatUnit === 'weeks' && (
             <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
@@ -1170,14 +1188,352 @@ export function TaskDetail({
       )}
 
       <div className="detail-card detail-note-card">
-        <textarea
-          className="notes-input"
-          placeholder="Add note"
-          rows={3}
+        <RichNotesEditor
+          itemId={item.id}
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          onBlur={handleNotesBlur}
+          onChange={(md) => setNotes(md)}
+          onCommit={(md) => {
+            if (md !== item.notes) {
+              void onUpdate(item, { notes: md });
+            }
+          }}
         />
+      </div>
+
+      {/* Focus / Pomodoro Timer */}
+      {onStartFocus && (
+        <div className="detail-card detail-focus-card">
+          <button
+            type="button"
+            className="detail-focus-trigger"
+            onClick={() => onStartFocus(item, focusDurationMin)}
+          >
+            <span className="detail-focus-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="13" r="8" />
+                <path d="M12 9v4l2.5 1.5" />
+                <path d="M9 2h6" />
+              </svg>
+            </span>
+            <span className="detail-focus-text">
+              <span className="detail-focus-title">Start Focus Session</span>
+              <span className="detail-focus-sub">
+                {(item.focusMinutes ?? 0) > 0
+                  ? `${item.focusMinutes}m logged · ${item.focusSessions ?? 1} session${(item.focusSessions ?? 1) === 1 ? '' : 's'}`
+                  : `${focusDurationMin} min focus timer`}
+              </span>
+            </span>
+            <span className="detail-focus-badge">{focusDurationMin}m</span>
+          </button>
+          <div className="detail-focus-presets" role="group" aria-label="Focus duration">
+            {[15, 25, 45, 60].map((mins) => (
+              <button
+                key={mins}
+                type="button"
+                className={`detail-focus-preset-btn ${focusDurationMin === mins ? 'active' : ''}`}
+                onClick={() => setFocusDurationMin(mins)}
+              >
+                {mins}m
+              </button>
+            ))}
+            <label className="detail-focus-custom-wrap" aria-label="Custom focus minutes">
+              <input
+                type="number"
+                min={1}
+                max={180}
+                value={focusDurationMin}
+                onChange={(e) => {
+                  const val = Math.max(1, Math.min(180, Math.round(Number(e.target.value) || 1)));
+                  setFocusDurationMin(val);
+                }}
+              />
+              <span>m</span>
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* Priority & Effort Estimate */}
+      <div className="detail-card detail-meta-card">
+        <div className="detail-field-group">
+          <span className="detail-section-title">Priority</span>
+          <div className="detail-segmented-track" role="group" aria-label="Priority">
+            {([null, 'p1', 'p2', 'p3', 'p4'] as Array<TaskPriority | null>).map((p) => {
+              const isActive = (item.priority ?? null) === p;
+              return (
+                <button
+                  key={p ?? 'none'}
+                  type="button"
+                  className={`detail-seg-option ${p ? `prio-${p}` : 'is-none'} ${isActive ? 'active' : ''}`}
+                  aria-pressed={isActive}
+                  onClick={() => void onUpdate(item, { priority: p })}
+                >
+                  {p && <span className={`prio-dot prio-dot-${p}`} aria-hidden="true" />}
+                  <span>{p ? p.toUpperCase() : 'None'}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="detail-field-group">
+          <span className="detail-section-title">Effort Estimate</span>
+          <div className="detail-segmented-track" role="group" aria-label="Effort estimate">
+            {[null, 15, 30, 60, 120].map((mins) => {
+              const isActive = (item.estimateMinutes ?? null) === mins;
+              return (
+                <button
+                  key={mins ?? 'none'}
+                  type="button"
+                  className={`detail-seg-option ${mins === null ? 'is-none' : 'is-effort'} ${isActive ? 'active' : ''}`}
+                  aria-pressed={isActive}
+                  onClick={() => void onUpdate(item, { estimateMinutes: mins })}
+                >
+                  {mins === null ? 'None' : mins >= 60 ? `${mins / 60}h` : `${mins}m`}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Tags (#hashtags) */}
+      <div className="detail-card detail-meta-card">
+        <span className="detail-section-title">Tags</span>
+        {(item.tags ?? []).length > 0 && (
+          <div className="detail-tags-wrap">
+            {(item.tags ?? []).map((tag) => (
+              <span key={tag} className="detail-tag-chip">
+                #{tag}
+                <button
+                  type="button"
+                  aria-label={`Remove tag ${tag}`}
+                  onClick={() =>
+                    void onUpdate(item, {
+                      tags: (item.tags ?? []).filter((t) => t !== tag),
+                    })
+                  }
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <form
+          className="detail-inline-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const cleaned = tagInput.trim().replace(/^#+/, '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+            if (!cleaned) return;
+            const current = item.tags ?? [];
+            if (!current.includes(cleaned)) {
+              void onUpdate(item, { tags: [...current, cleaned] });
+            }
+            setTagInput('');
+          }}
+        >
+          <input
+            type="text"
+            placeholder="Add #tag and press Enter"
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+          />
+          <button type="submit" className="detail-inline-submit" disabled={!tagInput.trim()}>
+            Add
+          </button>
+        </form>
+      </div>
+
+      {/* Dependencies ("Waiting On") */}
+      {allItems.length > 0 && (
+        <div className="detail-card detail-meta-card">
+          <span className="detail-section-title">Waiting On</span>
+          {(item.blockedByIds ?? []).length > 0 && (
+            <ul className="detail-deps-list">
+              {(item.blockedByIds ?? []).map((bid) => {
+                const blocker = allItems.find((x) => x.id === bid);
+                if (!blocker) return null;
+                return (
+                  <li key={bid} className={`detail-dep-item ${blocker.done ? 'resolved' : ''}`}>
+                    <span className="detail-dep-status" aria-hidden="true">
+                      {blocker.done ? '✓' : '⏳'}
+                    </span>
+                    <span className="detail-dep-title"><EmojiText text={blocker.text} /></span>
+                    <button
+                      type="button"
+                      className="clear-btn"
+                      aria-label={`Remove dependency ${blocker.text}`}
+                      onClick={() =>
+                        void onUpdate(item, {
+                          blockedByIds: (item.blockedByIds ?? []).filter((id) => id !== bid),
+                        })
+                      }
+                    >
+                      ×
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <div className="detail-inline-form">
+            <AppSelect
+              ariaLabel="Select blocking task"
+              placeholder="Link a prerequisite task…"
+              value={blockerSelectId}
+              searchable
+              options={allItems
+                .filter(
+                  (candidate) =>
+                    !candidate.deletedAtMs &&
+                    !candidate.done &&
+                    candidate.id !== item.id &&
+                    !(item.blockedByIds ?? []).includes(candidate.id)
+                )
+                .slice(0, 60)
+                .map((candidate) => ({
+                  value: candidate.id,
+                  label: candidate.text.slice(0, 64),
+                  badge: candidate.dueDate ?? undefined,
+                }))}
+              onChange={(val) => setBlockerSelectId(val)}
+            />
+            <button
+              type="button"
+              className="detail-inline-submit"
+              disabled={!blockerSelectId}
+              onClick={() => {
+                if (!blockerSelectId) return;
+                void onUpdate(item, {
+                  blockedByIds: [...(item.blockedByIds ?? []), blockerSelectId],
+                });
+                setBlockerSelectId('');
+              }}
+            >
+              Link
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Comments & Activity Log */}
+      <div className="detail-card detail-meta-card">
+        <div className="detail-card-row-head">
+          <div className="detail-social-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={socialTab === 'comments'}
+              className={`detail-social-tab ${socialTab === 'comments' ? 'active' : ''}`}
+              onClick={() => setSocialTab('comments')}
+            >
+              Comments ({(item.comments ?? []).length})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={socialTab === 'activity'}
+              className={`detail-social-tab ${socialTab === 'activity' ? 'active' : ''}`}
+              onClick={() => setSocialTab('activity')}
+            >
+              Activity ({(item.activity ?? []).length})
+            </button>
+          </div>
+        </div>
+
+        {socialTab === 'comments' ? (
+          <>
+            {(item.comments ?? []).length > 0 && (
+              <ul className="detail-comments-list">
+                {(item.comments ?? []).map((c) => (
+                  <li key={c.id} className="detail-comment-item">
+                    <div className="detail-comment-meta">
+                      <strong>{c.authorName}</strong>
+                      <span>
+                        {new Date(c.createdAtMs).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                      {c.authorUid === currentUserId && (
+                        <button
+                          type="button"
+                          className="clear-btn"
+                          aria-label="Delete comment"
+                          onClick={() =>
+                            void onUpdate(item, {
+                              comments: (item.comments ?? []).filter((x) => x.id !== c.id),
+                            })
+                          }
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                    <div className="detail-comment-body">{c.text}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form
+              className="detail-inline-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const text = commentInput.trim();
+                if (!text) return;
+                const nextComment = {
+                  id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                  text,
+                  authorUid: currentUserId,
+                  authorName: currentUserName,
+                  createdAtMs: Date.now(),
+                };
+                void onUpdate(item, {
+                  comments: [...(item.comments ?? []), nextComment],
+                });
+                setCommentInput('');
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Write a comment…"
+                value={commentInput}
+                onChange={(e) => setCommentInput(e.target.value)}
+              />
+              <button type="submit" className="detail-inline-submit" disabled={!commentInput.trim()}>
+                Post
+              </button>
+            </form>
+          </>
+        ) : (
+          <ul className="detail-activity-list">
+            {(item.activity ?? []).length === 0 ? (
+              <li className="detail-activity-empty">No recent activity logged yet.</li>
+            ) : (
+              [...(item.activity ?? [])]
+                .reverse()
+                .slice(0, 20)
+                .map((act) => (
+                  <li key={act.id} className="detail-activity-item">
+                    <span>
+                      <strong>{act.actorName}</strong> {act.text}
+                    </span>
+                    <small>
+                      {new Date(act.createdAtMs).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </small>
+                  </li>
+                ))
+            )}
+          </ul>
+        )}
       </div>
       </div>
 

@@ -12,8 +12,11 @@ export interface PwaSharePayload {
 }
 
 export interface PwaLaunchAction {
-  type: 'new-task' | 'share';
+  type: 'new-task' | 'share' | 'notif-complete' | 'notif-snooze';
   share?: PwaSharePayload;
+  taskId?: string;
+  listId?: string | null;
+  minutes?: number;
 }
 
 const INSTALL_DISMISSED_KEY = 'todo.pwa.installDismissedAt';
@@ -108,6 +111,26 @@ export function consumePwaLaunchAction(): PwaLaunchAction | null {
         note: noteParts.join('\n'),
       },
     };
+  } else if (action === 'notif-complete') {
+    const taskId = url.searchParams.get('taskId');
+    if (taskId) {
+      result = {
+        type: 'notif-complete',
+        taskId,
+        listId: url.searchParams.get('listId'),
+      };
+    }
+  } else if (action === 'notif-snooze') {
+    const taskId = url.searchParams.get('taskId');
+    if (taskId) {
+      const minutes = Math.max(1, Number(url.searchParams.get('minutes')) || 15);
+      result = {
+        type: 'notif-snooze',
+        taskId,
+        listId: url.searchParams.get('listId'),
+        minutes,
+      };
+    }
   }
 
   if (result) {
@@ -116,6 +139,9 @@ export function consumePwaLaunchAction(): PwaLaunchAction | null {
     url.searchParams.delete('text');
     url.searchParams.delete('url');
     url.searchParams.delete('source');
+    url.searchParams.delete('taskId');
+    url.searchParams.delete('listId');
+    url.searchParams.delete('minutes');
     const clean = url.pathname + (url.search ? url.search : '') + url.hash;
     window.history.replaceState({}, '', clean);
   }

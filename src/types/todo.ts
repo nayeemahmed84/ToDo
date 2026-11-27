@@ -45,9 +45,44 @@ export interface TodoList {
 }
 
 export type RepeatRule = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly' | 'custom';
-export type SortOption = 'position' | 'importance' | 'dueDate' | 'myDay' | 'alphabetical' | 'created';
+export type SortOption = 'position' | 'importance' | 'priority' | 'dueDate' | 'myDay' | 'alphabetical' | 'created';
 
 export type CategoryColor = 'blue' | 'green' | 'orange' | 'purple' | 'red' | 'yellow';
+export type TaskPriority = 'p1' | 'p2' | 'p3' | 'p4';
+
+export interface TaskComment {
+  id: string;
+  text: string;
+  authorUid: string;
+  authorName: string;
+  createdAtMs: number;
+}
+
+export interface TaskActivity {
+  id: string;
+  text: string;
+  actorName: string;
+  createdAtMs: number;
+}
+
+export interface ListTemplateTask {
+  text: string;
+  notes?: string;
+  priority?: TaskPriority | null;
+  estimateMinutes?: number | null;
+  tags?: string[];
+  steps?: { text: string }[];
+}
+
+export interface ListTemplate {
+  id: string;
+  title: string;
+  icon?: string | null;
+  color?: string;
+  background?: TodoList['background'];
+  tasks: ListTemplateTask[];
+  createdAtMs: number;
+}
 
 export interface TodoItem {
   id: string;
@@ -56,6 +91,14 @@ export interface TodoItem {
   text: string;
   done: boolean;
   important: boolean;
+  priority?: TaskPriority | null;
+  estimateMinutes?: number | null;
+  tags?: string[];
+  blockedByIds?: string[];
+  focusMinutes?: number;
+  focusSessions?: number;
+  comments?: TaskComment[];
+  activity?: TaskActivity[];
   myDayDate: string | null; // YYYY-MM-DD
   dueDate: string | null;   // YYYY-MM-DD
   reminderAtMs?: number | null;

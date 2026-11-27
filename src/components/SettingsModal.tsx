@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { isIosNonStandalone, isNotificationApiSupported } from '../lib/notifications';
 import type { BackupImportMode, ParsedBackupPackage } from '../lib/backup';
+import type { ListTemplate } from '../types/todo';
+import { AppSelect } from './AppSelect';
 
 export interface AppSettings {
   confirmBeforeDelete: boolean;
@@ -22,6 +24,7 @@ export interface AppSettings {
   customBackgrounds?: Array<{ id: string; url: string; path?: string | null }>;
   hiddenThemeColors?: string[];
   hiddenBackgrounds?: string[];
+  listTemplates?: ListTemplate[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -55,6 +58,7 @@ interface SettingsModalProps {
   ) => Promise<{ lists: number; items: number; groups: number; attachments: number; missingAttachments: number }>;
   onRollbackPartialImport: () => Promise<number>;
   hasPartialImport: boolean;
+  onExportIcs?: () => number;
   onClose: () => void;
 }
 
@@ -93,6 +97,7 @@ export function SettingsModal({
   onImportBackup,
   onRollbackPartialImport,
   hasPartialImport,
+  onExportIcs,
   onClose,
 }: SettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -164,18 +169,19 @@ export function SettingsModal({
             )}
           </SettingBlock>
           <SettingBlock label="Theme">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <select
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '220px' }}>
+              <AppSelect
+                ariaLabel="App Theme"
                 value={settings.themeMode}
-                onChange={(e) => onUpdateSettings({ themeMode: e.target.value as AppSettings['themeMode'] })}
-                style={{ padding: '6px 10px', fontSize: '0.85rem', background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: '4px', width: '120px' }}
-              >
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="glass-light">iOS Glass Light</option>
-                <option value="glass-dark">iOS Glass Dark</option>
-                <option value="system">System</option>
-              </select>
+                options={[
+                  { value: 'light', label: 'Light', description: 'Crisp classic light surface' },
+                  { value: 'dark', label: 'Dark', description: 'Low-glare dark workspace' },
+                  { value: 'glass-light', label: 'iOS Glass Light', description: 'Frosted translucent light' },
+                  { value: 'glass-dark', label: 'iOS Glass Dark', description: 'Frosted translucent dark' },
+                  { value: 'system', label: 'System', description: 'Match OS appearance' },
+                ]}
+                onChange={(val) => onUpdateSettings({ themeMode: val as AppSettings['themeMode'] })}
+              />
             </div>
           </SettingBlock>
         </section>
@@ -408,6 +414,33 @@ export function SettingsModal({
             }}
           />
         </section>
+        {onExportIcs && (
+          <section style={{ display: 'flex', flexDirection: 'column', marginTop: '0.5rem' }}>
+            <h3 style={{ margin: '0.5rem 0 0', fontSize: '1.25rem', fontWeight: 700 }}>Calendar Export</h3>
+            <SettingBlock label="Export scheduled tasks (.ics / iCal)">
+              <div style={{ fontSize: '0.82rem', color: 'var(--color-text-2)' }}>
+                Download an iCalendar file compatible with Google Calendar, Apple Calendar, and Outlook.
+              </div>
+              <div>
+                <button
+                  type="button"
+                  className="chip-btn"
+                  onClick={() => {
+                    const count = onExportIcs();
+                    setBackupFeedback({
+                      kind: 'success',
+                      text: count > 0
+                        ? `Exported ${count} scheduled task(s) to .ics calendar file.`
+                        : 'Exported empty .ics file (no open tasks with due dates).',
+                    });
+                  }}
+                >
+                  Download .ics Calendar
+                </button>
+              </div>
+            </SettingBlock>
+          </section>
+        )}
       </aside>
     </div>
   );

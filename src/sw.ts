@@ -85,6 +85,14 @@ self.addEventListener('push', (event) => {
   const body = payload.body || 'You have a scheduled task reminder.';
   const url = payload.url || '/';
 
+  const actions = payload.taskId
+    ? [
+        { action: 'complete', title: '✓ Complete' },
+        { action: 'snooze-15', title: 'Snooze 15m' },
+        { action: 'snooze-60', title: 'Snooze 1h' },
+      ]
+    : [];
+
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
@@ -96,14 +104,25 @@ self.addEventListener('push', (event) => {
         taskId: payload.taskId ?? null,
         listId: payload.listId ?? null,
       },
-    })
+      ...(actions.length ? { actions } : {}),
+    } as NotificationOptions)
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = (event.notification.data as { url?: string; taskId?: string | null; listId?: string | null } | undefined) ?? {};
-  const targetUrl = data.url || '/';
+  const action = event.action || '';
+  const taskId = data.taskId ?? null;
+  const listId = data.listId ?? null;
+
+  let targetUrl = data.url || '/';
+  if (action === 'complete' && taskId) {
+    targetUrl = `/?action=notif-complete&taskId=${encodeURIComponent(taskId)}${listId ? `&listId=${encodeURIComponent(listId)}` : ''}`;
+  } else if ((action === 'snooze-15' || action === 'snooze-60') && taskId) {
+    const mins = action === 'snooze-60' ? 60 : 15;
+    targetUrl = `/?action=notif-snooze&minutes=${mins}&taskId=${encodeURIComponent(taskId)}${listId ? `&listId=${encodeURIComponent(listId)}` : ''}`;
+  }
 
   event.waitUntil(
     self.clients
@@ -111,12 +130,15 @@ self.addEventListener('notificationclick', (event) => {
       .then(async (clientList) => {
         for (const client of clientList) {
           if ('focus' in client) {
-            await client.focus();
+            if (!action) {
+              await client.focus();
+            }
             client.postMessage({
-              type: 'OPEN_NOTIFICATION',
+              type: action ? 'NOTIFICATION_ACTION' : 'OPEN_NOTIFICATION',
+              action: action || null,
               url: targetUrl,
-              taskId: data.taskId ?? null,
-              listId: data.listId ?? null,
+              taskId,
+              listId,
             });
             return client;
           }
