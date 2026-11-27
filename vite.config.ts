@@ -13,6 +13,7 @@ export default defineConfig({
       includeAssets: ['icon.svg', 'icons/*.png', 'backgrounds/*.jpg'],
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globIgnores: ['**/heic2any-*.js', '**/emoji-vendor-*.js'],
       },
       manifest: {
         id: '/',
@@ -89,16 +90,49 @@ export default defineConfig({
           },
         ],
         share_target: {
-          action: '/?action=share',
-          method: 'GET',
-          enctype: 'application/x-www-form-urlencoded',
+          action: '/share-target',
+          method: 'POST',
+          enctype: 'multipart/form-data',
           params: {
             title: 'title',
             text: 'text',
             url: 'url',
+            files: [
+              {
+                name: 'files',
+                accept: [
+                  'image/*',
+                  'application/pdf',
+                  'text/plain',
+                  '.png',
+                  '.jpg',
+                  '.jpeg',
+                  '.webp',
+                  '.pdf',
+                  '.txt',
+                ],
+              },
+            ],
           },
         },
       } as Record<string, unknown>,
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/firebase') || id.includes('node_modules/@firebase')) {
+            return 'firebase-vendor';
+          }
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+            return 'react-vendor';
+          }
+          if (id.includes('node_modules/emoji-mart') || id.includes('node_modules/@emoji-mart')) {
+            return 'emoji-vendor';
+          }
+        },
+      },
+    },
+  },
 });

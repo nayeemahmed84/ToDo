@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   BeforeInstallPromptEvent,
+  consumePendingSharedPayload,
   consumePwaLaunchAction,
   dismissInstallBanner,
   initServiceWorker,
@@ -138,6 +139,12 @@ export function PwaManager({
       onQuickNewTask?.();
     } else if (action.type === 'share' && action.share) {
       onSharedTask?.(action.share);
+    } else if (action.type === 'share-incoming') {
+      void consumePendingSharedPayload().then((payload) => {
+        if (payload) {
+          onSharedTask?.(payload);
+        }
+      });
     } else if (action.type === 'notif-complete' && action.taskId) {
       onCompleteTaskFromNotification?.(action.taskId, action.listId);
     } else if (action.type === 'notif-snooze' && action.taskId) {

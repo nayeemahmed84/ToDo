@@ -5,6 +5,11 @@ import { ExpirationPlugin } from 'workbox-expiration';
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
 import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
+import {
+  normalizeShareFields,
+  saveIncomingSharePayload,
+  type SharedFileRecord,
+} from './lib/shareTarget';
 
 declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<{ url: string; revision: string | null }>;
@@ -21,6 +26,51 @@ self.addEventListener('message', (event) => {
 
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
+
+// Intercept POST /share-target from Web Share Target API (supports text, URLs, and shared files).
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.method === 'POST' && url.pathname === '/share-target') {
+    event.respondWith(
+      (async () => {
+        try {
+          const formData = await event.request.formData();
+          const rawTitle = String(formData.get('title') ?? '');
+          const rawText = String(formData.get('text') ?? '');
+          const rawUrl = String(formData.get('url') ?? '');
+          const rawFiles = formData.getAll('files');
+          const files: SharedFileRecord[] = [];
+          for (const entry of rawFiles) {
+            if (entry instanceof File && entry.size > 0) {
+              files.push({
+                name: entry.name || 'shared-file',
+                type: entry.type || 'application/octet-stream',
+                size: entry.size,
+                blob: entry,
+              });
+            }
+          }
+          const normalized = normalizeShareFields({
+            title: rawTitle,
+            text: rawText,
+            url: rawUrl,
+            fileNames: files.map((f) => f.name),
+          });
+          await saveIncomingSharePayload({
+            title: normalized.title,
+            note: normalized.note,
+            url: normalized.url,
+            files,
+            receivedAtMs: Date.now(),
+          });
+          return Response.redirect('/?action=share-incoming', 303);
+        } catch {
+          return Response.redirect('/?action=new-task', 303);
+        }
+      })()
+    );
+  }
+});
 
 // SPA navigation fallback so deep links (e.g. /tasks/important, /tasks/planned, /?action=new-task) boot offline.
 registerRoute(

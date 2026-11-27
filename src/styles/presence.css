@@ -1,0 +1,241 @@
+/* Live presence & typing indicators for shared lists */
+.list-presence-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.presence-avatar-stack {
+  display: inline-flex;
+  align-items: center;
+}
+
+.presence-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--color-surface-elevated, var(--color-surface));
+  border: 2px solid var(--color-bg, #1f1f1f);
+  color: var(--color-text);
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: -6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.presence-avatar:first-child {
+  margin-left: 0;
+}
+
+.presence-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.presence-avatar-initials {
+  line-height: 1;
+}
+
+.presence-avatar-overflow {
+  font-size: 10px;
+  background: var(--color-accent, #4f8cff);
+  color: #fff;
+}
+
+.presence-online-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22c55e;
+  border: 1.5px solid var(--color-bg, #1f1f1f);
+}
+
+.presence-typing-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--color-surface, rgba(255, 255, 255, 0.1));
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.14));
+  color: var(--color-text-muted, var(--color-text));
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.task-detail-typing-pill {
+  margin: 0 0 10px;
+}
+
+.presence-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.presence-typing-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-accent, #4f8cff);
+  animation: presence-dot-bounce 1.2s infinite ease-in-out;
+}
+
+.presence-typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.presence-typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes presence-dot-bounce {
+  0%, 80%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* PWA Share Target Modal */
+.share-target-modal {
+  width: min(500px, calc(100vw - 24px));
+}
+
+.share-target-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.share-target-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted, var(--color-text));
+}
+
+.share-target-field input,
+.share-target-field textarea,
+.share-target-field select {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.share-target-field textarea {
+  resize: vertical;
+  min-height: 76px;
+}
+
+.share-target-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.share-target-list-field {
+  flex: 1 1 200px;
+}
+
+.share-target-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 4px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.share-target-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.share-target-files-label {
+  font-size: 0.82rem;
+  color: var(--color-text-muted, var(--color-text));
+}
+
+.share-target-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.share-target-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 0.84rem;
+}
+
+.share-target-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-target-file-size {
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+}
+
+.share-target-file-remove {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.share-target-file-remove:hover {
+  background: var(--color-hover, rgba(255, 255, 255, 0.08));
+  color: var(--color-text);
+}
+
+.share-target-error {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+  font-size: 0.84rem;
+}
+
+.share-target-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}

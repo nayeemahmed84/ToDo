@@ -1,7 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import data from '@emoji-mart/data';
-import { Picker } from 'emoji-mart';
 
 interface EmojiPickerProps {
   onSelect: (emoji: string | null) => void;
@@ -31,22 +29,33 @@ export function EmojiPicker({ onSelect, onClose, fixedPosition }: EmojiPickerPro
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
+    let cancelled = false;
     container.innerHTML = '';
-    const picker = new Picker({
-      data,
-      set: 'native',
-      theme: 'auto',
-      previewPosition: 'none',
-      skinTonePosition: 'search',
-      onEmojiSelect: (emoji: { native?: string }) => {
-        if (emoji.native) {
-          onSelect(emoji.native);
-          onClose();
-        }
-      },
-    });
-    container.appendChild(picker as unknown as Node);
+
+    void Promise.all([import('@emoji-mart/data'), import('emoji-mart')]).then(
+      ([dataMod, emojiMartMod]) => {
+        if (cancelled || !mountRef.current) return;
+        const PickerClass = emojiMartMod.Picker;
+        const picker = new PickerClass({
+          data: dataMod.default,
+          set: 'native',
+          theme: 'auto',
+          previewPosition: 'none',
+          skinTonePosition: 'search',
+          onEmojiSelect: (emoji: { native?: string }) => {
+            if (emoji.native) {
+              onSelect(emoji.native);
+              onClose();
+            }
+          },
+        });
+        mountRef.current.innerHTML = '';
+        mountRef.current.appendChild(picker as unknown as Node);
+      }
+    );
+
     return () => {
+      cancelled = true;
       container.innerHTML = '';
     };
   }, [onSelect, onClose]);

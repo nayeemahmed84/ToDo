@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import {
   addDoc,
@@ -30,33 +30,37 @@ import {
 } from './lib/firebase';
 import { TaskRow } from './components/TaskRow';
 import { Sidebar } from './components/Sidebar';
-import { EmojiPicker } from './components/EmojiPicker';
 import { TaskDetail } from './components/TaskDetail';
 import { SyncStatus, TopBar } from './components/TopBar';
 import { PwaManager } from './components/PwaManager';
 import { PwaSharePayload, updateAppBadge } from './lib/pwa';
-import { AppSettings, SettingsModal } from './components/SettingsModal';
-import { ShareDialog } from './components/ShareDialog';
+import type { AppSettings } from './components/SettingsModal';
 import { CustomCalendarPicker } from './components/CustomCalendarPicker';
 import { AppDialogModal } from './components/AppDialogModal';
-import { DEFAULT_PRINT_OPTIONS, PrintModal, PrintOptions, PrintSheet } from './components/PrintModal';
+import { DEFAULT_PRINT_OPTIONS, PrintOptions, PrintSheet } from './components/PrintModal';
+import { ListPresenceBar } from './components/ListPresenceBar';
 import { appConfirm, appPrompt } from './lib/appDialog';
 import { playCompleteSound } from './lib/sound';
 import { suggestEmoji } from './lib/suggestEmoji';
 import { EmojiText, resolveEmojiShortcodes } from './lib/emoji';
 import { scoreTextMatch, scoreTodoItemMatch } from './lib/search';
 import { parseTaskInput } from './lib/parseTaskInput';
-import { FocusTimerBar } from './components/FocusTimerBar';
-import { PlannedCalendarView } from './components/PlannedCalendarView';
-import { InsightsModal } from './components/InsightsModal';
-import { CommandPalette } from './components/CommandPalette';
-import { TemplatesModal } from './components/TemplatesModal';
-import { KanbanBoardView, type BoardGroupBy } from './components/KanbanBoardView';
-import { SavedFilterModal } from './components/SavedFilterModal';
+import type { BoardGroupBy } from './components/KanbanBoardView';
 import { downloadIcsFile } from './lib/ical';
 import { createOrRotateIcalFeed, revokeIcalFeed } from './lib/icalFeed';
 import { matchesSavedFilter, summarizeSavedFilter } from './lib/savedFilters';
-import { isVoiceCaptureSupported, startVoiceCapture, type VoiceCaptureHandle } from './lib/voiceCapture';
+import { isVoiceCaptureSupported } from './lib/voiceCapture';
+import { useVoiceCapture } from './hooks/useVoiceCapture';
+import { useListPresence } from './hooks/useListPresence';
+import {
+  ContextMenuIcon,
+  getListIcon,
+  getSortIcon,
+  getTaskSortOrder,
+  getTodayStr,
+  SMART_TITLES,
+  TRASH_RETENTION_MS,
+} from './lib/appHelpers';
 import type { ListTemplate, SavedFilter, TaskActivity } from './types/todo';
 import {
   buildNextRecurringItemPayload,
@@ -109,125 +113,48 @@ import {
   ViewSelection,
 } from './types/todo';
 
-function getTodayStr(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function getTaskSortOrder(item: TodoItem): number {
-  return item.sortOrder ?? -item.createdAtMs;
-}
-
-const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-
-const SMART_TITLES: Record<SmartListId, string> = {
-  'my-day': 'My Day',
-  important: 'Important',
-  planned: 'Planned',
-  'assigned-to-me': 'Assigned to me',
-  tasks: 'Tasks',
-  all: 'All',
-  completed: 'Completed',
-  trash: 'Trash',
-};
-
-function getListIcon(selection: ViewSelection, customIcon?: string | null): React.ReactNode {
-  switch (selection.type) {
-    case 'smart':
-      switch (selection.id) {
-        case 'my-day':
-          return (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="4" />
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-            </svg>
-          );
-        case 'important':
-          return (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-            </svg>
-          );
-        case 'planned':
-          return (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <path d="M16 2v4M8 2v4M3 10h18" />
-            </svg>
-          );
-        case 'all':
-          return <span style={{ fontSize: '20px', fontWeight: 600, lineHeight: 1 }}>∞</span>;
-        case 'completed':
-          return <span className="completed-nav-icon">✓</span>;
-        case 'assigned-to-me':
-          return (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-          );
-        case 'tasks':
-          return (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />
-            </svg>
-          );
-        case 'trash':
-          return (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-              <path d="M10 11v6M14 11v6" />
-              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-            </svg>
-          );
-        default:
-          return null;
-      }
-    case 'list':
-      if (customIcon) {
-        return <span className="list-emoji" aria-hidden="true">{customIcon}</span>;
-      }
-      return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-        </svg>
-      );
-    default:
-      return null;
-  }
-}
-
-function getSortIcon(sort: SortOption): React.ReactNode {
-  if (sort === 'importance') {
-    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true"><polygon points="12 2 15 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 9 8.3 12 2" /></svg>;
-  }
-  if (sort === 'dueDate') {
-    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>;
-  }
-  if (sort === 'myDay') {
-    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>;
-  }
-  if (sort === 'alphabetical') return <span aria-hidden="true" style={{ fontSize: 15, fontWeight: 700 }}>A↓</span>;
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>;
-}
-
-function ContextMenuIcon({ kind }: { kind: 'sun' | 'star' | 'check' | 'calendar' | 'folder' | 'move' | 'copy' | 'trash' }) {
-  const paths: Record<typeof kind, React.ReactNode> = {
-    sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
-    star: <polygon points="12 2 15 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 9 8.3 12 2" />,
-    check: <><circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" /></>,
-    calendar: <><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></>,
-    folder: <path d="M3 6h7l2 2h9v11H3z" />,
-    move: <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />,
-    copy: <><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>,
-    trash: <><path d="M3 6h18M8 6V4h8v2m-11 0 1 15h12l1-15" /><path d="M10 10v7m4-7v7" /></>,
-  };
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
-}
+const EmojiPicker = lazy(() =>
+  import('./components/EmojiPicker').then((m) => ({ default: m.EmojiPicker }))
+);
+const SettingsModal = lazy(() =>
+  import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }))
+);
+const ShareDialog = lazy(() =>
+  import('./components/ShareDialog').then((m) => ({ default: m.ShareDialog }))
+);
+const PrintModal = lazy(() =>
+  import('./components/PrintModal').then((m) => ({ default: m.PrintModal }))
+);
+const FocusTimerBar = lazy(() =>
+  import('./components/FocusTimerBar').then((m) => ({ default: m.FocusTimerBar }))
+);
+const PlannedCalendarView = lazy(() =>
+  import('./components/PlannedCalendarView').then((m) => ({ default: m.PlannedCalendarView }))
+);
+const InsightsModal = lazy(() =>
+  import('./components/InsightsModal').then((m) => ({ default: m.InsightsModal }))
+);
+const CommandPalette = lazy(() =>
+  import('./components/CommandPalette').then((m) => ({ default: m.CommandPalette }))
+);
+const TemplatesModal = lazy(() =>
+  import('./components/TemplatesModal').then((m) => ({ default: m.TemplatesModal }))
+);
+const KanbanBoardView = lazy(() =>
+  import('./components/KanbanBoardView').then((m) => ({ default: m.KanbanBoardView }))
+);
+const SavedFilterModal = lazy(() =>
+  import('./components/SavedFilterModal').then((m) => ({ default: m.SavedFilterModal }))
+);
+const ShareTargetModal = lazy(() =>
+  import('./components/ShareTargetModal').then((m) => ({ default: m.ShareTargetModal }))
+);
+const ShortcutsModal = lazy(() =>
+  import('./components/ShortcutsModal').then((m) => ({ default: m.ShortcutsModal }))
+);
+const WhatsNewModal = lazy(() =>
+  import('./components/WhatsNewModal').then((m) => ({ default: m.WhatsNewModal }))
+);
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -497,8 +424,14 @@ export function App() {
   const [focusInitialMinutes, setFocusInitialMinutes] = useState<number | undefined>(undefined);
   const [plannedCalendarMode, setPlannedCalendarMode] = useState(false);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
-  const [voiceListening, setVoiceListening] = useState(false);
-  const voiceHandleRef = useRef<VoiceCaptureHandle | null>(null);
+  const [incomingShare, setIncomingShare] = useState<PwaSharePayload | null>(null);
+  const { voiceListening, toggleVoice: handleVoiceToggle } = useVoiceCapture({
+    onTranscript: (text) => {
+      setNewItemText(text);
+      setSmartParseEnabled(true);
+      setAddRowExpanded(true);
+    },
+  });
 
   useEffect(() => {
     setEmojiPickerOpen(false);
@@ -2461,6 +2394,20 @@ const [gridEditText, setGridEditText] = useState('');
     );
   };
 
+  const activeSharedListId =
+    selection.type === 'list' && isSharedList(selection.id) ? selection.id : null;
+
+  const {
+    activePeers: listActivePeers,
+    typingInListPeers: listTypingPeers,
+    getTypingPeersForTask,
+    reportTyping: reportListTyping,
+  } = useListPresence({
+    listId: activeSharedListId,
+    enabled: Boolean(activeSharedListId && user),
+    user,
+  });
+
   const handleAddItem = async (e: FormEvent) => {
     e.preventDefault();
     if (!user || !newItemText.trim()) return;
@@ -4121,34 +4068,6 @@ const [gridEditText, setGridEditText] = useState('');
     );
   }
 
-  const handleVoiceToggle = () => {
-    if (voiceListening) {
-      voiceHandleRef.current?.stop();
-      voiceHandleRef.current = null;
-      setVoiceListening(false);
-      return;
-    }
-    const handle = startVoiceCapture({
-      onTranscript: (text) => {
-        setNewItemText(text);
-        setSmartParseEnabled(true);
-        setAddRowExpanded(true);
-      },
-      onError: () => {
-        setVoiceListening(false);
-        voiceHandleRef.current = null;
-      },
-      onEnd: () => {
-        setVoiceListening(false);
-        voiceHandleRef.current = null;
-      },
-    });
-    if (handle) {
-      voiceHandleRef.current = handle;
-      setVoiceListening(true);
-    }
-  };
-
   const handleQuickAddTaskText = async (rawText: string, overrideDueDate?: string) => {
     if (!user || !rawText.trim()) return;
     const targetListId = await ensureDefaultList();
@@ -4328,11 +4247,7 @@ const [gridEditText, setGridEditText] = useState('');
           window.setTimeout(() => addTaskInputRef.current?.focus(), 60);
         }}
         onSharedTask={(payload: PwaSharePayload) => {
-          const combined = payload.note ? `${payload.title} — ${payload.note}` : payload.title;
-          setNewItemText(combined.slice(0, 300));
-          setAddRowExpanded(true);
-          setMobileView('list');
-          window.setTimeout(() => addTaskInputRef.current?.focus(), 60);
+          setIncomingShare(payload);
         }}
       />
       <div className="app-body">
@@ -4777,10 +4692,12 @@ const [gridEditText, setGridEditText] = useState('');
                     </span>
                   )}
                   {emojiPickerOpen && currentList?.ownerUid === user.uid && (
-                    <EmojiPicker
-                      onSelect={handleListIconChange}
-                      onClose={() => setEmojiPickerOpen(false)}
-                    />
+                    <Suspense fallback={null}>
+                      <EmojiPicker
+                        onSelect={handleListIconChange}
+                        onClose={() => setEmojiPickerOpen(false)}
+                      />
+                    </Suspense>
                   )}
                 </div>
                 {currentList?.ownerUid === user.uid ? (
@@ -5515,6 +5432,10 @@ const [gridEditText, setGridEditText] = useState('');
             )}
             {selection.type === 'list' && (
               <>
+                <ListPresenceBar
+                  activePeers={listActivePeers}
+                  typingPeers={listTypingPeers}
+                />
                 <button
                   className="toolbar-btn toolbar-duplicate-button"
                   onClick={() => handleDuplicateList(selection.id)}
@@ -5579,12 +5500,20 @@ const [gridEditText, setGridEditText] = useState('');
                 aria-label={`List ${currentTitle}, Press shift+tab to access List options`}
                 value={newItemText}
                 onFocus={() => setAddInputFocused(true)}
-                onBlur={() => setAddInputFocused(false)}
+                onBlur={() => {
+                  setAddInputFocused(false);
+                  reportListTyping(null);
+                }}
                 onChange={(e) => {
                   const val = e.target.value;
                   setNewItemText(val);
                   setDuplicateDismissed(false);
-                  if (!val.trim()) setSmartParseEnabled(true);
+                  if (!val.trim()) {
+                    setSmartParseEnabled(true);
+                    reportListTyping(null);
+                  } else {
+                    reportListTyping('add-task');
+                  }
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
@@ -6090,35 +6019,39 @@ const [gridEditText, setGridEditText] = useState('');
             )}
           </section>
         ) : selection.type === 'smart' && selection.id === 'planned' && plannedCalendarMode && !searchQuery ? (
-          <PlannedCalendarView
-            items={allItems}
-            lists={allLists}
-            todayStr={todayStr}
-            onSelectTask={(item) => {
-              setSelectedItemId(item.id);
-              setMobileView('list');
-            }}
-            onToggleDone={handleToggleDone}
-            onRescheduleTask={(item, newDueDate) => handleUpdateItem(item, { dueDate: newDueDate })}
-            onQuickAddForDate={(dateYmd, title) => handleQuickAddTaskText(title, dateYmd)}
-          />
+          <Suspense fallback={null}>
+            <PlannedCalendarView
+              items={allItems}
+              lists={allLists}
+              todayStr={todayStr}
+              onSelectTask={(item) => {
+                setSelectedItemId(item.id);
+                setMobileView('list');
+              }}
+              onToggleDone={handleToggleDone}
+              onRescheduleTask={(item, newDueDate) => handleUpdateItem(item, { dueDate: newDueDate })}
+              onQuickAddForDate={(dateYmd, title) => handleQuickAddTaskText(title, dateYmd)}
+            />
+          </Suspense>
         ) : viewMode === 'board' ? (
-          <KanbanBoardView
-            items={tagFilteredVisible}
-            todayStr={todayStr}
-            incompleteItemIds={incompleteItemIds}
-            listNamesById={Object.fromEntries(listTitleById.entries())}
-            selectedItemId={selectedItemId}
-            groupBy={boardGroupBy}
-            onChangeGroupBy={setBoardGroupBy}
-            onSelectItem={(item) => {
-              setSelectedItemId(item.id);
-              setMobileView('list');
-            }}
-            onToggleDone={handleToggleDone}
-            onToggleImportant={handleToggleImportant}
-            onUpdateItem={handleUpdateItem}
-          />
+          <Suspense fallback={null}>
+            <KanbanBoardView
+              items={tagFilteredVisible}
+              todayStr={todayStr}
+              incompleteItemIds={incompleteItemIds}
+              listNamesById={Object.fromEntries(listTitleById.entries())}
+              selectedItemId={selectedItemId}
+              groupBy={boardGroupBy}
+              onChangeGroupBy={setBoardGroupBy}
+              onSelectItem={(item) => {
+                setSelectedItemId(item.id);
+                setMobileView('list');
+              }}
+              onToggleDone={handleToggleDone}
+              onToggleImportant={handleToggleImportant}
+              onUpdateItem={handleUpdateItem}
+            />
+          </Suspense>
         ) : (plannedGroups ?? categoryGroups) ? (
           (plannedGroups ?? categoryGroups)!.map((group) => (
             <section key={group.label} className="completed-section">
@@ -7471,6 +7404,8 @@ const [gridEditText, setGridEditText] = useState('');
             listTitle={itemParentList?.title}
             listIcon={itemParentList?.icon}
             parentList={itemParentList}
+            typingPeers={getTypingPeersForTask(renderedDetailItem.id)}
+            onTypingActivity={reportListTyping}
             exiting={detailPresence.isExiting}
             onStartFocus={(t, minutes) => {
               setFocusInitialMinutes(minutes);
@@ -7496,236 +7431,231 @@ const [gridEditText, setGridEditText] = useState('');
           Install app
         </button>
       )}
-      {whatsNewOpen && (
-        <div className="modal-backdrop" onClick={() => setWhatsNewOpen(false)}>
-          <div className="modal-card whats-new-card" onClick={(e) => e.stopPropagation()}>
-            <div className="whats-new-heading">
-              <h2>What&apos;s new in To Do</h2>
-              <button type="button" className="icon-btn" onClick={() => setWhatsNewOpen(false)} aria-label="Close">×</button>
-            </div>
-            <ul>
-              <li>Smart lists for My Day, Important, Planned, All, Completed, and more</li>
-              <li>List sharing, groups, and custom themes</li>
-              <li>Reminders, due dates, recurrence, and task steps</li>
-            </ul>
-          </div>
-        </div>
-      )}
-      {shortcutsOpen && (
-        <div className="modal-backdrop" onClick={() => setShortcutsOpen(false)}>
-          <div className="modal-card shortcuts-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
-            <div className="shortcuts-header">
-              <h2>Keyboard shortcuts</h2>
-              <button type="button" className="icon-btn" onClick={() => setShortcutsOpen(false)} aria-label="Close">×</button>
-            </div>
-            <div className="shortcuts-grid">
-              <div className="shortcuts-section">
-                <h3>General &amp; Navigation</h3>
-                <div className="shortcuts-row"><span>New task</span><span className="shortcuts-keys"><kbd>Ctrl+N</kbd><kbd>N</kbd></span></div>
-                <div className="shortcuts-row"><span>Search tasks</span><span className="shortcuts-keys"><kbd>Ctrl+F</kbd><kbd>/</kbd></span></div>
-                <div className="shortcuts-row"><span>New list</span><span className="shortcuts-keys"><kbd>Ctrl+Shift+L</kbd><kbd>L</kbd></span></div>
-                <div className="shortcuts-row"><span>Toggle sidebar</span><span className="shortcuts-keys"><kbd>Ctrl+B</kbd><kbd>Ctrl+1</kbd></span></div>
-                <div className="shortcuts-row"><span>Switch smart lists</span><span className="shortcuts-keys"><kbd>1</kbd>–<kbd>8</kbd></span></div>
-                <div className="shortcuts-row"><span>Previous / Next list</span><span className="shortcuts-keys"><kbd>[</kbd><kbd>]</kbd></span></div>
-                <div className="shortcuts-row"><span>Toggle List / Grid view</span><kbd>V</kbd></div>
-                <div className="shortcuts-row"><span>Toggle Completed section</span><span className="shortcuts-keys"><kbd>Ctrl+Shift+C</kbd><kbd>C</kbd></span></div>
-                <div className="shortcuts-row"><span>Toggle Dark / Light theme</span><kbd>Ctrl+Shift+D</kbd></div>
-                <div className="shortcuts-row"><span>Open Settings</span><kbd>Ctrl+,</kbd></div>
-                <div className="shortcuts-row"><span>Shortcuts help</span><span className="shortcuts-keys"><kbd>?</kbd><kbd>Ctrl+/</kbd></span></div>
-                <div className="shortcuts-row"><span>Close / Clear selection</span><kbd>Esc</kbd></div>
-              </div>
-              <div className="shortcuts-section">
-                <h3>Task List &amp; Actions</h3>
-                <div className="shortcuts-row"><span>Next / Previous task</span><span className="shortcuts-keys"><kbd>↓</kbd><kbd>↑</kbd> / <kbd>J</kbd><kbd>K</kbd></span></div>
-                <div className="shortcuts-row"><span>Multi-select range</span><span className="shortcuts-keys"><kbd>Shift+↓</kbd><kbd>Shift+↑</kbd></span></div>
-                <div className="shortcuts-row"><span>Select all active tasks</span><kbd>Ctrl+A</kbd></div>
-                <div className="shortcuts-row"><span>Mark / Unmark complete</span><span className="shortcuts-keys"><kbd>Ctrl+M</kbd><kbd>Ctrl+U</kbd></span></div>
-                <div className="shortcuts-row"><span>Toggle complete</span><span className="shortcuts-keys"><kbd>Space</kbd><kbd>X</kbd></span></div>
-                <div className="shortcuts-row"><span>Move / Copy to list menu</span><span className="shortcuts-keys"><kbd>M</kbd><kbd>C</kbd></span></div>
-                <div className="shortcuts-row"><span>Copy / Cut / Paste tasks</span><span className="shortcuts-keys"><kbd>Ctrl+C</kbd><kbd>Ctrl+X</kbd><kbd>Ctrl+V</kbd></span></div>
-                <div className="shortcuts-row"><span>Toggle My Day</span><span className="shortcuts-keys"><kbd>Ctrl+T</kbd><kbd>T</kbd></span></div>
-                <div className="shortcuts-row"><span>Toggle Important</span><span className="shortcuts-keys"><kbd>S</kbd><kbd>I</kbd></span></div>
-                <div className="shortcuts-row"><span>Due Today / Tomorrow</span><span className="shortcuts-keys"><kbd>D</kbd><kbd>Shift+D</kbd></span></div>
-                <div className="shortcuts-row"><span>Reorder task up / down</span><span className="shortcuts-keys"><kbd>Alt+↑</kbd><kbd>Alt+↓</kbd></span></div>
-                <div className="shortcuts-row"><span>Delete selected task(s)</span><span className="shortcuts-keys"><kbd>Del</kbd><kbd>Backspace</kbd></span></div>
-                <div className="shortcuts-row"><span>Undo (multi-step)</span><kbd>Ctrl+Z</kbd></div>
-                <h3 style={{ marginTop: "0.75rem" }}>Task Detail Pane</h3>
-                <div className="shortcuts-row"><span>Open / Focus title</span><span className="shortcuts-keys"><kbd>Enter</kbd><kbd>O</kbd><kbd>E</kbd></span></div>
-                <div className="shortcuts-row"><span>Add a step</span><kbd>A</kbd></div>
-                <div className="shortcuts-row"><span>Focus notes</span><kbd>Shift+M</kbd></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {settingsOpen && (
-        <SettingsModal
-          settings={appSettings}
-          onUpdateSettings={updateAppSettings}
-          onExportJson={handleExportJson}
-          onInspectBackup={handleInspectBackup}
-          onImportBackup={handleImportBackup}
-          onRollbackPartialImport={handleRollbackPartialImport}
-          hasPartialImport={hasPartialImport}
-          onExportIcs={() => downloadIcsFile(allItems, allLists)}
-          onGenerateIcalFeed={async () => {
-            const newToken = await createOrRotateIcalFeed(user.uid, appSettings.icalFeedToken);
-            updateAppSettings({ icalFeedToken: newToken });
-            return newToken;
-          }}
-          onRevokeIcalFeed={async () => {
-            if (appSettings.icalFeedToken) {
-              await revokeIcalFeed(appSettings.icalFeedToken);
+      <Suspense fallback={null}>
+        {incomingShare && (
+          <ShareTargetModal
+            payload={incomingShare}
+            lists={allLists}
+            defaultListId={
+              selection.type === 'list'
+                ? selection.id
+                : defaultTasksList?.id ?? allLists[0]?.id ?? ''
             }
-            updateAppSettings({ icalFeedToken: null });
-          }}
-          onConnectGoogleDrive={handleConnectGoogleDrive}
-          onDisconnectGoogleDrive={handleDisconnectGoogleDrive}
-          onBackupToGoogleDrive={handleBackupToGoogleDrive}
-          onListGoogleDriveBackups={handleListGoogleDriveBackups}
-          onInspectGoogleDriveBackup={handleInspectGoogleDriveBackup}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
-      {filterModalState.open && (
-        <SavedFilterModal
-          existingFilter={filterModalState.editing}
-          availableTags={Array.from(
-            new Set(allItems.flatMap((i) => i.tags ?? []))
-          ).sort((a, b) => a.localeCompare(b))}
-          onSave={(saved) => {
-            const existing = appSettings.savedFilters ?? [];
-            const idx = existing.findIndex((f) => f.id === saved.id);
-            const next =
-              idx >= 0
-                ? existing.map((f) => (f.id === saved.id ? saved : f))
-                : [...existing, saved];
-            updateAppSettings({ savedFilters: next });
-            setSelection({ type: 'filter', id: saved.id });
-            setMobileView('list');
-          }}
-          onDelete={(filterId) => {
-            const next = (appSettings.savedFilters ?? []).filter((f) => f.id !== filterId);
-            updateAppSettings({ savedFilters: next });
-            if (selection.type === 'filter' && selection.id === filterId) {
-              setSelection({ type: 'smart', id: 'my-day' });
-            }
-          }}
-          onClose={() => setFilterModalState({ open: false, editing: null })}
-        />
-      )}
-      {focusTask && (
-        <FocusTimerBar
-          task={focusTask}
-          initialMinutes={focusInitialMinutes}
-          playSound={soundEnabled}
-          onLogFocusMinutes={handleLogFocusMinutes}
-          onCompleteTask={handleToggleDone}
-          onClose={() => {
-            setFocusTaskId(null);
-            setFocusInitialMinutes(undefined);
-          }}
-        />
-      )}
-      {commandPaletteOpen && (
-        <CommandPalette
-          lists={allLists}
-          items={allItems}
-          onSelectView={(sel) => {
-            setSelection(sel);
-            setMobileView('list');
-          }}
-          onSelectTask={(item) => {
-            setSelection({ type: 'list', id: item.listId });
-            setSelectedItemId(item.id);
-            setMobileView('list');
-          }}
-          onQuickAddTask={(text) => handleQuickAddTaskText(text)}
-          onCycleTheme={handleCycleTheme}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenInsights={() => setInsightsOpen(true)}
-          onOpenTemplates={() => setTemplatesOpen(true)}
-          onExportIcs={() => downloadIcsFile(allItems, allLists)}
-          onCreateList={handleCreateList}
-          onClose={() => setCommandPaletteOpen(false)}
-        />
-      )}
-      {insightsOpen && (
-        <InsightsModal
-          items={allItems}
-          todayStr={todayStr}
-          tomorrowStr={tomorrowStr}
-          onRolloverToTomorrow={async (ids) => {
-            const targets = allItems.filter((i) => ids.includes(i.id));
-            await Promise.all(
-              targets.map((t) =>
-                handleUpdateItem(t, { myDayDate: null, dueDate: tomorrowStr })
-              )
-            );
-          }}
-          onMoveToMyDay={async (ids) => {
-            const targets = allItems.filter((i) => ids.includes(i.id));
-            await Promise.all(
-              targets.map((t) =>
-                handleUpdateItem(t, { myDayDate: todayStr, dueDate: todayStr })
-              )
-            );
-          }}
-          onClose={() => setInsightsOpen(false)}
-        />
-      )}
-      {templatesOpen && (
-        <TemplatesModal
-          customTemplates={appSettings.listTemplates ?? []}
-          lists={allLists.filter((l) => !l.isDefaultTasksList)}
-          onInstantiateTemplate={handleInstantiateTemplate}
-          onSaveListAsTemplate={handleSaveListAsTemplate}
-          onDeleteTemplate={handleDeleteTemplate}
-          onClose={() => setTemplatesOpen(false)}
-        />
-      )}
-      {shareListId && (() => {
-        const targetList = allLists.find((l) => l.id === shareListId);
-        if (!targetList) return null;
-        const driveAttCount = allItems
-          .filter((i) => i.listId === targetList.id && !i.deletedAtMs)
-          .flatMap((i) => i.attachments ?? [])
-          .filter((att) => Boolean(att.driveFileId) && (!att.uploadedByUid || att.uploadedByUid === user.uid)).length;
-        return (
-          <ShareDialog
-            list={targetList}
-            user={user}
-            driveAttachmentCount={driveAttCount}
-            onSyncDrivePermissions={() =>
-              syncListDrivePermissions({
-                list: targetList,
-                items: allItems,
-                currentUid: user.uid,
-                interactive: true,
-              })
-            }
-            onInviteEmail={async (email) => {
-              await addDoc(collection(db, "lists", targetList.id, "shares"), {
-                email, role: "member", status: "invited", createdAt: serverTimestamp(),
+            onSave={async ({ title, note, listId, addToMyDay, files }) => {
+              const targetListId = listId || (await ensureDefaultList());
+              const parsed = parseTaskInput(title);
+              const addedText = parsed.hasMatch ? parsed.title : title;
+              const attachments: NonNullable<TodoItem['attachments']> = [];
+              for (const file of files) {
+                const attId = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                await saveAttachmentBlob(attId, file.blob);
+                attachments.push({
+                  id: attId,
+                  name: file.name,
+                  size: file.size,
+                  type: file.type,
+                  uploadedByUid: user.uid,
+                });
+              }
+              await addDoc(collection(db, 'lists', targetListId, 'items'), {
+                listId: targetListId,
+                ownerUid: user.uid,
+                createdByName: user.displayName?.trim() || user.email?.trim() || null,
+                text: addedText,
+                done: false,
+                important: false,
+                myDayDate: addToMyDay ? todayStr : null,
+                dueDate: parsed.dueDate ?? null,
+                reminderAtMs: parsed.reminderAtMs ?? null,
+                reminderNotified: false,
+                repeat: parsed.repeat ?? 'none',
+                tags: parsed.tags,
+                priority: parsed.priority ?? null,
+                estimateMinutes: parsed.estimateMinutes ?? null,
+                category: null,
+                notes: note,
+                steps: [],
+                attachments,
+                sortOrder: Date.now(),
+                createdAtMs: Date.now(),
               });
-              // Silently grant Drive read access for existing attachments if Drive session is active
-              void syncListDrivePermissions({
-                list: targetList,
-                items: allItems,
-                currentUid: user.uid,
-                extraEmails: [email],
-                interactive: false,
-              }).catch(() => {});
+              setSelection({ type: 'list', id: targetListId });
+              setMobileView('list');
             }}
-            onRemoveMember={async (uid) => {
-              await updateDoc(doc(db, 'lists', targetList.id), {
-                memberUids: arrayRemove(uid),
-              });
-            }}
-            onClose={() => setShareListId(null)}
+            onClose={() => setIncomingShare(null)}
           />
-        );
-      })()}
+        )}
+        {whatsNewOpen && <WhatsNewModal onClose={() => setWhatsNewOpen(false)} />}
+        {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
+        {settingsOpen && (
+          <SettingsModal
+            settings={appSettings}
+            onUpdateSettings={updateAppSettings}
+            onExportJson={handleExportJson}
+            onInspectBackup={handleInspectBackup}
+            onImportBackup={handleImportBackup}
+            onRollbackPartialImport={handleRollbackPartialImport}
+            hasPartialImport={hasPartialImport}
+            onExportIcs={() => downloadIcsFile(allItems, allLists)}
+            onGenerateIcalFeed={async () => {
+              const newToken = await createOrRotateIcalFeed(user.uid, appSettings.icalFeedToken);
+              updateAppSettings({ icalFeedToken: newToken });
+              return newToken;
+            }}
+            onRevokeIcalFeed={async () => {
+              if (appSettings.icalFeedToken) {
+                await revokeIcalFeed(appSettings.icalFeedToken);
+              }
+              updateAppSettings({ icalFeedToken: null });
+            }}
+            onConnectGoogleDrive={handleConnectGoogleDrive}
+            onDisconnectGoogleDrive={handleDisconnectGoogleDrive}
+            onBackupToGoogleDrive={handleBackupToGoogleDrive}
+            onListGoogleDriveBackups={handleListGoogleDriveBackups}
+            onInspectGoogleDriveBackup={handleInspectGoogleDriveBackup}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
+        {filterModalState.open && (
+          <SavedFilterModal
+            existingFilter={filterModalState.editing}
+            availableTags={Array.from(
+              new Set(allItems.flatMap((i) => i.tags ?? []))
+            ).sort((a, b) => a.localeCompare(b))}
+            onSave={(saved) => {
+              const existing = appSettings.savedFilters ?? [];
+              const idx = existing.findIndex((f) => f.id === saved.id);
+              const next =
+                idx >= 0
+                  ? existing.map((f) => (f.id === saved.id ? saved : f))
+                  : [...existing, saved];
+              updateAppSettings({ savedFilters: next });
+              setSelection({ type: 'filter', id: saved.id });
+              setMobileView('list');
+            }}
+            onDelete={(filterId) => {
+              const next = (appSettings.savedFilters ?? []).filter((f) => f.id !== filterId);
+              updateAppSettings({ savedFilters: next });
+              if (selection.type === 'filter' && selection.id === filterId) {
+                setSelection({ type: 'smart', id: 'my-day' });
+              }
+            }}
+            onClose={() => setFilterModalState({ open: false, editing: null })}
+          />
+        )}
+        {focusTask && (
+          <FocusTimerBar
+            task={focusTask}
+            initialMinutes={focusInitialMinutes}
+            playSound={soundEnabled}
+            onLogFocusMinutes={handleLogFocusMinutes}
+            onCompleteTask={handleToggleDone}
+            onClose={() => {
+              setFocusTaskId(null);
+              setFocusInitialMinutes(undefined);
+            }}
+          />
+        )}
+        {commandPaletteOpen && (
+          <CommandPalette
+            lists={allLists}
+            items={allItems}
+            onSelectView={(sel) => {
+              setSelection(sel);
+              setMobileView('list');
+            }}
+            onSelectTask={(item) => {
+              setSelection({ type: 'list', id: item.listId });
+              setSelectedItemId(item.id);
+              setMobileView('list');
+            }}
+            onQuickAddTask={(text) => handleQuickAddTaskText(text)}
+            onCycleTheme={handleCycleTheme}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenInsights={() => setInsightsOpen(true)}
+            onOpenTemplates={() => setTemplatesOpen(true)}
+            onExportIcs={() => downloadIcsFile(allItems, allLists)}
+            onCreateList={handleCreateList}
+            onClose={() => setCommandPaletteOpen(false)}
+          />
+        )}
+        {insightsOpen && (
+          <InsightsModal
+            items={allItems}
+            todayStr={todayStr}
+            tomorrowStr={tomorrowStr}
+            onRolloverToTomorrow={async (ids) => {
+              const targets = allItems.filter((i) => ids.includes(i.id));
+              await Promise.all(
+                targets.map((t) =>
+                  handleUpdateItem(t, { myDayDate: null, dueDate: tomorrowStr })
+                )
+              );
+            }}
+            onMoveToMyDay={async (ids) => {
+              const targets = allItems.filter((i) => ids.includes(i.id));
+              await Promise.all(
+                targets.map((t) =>
+                  handleUpdateItem(t, { myDayDate: todayStr, dueDate: todayStr })
+                )
+              );
+            }}
+            onClose={() => setInsightsOpen(false)}
+          />
+        )}
+        {templatesOpen && (
+          <TemplatesModal
+            customTemplates={appSettings.listTemplates ?? []}
+            lists={allLists.filter((l) => !l.isDefaultTasksList)}
+            onInstantiateTemplate={handleInstantiateTemplate}
+            onSaveListAsTemplate={handleSaveListAsTemplate}
+            onDeleteTemplate={handleDeleteTemplate}
+            onClose={() => setTemplatesOpen(false)}
+          />
+        )}
+        {shareListId && (() => {
+          const targetList = allLists.find((l) => l.id === shareListId);
+          if (!targetList) return null;
+          const driveAttCount = allItems
+            .filter((i) => i.listId === targetList.id && !i.deletedAtMs)
+            .flatMap((i) => i.attachments ?? [])
+            .filter((att) => Boolean(att.driveFileId) && (!att.uploadedByUid || att.uploadedByUid === user.uid)).length;
+          return (
+            <ShareDialog
+              list={targetList}
+              user={user}
+              driveAttachmentCount={driveAttCount}
+              onSyncDrivePermissions={() =>
+                syncListDrivePermissions({
+                  list: targetList,
+                  items: allItems,
+                  currentUid: user.uid,
+                  interactive: true,
+                })
+              }
+              onInviteEmail={async (email) => {
+                await addDoc(collection(db, "lists", targetList.id, "shares"), {
+                  email, role: "member", status: "invited", createdAt: serverTimestamp(),
+                });
+                // Silently grant Drive read access for existing attachments if Drive session is active
+                void syncListDrivePermissions({
+                  list: targetList,
+                  items: allItems,
+                  currentUid: user.uid,
+                  extraEmails: [email],
+                  interactive: false,
+                }).catch(() => {});
+              }}
+              onRemoveMember={async (uid) => {
+                await updateDoc(doc(db, 'lists', targetList.id), {
+                  memberUids: arrayRemove(uid),
+                });
+              }}
+              onClose={() => setShareListId(null)}
+            />
+          );
+        })()}
+      </Suspense>
       <AppDialogModal />
     </div>
     {(() => {
@@ -7758,19 +7688,21 @@ const [gridEditText, setGridEditText] = useState('');
             />
           </div>
           {printListId && (
-            <PrintModal
-              title={pTitle}
-              icon={pIcon}
-              activeItems={pActive}
-              completedItems={pCompleted}
-              lists={allLists}
-              showListName={pShowListName}
-              todayStr={todayStr}
-              options={printOptions}
-              onChangeOptions={setPrintOptions}
-              onPrint={() => window.print()}
-              onClose={() => setPrintListId(null)}
-            />
+            <Suspense fallback={null}>
+              <PrintModal
+                title={pTitle}
+                icon={pIcon}
+                activeItems={pActive}
+                completedItems={pCompleted}
+                lists={allLists}
+                showListName={pShowListName}
+                todayStr={todayStr}
+                options={printOptions}
+                onChangeOptions={setPrintOptions}
+                onPrint={() => window.print()}
+                onClose={() => setPrintListId(null)}
+              />
+            </Suspense>
           )}
         </>
       );

@@ -1,4 +1,9 @@
 import { registerSW } from 'virtual:pwa-register';
+import {
+  consumeIncomingSharePayload,
+  normalizeShareFields,
+  type SharedFileRecord,
+} from './shareTarget';
 
 export interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -9,10 +14,12 @@ export interface BeforeInstallPromptEvent extends Event {
 export interface PwaSharePayload {
   title: string;
   note: string;
+  url?: string;
+  files?: SharedFileRecord[];
 }
 
 export interface PwaLaunchAction {
-  type: 'new-task' | 'share' | 'notif-complete' | 'notif-snooze';
+  type: 'new-task' | 'share' | 'share-incoming' | 'notif-complete' | 'notif-snooze';
   share?: PwaSharePayload;
   taskId?: string;
   listId?: string | null;
@@ -94,21 +101,21 @@ export function consumePwaLaunchAction(): PwaLaunchAction | null {
 
   if (action === 'new-task') {
     result = { type: 'new-task' };
+  } else if (action === 'share-incoming') {
+    result = { type: 'share-incoming' };
   } else if (action === 'share') {
-    const rawTitle = (url.searchParams.get('title') || '').trim();
-    const rawText = (url.searchParams.get('text') || '').trim();
-    const rawUrl = (url.searchParams.get('url') || '').trim();
-
-    const title = rawTitle || rawText.split(/\r?\n/)[0]?.slice(0, 140) || rawUrl || 'Shared item';
-    const noteParts: string[] = [];
-    if (rawText && rawText !== title) noteParts.push(rawText);
-    if (rawUrl && !rawText.includes(rawUrl) && rawUrl !== title) noteParts.push(rawUrl);
+    const normalized = normalizeShareFields({
+      title: url.searchParams.get('title'),
+      text: url.searchParams.get('text'),
+      url: url.searchParams.get('url'),
+    });
 
     result = {
       type: 'share',
       share: {
-        title,
-        note: noteParts.join('\n'),
+        title: normalized.title,
+        note: normalized.note,
+        url: normalized.url,
       },
     };
   } else if (action === 'notif-complete') {
@@ -147,6 +154,20 @@ export function consumePwaLaunchAction(): PwaLaunchAction | null {
   }
 
   return result;
+}
+
+/**
+ * Hydrates a pending POST share payload saved by the service worker in IndexedDB.
+ */
+export async function consumePendingSharedPayload(): Promise<PwaSharePayload | null> {
+  const incoming = await consumeIncomingSharePayload();
+  if (!incoming) return null;
+  return {
+    title: incoming.title,
+    note: incoming.note,
+    url: incoming.url,
+    files: incoming.files ?? [],
+  };
 }
 
 export interface SwController {

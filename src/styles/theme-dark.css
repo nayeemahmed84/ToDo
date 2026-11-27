@@ -1,0 +1,265 @@
+﻿/* ============ Dark Theme Polish (Desktop & Mobile) ============ */
+:root[data-theme="dark"] .nav-item-row:hover {
+  background: var(--color-surface-hover);
+}
+
+:root[data-theme="dark"] .nav-item-row:hover .nav-item-main {
+  background: transparent;
+}
+
+:root[data-theme="dark"] .detail-card.detail-my-day-card,
+:root[data-theme="dark"] .detail-card.detail-action-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+:root[data-theme="dark"] .detail-card.detail-my-day-card .detail-action-inline,
+:root[data-theme="dark"] .detail-card.detail-action-card .detail-action-inline,
+:root[data-theme="dark"] .detail-schedule-trigger {
+  padding-left: 14px;
+  padding-right: 14px;
+  border-radius: 0;
+}
+
+:root[data-theme="dark"] .detail-schedule-trigger:hover,
+:root[data-theme="dark"] .detail-schedule-trigger[aria-expanded="true"] {
+  background: transparent;
+  color: #fff;
+}
+
+:root[data-theme="dark"] .add-step-form input {
+  background: transparent;
+}
+
+:root[data-theme="dark"] .detail-footer .meta-time {
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+:root[data-theme="dark"] .toolbar-icon-button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="dark"] .toolbar-icon-button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+:root[data-theme="dark"] .settings-action-btn.primary {
+  color: #111111;
+}
+
+@media (max-width: 767px) {
+  :root[data-theme="dark"] .mobile-list-topbar {
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.45) 0%, transparent 100%);
+  }
+}
+
+:root[data-theme="glass-light"] .top-bar-popover,
+:root[data-theme="glass-light"] .sort-menu,
+:root[data-theme="glass-light"] .context-menu-submenu,
+:root[data-theme="glass-dark"] .top-bar-popover,
+:root[data-theme="glass-dark"] .sort-menu,
+:root[data-theme="glass-dark"] .context-menu-submenu {
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  backdrop-filter: var(--glass-blur-heavy);
+}
+
+:root[data-theme="glass-light"] .context-menu-divider,
+:root[data-theme="glass-light"] .account-popover-divider,
+:root[data-theme="glass-dark"] .context-menu-divider,
+:root[data-theme="glass-dark"] .account-popover-divider {
+  background: var(--color-border);
+  border-color: var(--color-border);
+}
+
+:root[data-theme="glass-light"] .context-menu button,
+:root[data-theme="glass-dark"] .context-menu button {
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .context-menu button.danger,
+:root[data-theme="glass-dark"] .context-menu button.danger {
+  color: var(--color-danger);
+}
+
+:root[data-theme="glass-light"] .context-menu button:hover,
+:root[data-theme="glass-dark"] .context-menu button:hover {
+  background: var(--color-surface-hover);
+}
+
+:root[data-theme="glass-light"] .modal-card,
+:root[data-theme="glass-light"] .settings-panel,
+:root[data-theme="glass-light"] .auth-card,
+:root[data-theme="glass-dark"] .modal-card,
+:root[data-theme="glass-dark"] .settings-panel,
+:root[data-theme="glass-dark"] .auth-card {
+  background: var(--color-menu-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  box-shadow: var(--glass-specular), var(--shadow-auth);
+  color: var(--color-text);
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  backdrop-filter: var(--glass-blur-heavy);
+}
+
+:root[data-theme="glass-light"] .modal-backdrop,
+:root[data-theme="glass-light"] .settings-backdrop,
+:root[data-theme="glass-dark"] .modal-backdrop,
+:root[data-theme="glass-dark"] .settings-backdrop {
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+:root[data-theme="glass-light"] .undo-toast,
+:root[data-theme="glass-light"] .clipboard-toast,
+:root[data-theme="glass-light"] .bulk-bar,
+:root[data-theme="glass-dark"] .undo-toast,
+:root[data-theme="glass-dark"] .clipboard-toast,
+:root[data-theme="glass-dark"] .bulk-bar {
+  background: var(--color-menu-bg);
+  color: var(--color-text);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-specular), var(--shadow-menu);
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  backdrop-filter: var(--glass-blur-heavy);
+}
+
+:root[data-theme="glass-light"] .empty-state-action,
+:root[data-theme="glass-dark"] .empty-state-action {
+  background: var(--color-selected);
+  color: var(--color-accent-text);
+  border: 1px solid transparent;
+}
+
+:root[data-theme="glass-light"] .empty-state-action:hover,
+:root[data-theme="glass-dark"] .empty-state-action:hover {
+  background: rgba(0, 122, 255, 0.22);
+}
+
+:root[data-theme="glass-light"] .main-header-menu-btn,
+:root[data-theme="glass-light"] .mobile-menu-btn,
+:root[data-theme="glass-dark"] .main-header-menu-btn,
+:root[data-theme="glass-dark"] .mobile-menu-btn {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-task-border);
+  box-shadow: var(--glass-specular), var(--shadow-card);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+:root[data-theme="glass-light"] .empty-state.my-day-empty-state,
+:root[data-theme="glass-dark"] .empty-state.my-day-empty-state {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-task-border);
+  box-shadow: var(--glass-specular), var(--shadow-card);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+:root[data-theme="glass-light"] .mobile-list-topbar,
+:root[data-theme="glass-light"] .mobile-search-topbar,
+:root[data-theme="glass-dark"] .mobile-list-topbar,
+:root[data-theme="glass-dark"] .mobile-search-topbar {
+  background: var(--color-top-bar-bg);
+  color: var(--color-text);
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  backdrop-filter: var(--glass-blur-heavy);
+}
+
+:root[data-theme="glass-light"] .mobile-list-topbar button,
+:root[data-theme="glass-light"] .mobile-search-topbar button,
+:root[data-theme="glass-light"] .mobile-back-btn,
+:root[data-theme="glass-light"] .mobile-topbar-icon-btn {
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .mobile-fab,
+:root[data-theme="glass-dark"] .mobile-fab {
+  background: rgba(0, 122, 255, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 10px 24px rgba(0, 122, 255, 0.36);
+}
+
+/* Shared layout & settings polish across all themes */
+.settings-backdrop,
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.settings-panel select {
+  min-width: 172px;
+  white-space: nowrap;
+}
+
+.context-menu {
+  min-width: 244px;
+}
+
+.context-menu button {
+  padding-right: 16px;
+}
+
+/* ============ Dark Theme Polish (Desktop & Mobile) ============ */
+:root[data-theme="dark"] .nav-item-row:hover {
+  background: var(--color-surface-hover);
+}
+
+:root[data-theme="dark"] .nav-item-row:hover .nav-item-main {
+  background: transparent;
+}
+
+:root[data-theme="dark"] .detail-card.detail-my-day-card,
+:root[data-theme="dark"] .detail-card.detail-action-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+:root[data-theme="dark"] .detail-card.detail-my-day-card .detail-action-inline,
+:root[data-theme="dark"] .detail-card.detail-action-card .detail-action-inline,
+:root[data-theme="dark"] .detail-schedule-trigger {
+  padding-left: 14px;
+  padding-right: 14px;
+  border-radius: 0;
+}
+
+:root[data-theme="dark"] .detail-schedule-trigger:hover,
+:root[data-theme="dark"] .detail-schedule-trigger[aria-expanded="true"] {
+  background: transparent;
+  color: #fff;
+}
+
+:root[data-theme="dark"] .add-step-form input {
+  background: transparent;
+}
+
+:root[data-theme="dark"] .detail-footer .meta-time {
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+:root[data-theme="dark"] .toolbar-icon-button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="dark"] .toolbar-icon-button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+:root[data-theme="dark"] .settings-action-btn.primary {
+  color: #111111;
+}
+
+@media (max-width: 767px) {
+  :root[data-theme="dark"] .mobile-list-topbar {
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.45) 0%, transparent 100%);
+  }
+}
+

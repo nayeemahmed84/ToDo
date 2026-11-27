@@ -16,6 +16,7 @@ import {
   UserPlusIcon,
 } from './Icons';
 import { RepeatRule, TaskPriority, TodoItem, TodoStep } from '../types/todo';
+import { formatTypingLabel, ListPresencePeer, TypingContext } from '../lib/presence';
 import { RichNotesEditor } from './RichNotesEditor';
 import { AppSelect } from './AppSelect';
 import {
@@ -50,6 +51,8 @@ interface TaskDetailProps {
   listTitle?: string;
   listIcon?: string | null;
   parentList?: { id: string; ownerUid: string; memberUids?: string[] } | null;
+  typingPeers?: ListPresencePeer[];
+  onTypingActivity?: (context: TypingContext | null, taskId?: string | null) => void;
   exiting?: boolean;
   onStartFocus?: (item: TodoItem, minutes?: number) => void;
   onClose: () => void;
@@ -66,6 +69,8 @@ export function TaskDetail({
   listTitle,
   listIcon,
   parentList,
+  typingPeers = [],
+  onTypingActivity,
   exiting = false,
   onStartFocus,
   onClose,
@@ -1296,12 +1301,31 @@ export function TaskDetail({
         </div>
       )}
 
+      {(() => {
+        const taskTypingLabel = formatTypingLabel(typingPeers);
+        if (!taskTypingLabel) return null;
+        return (
+          <div className="presence-typing-pill task-detail-typing-pill" role="status" aria-live="polite">
+            <span className="presence-typing-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span>{taskTypingLabel}</span>
+          </div>
+        );
+      })()}
+
       <div className="detail-card detail-note-card">
         <RichNotesEditor
           itemId={item.id}
           value={notes}
-          onChange={(md) => setNotes(md)}
+          onChange={(md) => {
+            setNotes(md);
+            onTypingActivity?.('task-notes', item.id);
+          }}
           onCommit={(md) => {
+            onTypingActivity?.(null, item.id);
             if (md !== item.notes) {
               void onUpdate(item, { notes: md });
             }
@@ -1604,13 +1628,19 @@ export function TaskDetail({
                   comments: [...(item.comments ?? []), nextComment],
                 });
                 setCommentInput('');
+                onTypingActivity?.(null, item.id);
               }}
             >
               <input
                 type="text"
                 placeholder="Write a comment…"
                 value={commentInput}
-                onChange={(e) => setCommentInput(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCommentInput(val);
+                  onTypingActivity?.(val.trim() ? 'task-comment' : null, item.id);
+                }}
+                onBlur={() => onTypingActivity?.(null, item.id)}
               />
               <button type="submit" className="detail-inline-submit" disabled={!commentInput.trim()}>
                 Post

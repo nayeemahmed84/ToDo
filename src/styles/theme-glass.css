@@ -1,0 +1,611 @@
+﻿/* ============ iOS Glass Light & Dark Themes (placed last to override dark defaults) ============ */
+:root[data-theme="glass-light"] body,
+:root[data-theme="glass-dark"] body {
+  background: var(--glass-canvas);
+  background-attachment: fixed;
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .app-shell,
+:root[data-theme="glass-dark"] .app-shell,
+:root[data-theme="glass-light"] .app-body,
+:root[data-theme="glass-dark"] .app-body,
+:root[data-theme="glass-light"] .auth-screen,
+:root[data-theme="glass-dark"] .auth-screen {
+  background: transparent;
+  background-color: transparent;
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .main-pane,
+:root[data-theme="glass-dark"] .main-pane {
+  background-color: transparent;
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .main-pane[data-wallpaper="plain"],
+:root[data-theme="glass-dark"] .main-pane[data-wallpaper="plain"],
+:root[data-theme="glass-light"] .main-pane[data-wallpaper="none"],
+:root[data-theme="glass-dark"] .main-pane[data-wallpaper="none"] {
+  background: transparent;
+}
+
+/* Top bar */
+:root[data-theme="glass-light"] .top-bar,
+:root[data-theme="glass-dark"] .top-bar {
+  background: var(--color-top-bar-bg);
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--glass-specular);
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  backdrop-filter: var(--glass-blur-heavy);
+}
+
+:root[data-theme="glass-light"] .top-bar-brand,
+:root[data-theme="glass-light"] .top-bar-wordmark,
+:root[data-theme="glass-light"] .top-bar-menu-btn,
+:root[data-theme="glass-light"] .top-bar-icon-btn,
+:root[data-theme="glass-dark"] .top-bar-brand,
+:root[data-theme="glass-dark"] .top-bar-wordmark,
+:root[data-theme="glass-dark"] .top-bar-menu-btn,
+:root[data-theme="glass-dark"] .top-bar-icon-btn {
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .top-bar-mark,
+:root[data-theme="glass-dark"] .top-bar-mark {
+  color: var(--color-accent);
+}
+
+:root[data-theme="glass-light"] .top-bar-sync,
+:root[data-theme="glass-dark"] .top-bar-sync {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .top-bar-search,
+:root[data-theme="glass-dark"] .top-bar-search {
+  background: var(--color-search-bg);
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+
+:root[data-theme="glass-light"] .top-bar-search:focus-within {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(0, 122, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.18);
+}
+
+:root[data-theme="glass-dark"] .top-bar-search:focus-within {
+  background: rgba(58, 58, 64, 0.85);
+  border-color: rgba(10, 132, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25);
+}
+
+/* Sidebar */
+:root[data-theme="glass-light"] .sidebar,
+:root[data-theme="glass-dark"] .sidebar {
+  background: var(--color-sidebar-bg);
+  border-right: 1px solid var(--color-border);
+  color: var(--color-text);
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  backdrop-filter: var(--glass-blur-heavy);
+}
+
+:root[data-theme="glass-light"] .sidebar-profile-button,
+:root[data-theme="glass-dark"] .sidebar-profile-button {
+  background: transparent;
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .sidebar-profile-copy strong,
+:root[data-theme="glass-dark"] .sidebar-profile-copy strong {
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .sidebar-profile-copy span,
+:root[data-theme="glass-light"] .sidebar-account-chevron,
+:root[data-theme="glass-dark"] .sidebar-profile-copy span,
+:root[data-theme="glass-dark"] .sidebar-account-chevron {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .sidebar-profile-button:hover,
+:root[data-theme="glass-light"] .sidebar-profile-button[aria-expanded="true"],
+:root[data-theme="glass-dark"] .sidebar-profile-button:hover,
+:root[data-theme="glass-dark"] .sidebar-profile-button[aria-expanded="true"] {
+  background: var(--color-surface-hover);
+}
+
+:root[data-theme="glass-light"] .sidebar-account-menu,
+:root[data-theme="glass-dark"] .sidebar-account-menu {
+  background: var(--color-menu-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-specular), var(--shadow-menu);
+  color: var(--color-text);
+  border-radius: 14px;
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  backdrop-filter: var(--glass-blur-heavy);
+}
+
+:root[data-theme="glass-light"] .sidebar-account-menu-user,
+:root[data-theme="glass-dark"] .sidebar-account-menu-user {
+  border-bottom-color: var(--color-border);
+}
+
+:root[data-theme="glass-light"] .sidebar-account-menu-user strong,
+:root[data-theme="glass-light"] .sidebar-account-menu button,
+:root[data-theme="glass-dark"] .sidebar-account-menu-user strong,
+:root[data-theme="glass-dark"] .sidebar-account-menu button {
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .sidebar-account-menu-user span,
+:root[data-theme="glass-dark"] .sidebar-account-menu-user span {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .sidebar-account-menu button:hover,
+:root[data-theme="glass-dark"] .sidebar-account-menu button:hover {
+  background: var(--color-surface-hover);
+}
+
+:root[data-theme="glass-light"] .sidebar-search,
+:root[data-theme="glass-dark"] .sidebar-search {
+  background: var(--color-search-bg);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+:root[data-theme="glass-light"] .sidebar-search input,
+:root[data-theme="glass-dark"] .sidebar-search input {
+  color: var(--color-text);
+  background: transparent;
+}
+
+:root[data-theme="glass-light"] .sidebar-search input::placeholder,
+:root[data-theme="glass-dark"] .sidebar-search input::placeholder {
+  color: var(--color-placeholder);
+}
+
+:root[data-theme="glass-light"] .nav-item,
+:root[data-theme="glass-light"] .nav-item-main,
+:root[data-theme="glass-light"] .nav-label,
+:root[data-theme="glass-dark"] .nav-item,
+:root[data-theme="glass-dark"] .nav-item-main,
+:root[data-theme="glass-dark"] .nav-label {
+  color: var(--color-text);
+  border-radius: 10px;
+}
+
+:root[data-theme="glass-light"] .nav-count,
+:root[data-theme="glass-dark"] .nav-count {
+  color: var(--color-count);
+  background: var(--color-surface-hover);
+}
+
+:root[data-theme="glass-light"] .nav-item:hover,
+:root[data-theme="glass-light"] .nav-item-row:hover,
+:root[data-theme="glass-dark"] .nav-item:hover,
+:root[data-theme="glass-dark"] .nav-item-row:hover {
+  background: var(--color-surface-hover);
+}
+
+:root[data-theme="glass-light"] .nav-item-row:hover .nav-item-main,
+:root[data-theme="glass-dark"] .nav-item-row:hover .nav-item-main {
+  background: transparent;
+}
+
+:root[data-theme="glass-light"] .nav-item.active,
+:root[data-theme="glass-light"] .nav-item-row.active,
+:root[data-theme="glass-dark"] .nav-item.active,
+:root[data-theme="glass-dark"] .nav-item-row.active {
+  background: var(--color-selected);
+  color: var(--color-accent-text);
+  border-radius: 10px;
+}
+
+:root[data-theme="glass-light"] .nav-item-row.active .nav-item-main,
+:root[data-theme="glass-dark"] .nav-item-row.active .nav-item-main {
+  background: transparent;
+  color: var(--color-accent-text);
+}
+
+:root[data-theme="glass-light"] .nav-item-row.active .nav-count,
+:root[data-theme="glass-dark"] .nav-item-row.active .nav-count {
+  color: var(--color-accent-text);
+  background: transparent;
+}
+
+:root[data-theme="glass-light"] .nav-item.active .nav-label,
+:root[data-theme="glass-light"] .nav-item-row.active .nav-label,
+:root[data-theme="glass-light"] .nav-item.active .nav-icon,
+:root[data-theme="glass-light"] .nav-item-row.active .nav-icon,
+:root[data-theme="glass-dark"] .nav-item.active .nav-label,
+:root[data-theme="glass-dark"] .nav-item-row.active .nav-label,
+:root[data-theme="glass-dark"] .nav-item.active .nav-icon,
+:root[data-theme="glass-dark"] .nav-item-row.active .nav-icon {
+  color: var(--color-accent-text);
+  font-weight: 600;
+}
+
+:root[data-theme="glass-light"] .nav-divider,
+:root[data-theme="glass-dark"] .nav-divider {
+  background: var(--color-border);
+}
+
+:root[data-theme="glass-light"] .group-icon-button,
+:root[data-theme="glass-light"] .group-chevron,
+:root[data-theme="glass-dark"] .group-icon-button,
+:root[data-theme="glass-dark"] .group-chevron {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .sidebar-bottom,
+:root[data-theme="glass-dark"] .sidebar-bottom {
+  border-top-color: var(--color-border);
+}
+
+:root[data-theme="glass-light"] .new-list-form,
+:root[data-theme="glass-dark"] .new-list-form {
+  background: transparent;
+}
+
+:root[data-theme="glass-light"] .new-list-form:hover,
+:root[data-theme="glass-light"] .new-list-form:focus-within,
+:root[data-theme="glass-dark"] .new-list-form:hover,
+:root[data-theme="glass-dark"] .new-list-form:focus-within {
+  background: var(--color-surface-hover);
+}
+
+:root[data-theme="glass-light"] .new-list-form input,
+:root[data-theme="glass-light"] .sidebar-add-icon,
+:root[data-theme="glass-dark"] .new-list-form input,
+:root[data-theme="glass-dark"] .sidebar-add-icon {
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .new-list-form input::placeholder,
+:root[data-theme="glass-dark"] .new-list-form input::placeholder {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .new-group-btn,
+:root[data-theme="glass-light"] .sidebar-input-submit,
+:root[data-theme="glass-dark"] .new-group-btn,
+:root[data-theme="glass-dark"] .sidebar-input-submit {
+  color: var(--color-text-2);
+  border-color: var(--color-border);
+  background: transparent;
+}
+
+:root[data-theme="glass-light"] .new-group-btn:hover,
+:root[data-theme="glass-light"] .sidebar-input-submit:hover,
+:root[data-theme="glass-dark"] .new-group-btn:hover,
+:root[data-theme="glass-dark"] .sidebar-input-submit:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+/* Main header & toolbar */
+:root[data-theme="glass-light"] .main-header,
+:root[data-theme="glass-light"] .header-title,
+:root[data-theme="glass-light"] .header-title-input,
+:root[data-theme="glass-dark"] .main-header,
+:root[data-theme="glass-dark"] .header-title,
+:root[data-theme="glass-dark"] .header-title-input {
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .main-pane[data-wallpaper="coast"] .header-title,
+:root[data-theme="glass-light"] .main-pane[data-wallpaper="coast"] .header-title-input,
+:root[data-theme="glass-light"] .main-pane[data-wallpaper="field"] .header-title,
+:root[data-theme="glass-light"] .main-pane[data-wallpaper="field"] .header-title-input,
+:root[data-theme="glass-light"] .main-pane[data-wallpaper="custom"] .header-title,
+:root[data-theme="glass-light"] .main-pane[data-wallpaper="custom"] .header-title-input,
+:root[data-theme="glass-dark"] .main-pane[data-wallpaper="coast"] .header-title,
+:root[data-theme="glass-dark"] .main-pane[data-wallpaper="coast"] .header-title-input,
+:root[data-theme="glass-dark"] .main-pane[data-wallpaper="field"] .header-title,
+:root[data-theme="glass-dark"] .main-pane[data-wallpaper="field"] .header-title-input,
+:root[data-theme="glass-dark"] .main-pane[data-wallpaper="custom"] .header-title,
+:root[data-theme="glass-dark"] .main-pane[data-wallpaper="custom"] .header-title-input {
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme="glass-light"] .toolbar-icon-button,
+:root[data-theme="glass-dark"] .toolbar-icon-button {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-task-border);
+  box-shadow: var(--glass-specular), var(--shadow-card);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+:root[data-theme="glass-light"] .toolbar-icon-button:hover,
+:root[data-theme="glass-dark"] .toolbar-icon-button:hover {
+  background: var(--color-task-hover);
+}
+
+/* Floating frosted glass task & add-task cards */
+:root[data-theme="glass-light"] .task-row,
+:root[data-theme="glass-dark"] .task-row {
+  background: var(--color-task-row-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-task-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-specular), var(--shadow-card);
+  transition: none;
+}
+
+:root[data-theme="glass-light"] .task-row:hover,
+:root[data-theme="glass-dark"] .task-row:hover {
+  background: var(--color-task-hover);
+}
+
+:root[data-theme="glass-light"] .task-row.selected {
+  background: rgba(226, 240, 255, 0.88);
+  border-color: var(--color-accent);
+}
+
+:root[data-theme="glass-dark"] .task-row.selected {
+  background: rgba(20, 56, 98, 0.78);
+  border-color: var(--color-accent);
+}
+
+:root[data-theme="glass-light"] .task-title,
+:root[data-theme="glass-dark"] .task-title {
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .task-row.done .task-title,
+:root[data-theme="glass-dark"] .task-row.done .task-title {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .task-meta,
+:root[data-theme="glass-light"] .task-meta-icon,
+:root[data-theme="glass-dark"] .task-meta,
+:root[data-theme="glass-dark"] .task-meta-icon {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .completed-toggle,
+:root[data-theme="glass-dark"] .completed-toggle {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-task-border);
+  box-shadow: var(--glass-specular), var(--shadow-card);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+:root[data-theme="glass-light"] .add-task-row,
+:root[data-theme="glass-dark"] .add-task-row {
+  background: var(--color-task-row-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-task-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-specular), var(--shadow-card);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+:root[data-theme="glass-light"] .add-task-row:hover,
+:root[data-theme="glass-dark"] .add-task-row:hover {
+  background: var(--color-task-hover);
+}
+
+:root[data-theme="glass-light"] .add-task-row:focus-within,
+:root[data-theme="glass-dark"] .add-task-row:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: var(--glass-specular), 0 0 0 3px rgba(0, 122, 255, 0.2), var(--shadow-card);
+}
+
+:root[data-theme="glass-light"] .add-task-top-row input,
+:root[data-theme="glass-dark"] .add-task-top-row input {
+  color: var(--color-text);
+  caret-color: var(--color-accent);
+}
+
+:root[data-theme="glass-light"] .add-task-top-row input::placeholder,
+:root[data-theme="glass-dark"] .add-task-top-row input::placeholder {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .add-task-row .add-task-icon-btn,
+:root[data-theme="glass-dark"] .add-task-row .add-task-icon-btn {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .add-task-row .add-task-icon-btn:hover,
+:root[data-theme="glass-dark"] .add-task-row .add-task-icon-btn:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+/* Detail panel & suggestions */
+:root[data-theme="glass-light"] .suggestions-pane,
+:root[data-theme="glass-light"] .detail-panel,
+:root[data-theme="glass-dark"] .suggestions-pane,
+:root[data-theme="glass-dark"] .detail-panel {
+  background: var(--color-detail-pane);
+  border-left: 1px solid var(--color-border);
+  box-shadow: var(--shadow-pane);
+  color: var(--color-text);
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  backdrop-filter: var(--glass-blur-heavy);
+}
+
+:root[data-theme="glass-light"] .detail-card,
+:root[data-theme="glass-light"] .detail-row,
+:root[data-theme="glass-light"] .detail-note-card,
+:root[data-theme="glass-light"] .detail-steps-card,
+:root[data-theme="glass-light"] .detail-section-card,
+:root[data-theme="glass-dark"] .detail-card,
+:root[data-theme="glass-dark"] .detail-row,
+:root[data-theme="glass-dark"] .detail-note-card,
+:root[data-theme="glass-dark"] .detail-steps-card,
+:root[data-theme="glass-dark"] .detail-section-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-task-border);
+  border-radius: 12px;
+  color: var(--color-text);
+  box-shadow: var(--glass-specular), var(--shadow-card);
+}
+
+:root[data-theme="glass-light"] .detail-panel .detail-title-input,
+:root[data-theme="glass-light"] .detail-panel textarea,
+:root[data-theme="glass-light"] .detail-panel input[type="text"],
+:root[data-theme="glass-light"] .add-step-form input,
+:root[data-theme="glass-dark"] .detail-panel .detail-title-input,
+:root[data-theme="glass-dark"] .detail-panel textarea,
+:root[data-theme="glass-dark"] .detail-panel input[type="text"],
+:root[data-theme="glass-dark"] .add-step-form input {
+  background: transparent;
+  color: var(--color-text);
+  border-color: transparent;
+}
+
+:root[data-theme="glass-light"] .add-step-form input::placeholder,
+:root[data-theme="glass-dark"] .add-step-form input::placeholder {
+  color: var(--color-placeholder);
+}
+
+:root[data-theme="glass-light"] .detail-card.detail-my-day-card .detail-action-inline,
+:root[data-theme="glass-dark"] .detail-card.detail-my-day-card .detail-action-inline {
+  background: transparent;
+}
+
+:root[data-theme="glass-light"] .detail-card.detail-action-card .detail-action-inline,
+:root[data-theme="glass-dark"] .detail-card.detail-action-card .detail-action-inline {
+  border-color: var(--color-border);
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .detail-action,
+:root[data-theme="glass-light"] .detail-action-inline,
+:root[data-theme="glass-light"] .detail-field-label,
+:root[data-theme="glass-light"] .detail-schedule-trigger,
+:root[data-theme="glass-dark"] .detail-action,
+:root[data-theme="glass-dark"] .detail-action-inline,
+:root[data-theme="glass-dark"] .detail-field-label,
+:root[data-theme="glass-dark"] .detail-schedule-trigger {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .detail-card.detail-my-day-card,
+:root[data-theme="glass-light"] .detail-card.detail-action-card,
+:root[data-theme="glass-dark"] .detail-card.detail-my-day-card,
+:root[data-theme="glass-dark"] .detail-card.detail-action-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+:root[data-theme="glass-light"] .detail-card.detail-my-day-card .detail-action-inline,
+:root[data-theme="glass-light"] .detail-card.detail-action-card .detail-action-inline,
+:root[data-theme="glass-dark"] .detail-card.detail-my-day-card .detail-action-inline,
+:root[data-theme="glass-dark"] .detail-card.detail-action-card .detail-action-inline {
+  padding-left: 14px;
+  padding-right: 14px;
+  border-radius: 0;
+}
+
+:root[data-theme="glass-light"] .detail-schedule-trigger,
+:root[data-theme="glass-dark"] .detail-schedule-trigger {
+  padding-left: 14px;
+  padding-right: 14px;
+  border-radius: 0;
+}
+
+:root[data-theme="glass-light"] .detail-schedule-trigger:hover,
+:root[data-theme="glass-light"] .detail-schedule-trigger[aria-expanded="true"],
+:root[data-theme="glass-dark"] .detail-schedule-trigger:hover,
+:root[data-theme="glass-dark"] .detail-schedule-trigger[aria-expanded="true"] {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+:root[data-theme="glass-light"] .detail-footer .meta-time,
+:root[data-theme="glass-dark"] .detail-footer .meta-time {
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+:root[data-theme="glass-light"] .detail-panel .detail-action,
+:root[data-theme="glass-light"] .detail-panel .detail-action-inline,
+:root[data-theme="glass-dark"] .detail-panel .detail-action,
+:root[data-theme="glass-dark"] .detail-panel .detail-action-inline {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="glass-light"] .detail-panel .detail-action:hover,
+:root[data-theme="glass-light"] .detail-panel .detail-action-inline:hover,
+:root[data-theme="glass-dark"] .detail-panel .detail-action:hover,
+:root[data-theme="glass-dark"] .detail-panel .detail-action-inline:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .star-btn,
+:root[data-theme="glass-dark"] .star-btn {
+  color: var(--color-checkbox);
+}
+
+:root[data-theme="glass-light"] .star-btn:hover,
+:root[data-theme="glass-dark"] .star-btn:hover {
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .star-btn.active,
+:root[data-theme="glass-dark"] .star-btn.active {
+  color: var(--color-star);
+}
+
+:root[data-theme="glass-light"] .task-row .checkbox,
+:root[data-theme="glass-dark"] .task-row .checkbox {
+  border-color: var(--color-checkbox);
+}
+
+:root[data-theme="glass-light"] .detail-footer,
+:root[data-theme="glass-dark"] .detail-footer {
+  background: transparent;
+  border-top-color: var(--color-border);
+  color: var(--color-text-2);
+}
+
+/* Popovers, context menus, modals, toasts */
+:root[data-theme="glass-light"] .top-bar-popover,
+:root[data-theme="glass-light"] .context-menu,
+:root[data-theme="glass-light"] .sort-menu,
+:root[data-theme="glass-light"] .list-options-menu {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: var(--glass-specular), var(--shadow-menu);
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-dark"] .top-bar-popover,
+:root[data-theme="glass-dark"] .context-menu,
+:root[data-theme="glass-dark"] .sort-menu,
+:root[data-theme="glass-dark"] .list-options-menu {
+  background: rgba(36, 36, 40, 0.94);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: var(--glass-specular), var(--shadow-menu);
+  color: var(--color-text);
+}
+
+:root[data-theme="glass-light"] .context-menu,
+:root[data-theme="glass-dark"] .context-menu {
+  min-width: 244px;
+}
+
+:root[data-theme="glass-light"] .context-menu button,
+:root[data-theme="glass-dark"] .context-menu button {
+  padding-right: 16px;
+}
+

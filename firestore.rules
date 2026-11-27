@@ -133,6 +133,15 @@ service cloud.firestore {
         allow read: if isListMember(listId);
         allow create, update, delete: if isListOwner(listId);
       }
+
+      match /presence/{presenceUid} {
+        allow read: if isListMember(listId);
+        allow create, update: if isListMember(listId)
+          && request.auth.uid == presenceUid
+          && request.resource.data.uid == request.auth.uid;
+        allow delete: if isListMember(listId)
+          && request.auth.uid == presenceUid;
+      }
     }
   }
 }

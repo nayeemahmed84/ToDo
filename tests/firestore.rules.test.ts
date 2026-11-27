@@ -292,4 +292,64 @@ describe('Firestore security rules', () => {
       await assertFails(getDocs(collection(outsiderDb, 'lists', 'list-1', 'items')));
     });
   });
+
+  describe('shared list live presence rules', () => {
+    it('allows members to read presence and manage only their own presence doc while blocking outsiders', async () => {
+      const ownerDb = testEnv.authenticatedContext(OWNER_UID).firestore();
+      const memberDb = testEnv.authenticatedContext(MEMBER_UID).firestore();
+      const outsiderDb = testEnv.authenticatedContext(OUTSIDER_UID).firestore();
+
+      // Owner and member can write their own presence docs
+      await assertSucceeds(
+        setDoc(doc(ownerDb, 'lists', 'list-1', 'presence', OWNER_UID), {
+          uid: OWNER_UID,
+          displayName: 'Owner',
+          lastActiveAtMs: Date.now(),
+          typingContext: null,
+        })
+      );
+      await assertSucceeds(
+        setDoc(doc(memberDb, 'lists', 'list-1', 'presence', MEMBER_UID), {
+          uid: MEMBER_UID,
+          displayName: 'Member',
+          lastActiveAtMs: Date.now(),
+          typingContext: 'add-task',
+        })
+      );
+
+      // Members can read each other's presence
+      await assertSucceeds(getDocs(collection(memberDb, 'lists', 'list-1', 'presence')));
+      await assertSucceeds(getDoc(doc(ownerDb, 'lists', 'list-1', 'presence', MEMBER_UID)));
+
+      // Member cannot impersonate owner or spoof uid field
+      await assertFails(
+        setDoc(doc(memberDb, 'lists', 'list-1', 'presence', OWNER_UID), {
+          uid: OWNER_UID,
+          displayName: 'Spoofed',
+          lastActiveAtMs: Date.now(),
+        })
+      );
+      await assertFails(
+        setDoc(doc(memberDb, 'lists', 'list-1', 'presence', MEMBER_UID), {
+          uid: OWNER_UID,
+          displayName: 'Mismatched',
+          lastActiveAtMs: Date.now(),
+        })
+      );
+      await assertFails(deleteDoc(doc(memberDb, 'lists', 'list-1', 'presence', OWNER_UID)));
+
+      // Member can clean up own presence doc
+      await assertSucceeds(deleteDoc(doc(memberDb, 'lists', 'list-1', 'presence', MEMBER_UID)));
+
+      // Outsider cannot read or write presence
+      await assertFails(getDocs(collection(outsiderDb, 'lists', 'list-1', 'presence')));
+      await assertFails(
+        setDoc(doc(outsiderDb, 'lists', 'list-1', 'presence', OUTSIDER_UID), {
+          uid: OUTSIDER_UID,
+          displayName: 'Outsider',
+          lastActiveAtMs: Date.now(),
+        })
+      );
+    });
+  });
 });
