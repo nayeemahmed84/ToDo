@@ -5203,27 +5203,6 @@ const [gridEditText, setGridEditText] = useState('');
                     </svg>
                     <span>Print list</span>
                   </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="account-popover-item list-menu-item"
-                    onClick={() => {
-                      setListMenuOpen(false);
-                      const lines = [
-                        ...activeItems.map((t) => `☐ ${t.text}`),
-                        ...completedItems.map((t) => `☑ ${t.text}`),
-                      ];
-                      const subject = encodeURIComponent(currentTitle);
-                      const body = encodeURIComponent(lines.length > 0 ? lines.join('\n') : '(No tasks)');
-                      window.location.href = `mailto:?subject=${subject}&body=${body}`;
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect x="2" y="4" width="20" height="16" rx="2" />
-                      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                    </svg>
-                    <span>Email list</span>
-                  </button>
                   <button type="button" role="menuitem" className="account-popover-item list-menu-item" onClick={() => { setViewMode((mode) => mode === 'list' ? 'grid' : 'list'); setListMenuOpen(false); }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <rect x="3" y="3" width="7" height="7" rx="1" />
