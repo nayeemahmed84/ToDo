@@ -71,4 +71,27 @@ describe('search normalization and ranking', () => {
     expect(scoreTodoItemMatch(item, '')).toBe(0);
     expect(scoreTodoItemMatch(item, 'spaceship')).toBe(0);
   });
+
+  it('matches Unicode and non-Latin scripts across tasks, lists, and emojis', () => {
+    // Myanmar (uses letters + combining marks)
+    expect(scoreTodoItemMatch(makeItem({ text: 'မြန်မာစာ ဖတ်ရန်' }), 'မြန်မာ')).toBeGreaterThan(0);
+    expect(scoreTodoItemMatch(makeItem({ text: 'မြန်မာစာ ဖတ်ရန်' }), 'ဖတ်ရန်')).toBeGreaterThan(0);
+
+    // Japanese, Chinese, Korean
+    expect(scoreTodoItemMatch(makeItem({ text: '買い物リストを作る' }), '買い物')).toBeGreaterThan(0);
+    expect(scoreTodoItemMatch(makeItem({ text: 'がっこうへ行く' }), 'がっこう')).toBeGreaterThan(0);
+    expect(scoreTodoItemMatch(makeItem({ text: '买牛奶和面包' }), '牛奶')).toBeGreaterThan(0);
+    expect(scoreTodoItemMatch(makeItem({ text: '买牛奶' }), '奶 买')).toBeGreaterThan(0);
+    expect(scoreTodoItemMatch(makeItem({ text: '장보기 목록' }), '장보기')).toBeGreaterThan(0);
+
+    // Arabic, Cyrillic, Greek, Hindi, Thai
+    expect(scoreTodoItemMatch(makeItem({ text: 'شراء الحليب' }), 'الحليب')).toBeGreaterThan(0);
+    expect(scoreTodoItemMatch(makeItem({ text: 'Купить молоко' }), 'купить')).toBeGreaterThan(0);
+    expect(scoreTodoItemMatch(makeItem({ text: 'Αγορά γάλακτος' }), 'αγορα')).toBeGreaterThan(0);
+    expect(scoreTodoItemMatch(makeItem({ text: 'दूध खरीदना' }), 'दूध')).toBeGreaterThan(0);
+    expect(scoreTodoItemMatch(makeItem({ text: 'ซื้อนมสด' }), 'ซื้อนม')).toBeGreaterThan(0);
+
+    // Emoji
+    expect(scoreTodoItemMatch(makeItem({ text: '🔥 Urgent task' }), '🔥')).toBeGreaterThan(0);
+  });
 });

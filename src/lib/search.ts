@@ -4,9 +4,10 @@ export function normalizeSearchText(input: string): string {
   return input
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFC')
     .toLowerCase()
-    .replace(/['’`]/g, '')
-    .replace(/[^a-z0-9\u00c0-\u024f]+/gi, ' ')
+    .replace(/['’`\uFE0F]/g, '')
+    .replace(/[^\p{L}\p{N}\p{M}\p{Extended_Pictographic}]+/gu, ' ')
     .trim();
 }
 
@@ -58,7 +59,7 @@ function scoreTokenAgainstWords(token: string, words: string[], collapsedText: s
     if (w === token) return 100;
     if (w.startsWith(token)) {
       best = Math.max(best, 85);
-    } else if (token.length >= 2 && w.includes(token)) {
+    } else if ((token.length >= 2 || /[\p{Unified_Ideograph}\p{Extended_Pictographic}]/u.test(token)) && w.includes(token)) {
       best = Math.max(best, 65);
     } else if (token.length >= 3) {
       const maxDist = token.length >= 6 ? 2 : 1;

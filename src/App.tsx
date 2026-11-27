@@ -425,11 +425,25 @@ export function App() {
   const [plannedCalendarMode, setPlannedCalendarMode] = useState(false);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [incomingShare, setIncomingShare] = useState<PwaSharePayload | null>(null);
+  const voiceBaseTextRef = useRef('');
   const { voiceListening, toggleVoice: handleVoiceToggle } = useVoiceCapture({
+    onStart: () => {
+      voiceBaseTextRef.current = newItemText.trim();
+      setAddRowExpanded(true);
+      if (mobileAddOpen) {
+        mobileAddInputRef.current?.focus();
+      } else {
+        addTaskInputRef.current?.focus();
+      }
+    },
     onTranscript: (text) => {
-      setNewItemText(text);
+      const base = voiceBaseTextRef.current;
+      setNewItemText(base ? `${base} ${text}` : text);
       setSmartParseEnabled(true);
       setAddRowExpanded(true);
+    },
+    onError: (_code, message) => {
+      showClipboardToast(message);
     },
   });
 
@@ -5473,9 +5487,11 @@ const [gridEditText, setGridEditText] = useState('');
               <input
                 ref={addTaskInputRef}
                 type="text"
-                placeholder={addInputFocused
-                  ? "Try typing 'Pay utilities bill by Friday 6pm'"
-                  : 'Add a task. Type @ to assign it to someone.'}
+                placeholder={voiceListening
+                  ? 'Listening… speak your task'
+                  : addInputFocused
+                    ? "Try typing 'Pay utilities bill by Friday 6pm'"
+                    : 'Add a task. Type @ to assign it to someone.'}
                 aria-label={`List ${currentTitle}, Press shift+tab to access List options`}
                 value={newItemText}
                 onFocus={() => setAddInputFocused(true)}
@@ -5526,6 +5542,7 @@ const [gridEditText, setGridEditText] = useState('');
                   }
                 }}
               />
+              <div className="add-task-actions-group">
               <div className="add-task-inline-actions">
                 <div className="add-picker-wrap">
                   <button type="button" className="add-task-icon-btn" onClick={() => { setAddDueMenuOpen((v) => !v); setAddRepeatMenuOpen(false); setAddRemindMenuOpen(false); setAddDueCalendarOpen(false); setAddRemindCalendarOpen(false); }} title="Add due date">
@@ -5636,30 +5653,35 @@ const [gridEditText, setGridEditText] = useState('');
                     </div>
                   )}
                 </div>
-                {isVoiceCaptureSupported() && (
-                  <button
-                    type="button"
-                    className={`add-task-icon-btn voice-capture-btn ${voiceListening ? 'listening' : ''}`}
-                    onClick={handleVoiceToggle}
-                    title={voiceListening ? 'Stop voice capture' : 'Voice to task (dictate)'}
-                    aria-label={voiceListening ? 'Stop voice capture' : 'Voice to task'}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                      <line x1="12" y1="19" x2="12" y2="23" />
-                      <line x1="8" y1="23" x2="16" y2="23" />
-                    </svg>
-                  </button>
-                )}
-                {newItemText.trim() && (
-                  <button type="submit" className="add-task-icon-btn add-task-send-btn" title="Add task" aria-label="Add task">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M22 2L11 13" />
-                      <path d="M22 2L15 22L11 13L2 9L22 2Z" />
-                    </svg>
-                  </button>
-                )}
+              </div>
+              {(isVoiceCaptureSupported() || newItemText.trim()) && (
+                <div className="add-task-trailing-actions">
+                  {isVoiceCaptureSupported() && (
+                    <button
+                      type="button"
+                      className={`add-task-icon-btn voice-capture-btn ${voiceListening ? 'listening' : ''}`}
+                      onClick={handleVoiceToggle}
+                      title={voiceListening ? 'Stop voice capture' : 'Voice to task (dictate)'}
+                      aria-label={voiceListening ? 'Stop voice capture' : 'Voice to task'}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="23" />
+                        <line x1="8" y1="23" x2="16" y2="23" />
+                      </svg>
+                    </button>
+                  )}
+                  {newItemText.trim() && (
+                    <button type="submit" className="add-task-icon-btn add-task-send-btn" title="Add task" aria-label="Add task">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M22 2L11 13" />
+                        <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              )}
               </div>
             </div>
           </form>
@@ -6510,11 +6532,27 @@ const [gridEditText, setGridEditText] = useState('');
                 <input
                   ref={mobileAddInputRef}
                   type="text"
-                  placeholder="Add a task"
+                  placeholder={voiceListening ? 'Listening… speak your task' : 'Add a task'}
                   aria-label="Add a task"
                   value={newItemText}
                   onChange={(e) => setNewItemText(e.target.value)}
                 />
+                {isVoiceCaptureSupported() && (
+                  <button
+                    type="button"
+                    className={`add-task-icon-btn voice-capture-btn ${voiceListening ? 'listening' : ''}`}
+                    onClick={handleVoiceToggle}
+                    title={voiceListening ? 'Stop voice capture' : 'Voice to task (dictate)'}
+                    aria-label={voiceListening ? 'Stop voice capture' : 'Voice to task'}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  </button>
+                )}
                 <button
                   type="submit"
                   disabled={!newItemText.trim()}

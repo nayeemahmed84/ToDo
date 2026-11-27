@@ -47,6 +47,15 @@
 }
 
 /* Voice capture button */
+.add-task-actions-group,
+.add-task-trailing-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+:root .add-task-row .add-task-icon-btn.voice-capture-btn.listening,
 .voice-capture-btn.listening {
   color: var(--color-danger);
   background: var(--color-danger-bg);

@@ -37,13 +37,43 @@ export interface VoiceCaptureHandle {
   stop: () => void;
 }
 
+export function getVoiceErrorMessage(code: string): string {
+  switch (code) {
+    case 'not-allowed':
+    case 'service-not-allowed':
+      return 'Microphone access was blocked. Allow microphone permission in your browser settings.';
+    case 'audio-capture':
+      return 'No microphone was found. Check your audio input device.';
+    case 'no-speech':
+      return 'No speech detected. Please try speaking again.';
+    case 'network':
+      return 'Speech recognition service failed (network error). Check your internet connection or browser speech settings.';
+    case 'language-not-supported':
+      return 'Your browser language is not supported for voice recognition.';
+    case 'insecure-context':
+      return 'Voice input requires HTTPS (or localhost).';
+    case 'unsupported':
+      return 'Voice input is not supported in this browser.';
+    default:
+      return `Voice input failed (${code}). Please try again.`;
+  }
+}
+
 export function startVoiceCapture(callbacks: {
   onTranscript: (text: string, isFinal: boolean) => void;
-  onError?: (code: string) => void;
+  onError?: (code: string, message: string) => void;
   onEnd?: () => void;
 }): VoiceCaptureHandle | null {
+  if (typeof window !== 'undefined' && window.isSecureContext === false) {
+    callbacks.onError?.('insecure-context', getVoiceErrorMessage('insecure-context'));
+    return null;
+  }
+
   const Ctor = getSpeechRecognitionCtor();
-  if (!Ctor) return null;
+  if (!Ctor) {
+    callbacks.onError?.('unsupported', getVoiceErrorMessage('unsupported'));
+    return null;
+  }
 
   const recognition = new Ctor();
   recognition.lang = navigator.language || 'en-US';
@@ -51,12 +81,18 @@ export function startVoiceCapture(callbacks: {
   recognition.continuous = false;
   recognition.maxAlternatives = 1;
 
+  let finished = false;
+  let hadError = false;
+
   recognition.onresult = (event) => {
     let transcript = '';
     let isFinal = false;
     for (let i = 0; i < event.results.length; i += 1) {
       const res = event.results[i];
-      transcript += res[0]?.transcript ?? '';
+      const part = res[0]?.transcript ?? '';
+      if (part) {
+        transcript += transcript && !transcript.endsWith(' ') && !part.startsWith(' ') ? ` ${part}` : part;
+      }
       if (res.isFinal) isFinal = true;
     }
     const cleaned = transcript.trim();
@@ -66,22 +102,33 @@ export function startVoiceCapture(callbacks: {
   };
 
   recognition.onerror = (ev) => {
-    callbacks.onError?.(ev.error || 'unknown');
+    const code = ev.error || 'unknown';
+    if (code === 'aborted' && finished) return;
+    hadError = true;
+    finished = true;
+    callbacks.onError?.(code, getVoiceErrorMessage(code));
   };
 
   recognition.onend = () => {
-    callbacks.onEnd?.();
+    if (!finished) {
+      finished = true;
+    }
+    if (!hadError) {
+      callbacks.onEnd?.();
+    }
   };
 
   try {
     recognition.start();
   } catch {
-    callbacks.onError?.('start-failed');
+    finished = true;
+    callbacks.onError?.('start-failed', getVoiceErrorMessage('start-failed'));
     return null;
   }
 
   return {
     stop: () => {
+      finished = true;
       try {
         recognition.stop();
       } catch {
