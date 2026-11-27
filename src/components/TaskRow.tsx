@@ -18,6 +18,7 @@ interface TaskRowProps {
   index?: number;
   lists: TodoList[];
   selected: boolean;
+  highlighted?: boolean;
   selectedIds?: Set<string>;
   todayStr: string;
   tomorrowStr: string;
@@ -42,6 +43,7 @@ export function TaskRow({
   index,
   lists,
   selected,
+  highlighted = false,
   selectedIds,
   todayStr,
   tomorrowStr,
@@ -157,7 +159,7 @@ export function TaskRow({
         } : {}),
       }}
       data-task-id={item.id}
-      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${blockedCount > 0 && !item.done ? 'blocked' : ''} ${selected ? 'selected' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''} ${clipboardState ? `clipboard-${clipboardState}` : ''}`}
+      className={`task-row ${hasMeta ? 'has-meta' : ''} ${item.done ? 'done' : ''} ${blockedCount > 0 && !item.done ? 'blocked' : ''} ${selected ? 'selected' : ''} ${highlighted ? 'command-highlight' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${sandState ? `sand-${sandState}` : ''} ${clipboardState ? `clipboard-${clipboardState}` : ''}`}
       draggable={!window.matchMedia('(max-width: 767px)').matches}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}

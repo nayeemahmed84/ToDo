@@ -75,6 +75,8 @@ interface SettingsModalProps {
   ) => Promise<{ fileName: string; items: number; trashedItems: number; warnings: string[] }>;
   onListGoogleDriveBackups?: () => Promise<DriveBackupFile[]>;
   onInspectGoogleDriveBackup?: (fileId: string) => Promise<ParsedBackupPackage>;
+  focusSectionId?: string | null;
+  focusToken?: number;
   onClose: () => void;
 }
 
@@ -96,9 +98,23 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
   );
 }
 
-function SettingBlock({ label, children }: { label: string; children: React.ReactNode }) {
+function SettingBlock({
+  id,
+  highlighted = false,
+  label,
+  children,
+}: {
+  id?: string;
+  highlighted?: boolean;
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="setting-block" style={{ padding: '14px 0', borderBottom: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <div
+      data-setting-id={id}
+      className={`setting-block ${highlighted ? 'command-highlight' : ''}`}
+      style={{ padding: '14px 0', borderBottom: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '8px' }}
+    >
       <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-text)' }}>{label}</div>
       {children}
     </div>
@@ -121,9 +137,13 @@ export function SettingsModal({
   onBackupToGoogleDrive,
   onListGoogleDriveBackups,
   onInspectGoogleDriveBackup,
+  focusSectionId = null,
+  focusToken = 0,
   onClose,
 }: SettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const [highlightedSettingId, setHighlightedSettingId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [icalBusy, setIcalBusy] = useState(false);
@@ -146,9 +166,48 @@ export function SettingsModal({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    if (!focusSectionId) return;
+    setHighlightedSettingId(focusSectionId);
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const behavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
+
+    const scrollTargetIntoPanel = () => {
+      const panel = panelRef.current;
+      const root = panel ?? document;
+      const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(focusSectionId)
+        : focusSectionId.replace(/["\\]/g, '\\$&');
+      const el = root.querySelector<HTMLElement>(`[data-setting-id="${escaped}"]`);
+      if (!el) return;
+      if (panel) {
+        const panelRect = panel.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const desiredTop = panel.scrollTop + (elRect.top - panelRect.top) - Math.max(24, (panel.clientHeight - elRect.height) / 2);
+        panel.scrollTo({ top: Math.max(0, desiredTop), behavior });
+      } else {
+        el.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+      }
+    };
+
+    const rafId = window.requestAnimationFrame(() => {
+      scrollTargetIntoPanel();
+    });
+    const settleTimer = window.setTimeout(scrollTargetIntoPanel, 220);
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedSettingId(null);
+    }, 1800);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(settleTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [focusSectionId, focusToken]);
+
   return (
     <div className="settings-backdrop" onClick={onClose}>
       <aside
+        ref={panelRef}
         className="settings-panel"
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -171,21 +230,25 @@ export function SettingsModal({
           </button>
         </div>
 
-        <section style={{ display: 'flex', flexDirection: 'column' }}>
+        <section
+          data-setting-id="general"
+          className={highlightedSettingId === 'general' ? 'command-highlight' : undefined}
+          style={{ display: 'flex', flexDirection: 'column' }}
+        >
           <h3 style={{ margin: '0.5rem 0 0', fontSize: '1.25rem', fontWeight: 700 }}>General</h3>
-          <SettingBlock label="Confirm before deleting">
+          <SettingBlock id="confirm-delete" highlighted={highlightedSettingId === 'confirm-delete'} label="Confirm before deleting">
             <Toggle label="Confirm before deleting" checked={settings.confirmBeforeDelete} onChange={(v) => onUpdateSettings({ confirmBeforeDelete: v })} />
           </SettingBlock>
-          <SettingBlock label="Add new tasks on top">
+          <SettingBlock id="add-on-top" highlighted={highlightedSettingId === 'add-on-top'} label="Add new tasks on top">
             <Toggle label="Add new tasks on top" checked={settings.addNewTasksOnTop} onChange={(v) => onUpdateSettings({ addNewTasksOnTop: v })} />
           </SettingBlock>
-          <SettingBlock label="Move starred tasks to top">
+          <SettingBlock id="move-starred" highlighted={highlightedSettingId === 'move-starred'} label="Move starred tasks to top">
             <Toggle label="Move starred tasks to top" checked={settings.moveStarredToTop} onChange={(v) => onUpdateSettings({ moveStarredToTop: v })} />
           </SettingBlock>
-          <SettingBlock label="Play completion sound">
+          <SettingBlock id="completion-sound" highlighted={highlightedSettingId === 'completion-sound'} label="Play completion sound">
             <Toggle label="Play completion sound" checked={settings.playCompletionSound} onChange={(v) => onUpdateSettings({ playCompletionSound: v })} />
           </SettingBlock>
-          <SettingBlock label="Turn on reminder notifications">
+          <SettingBlock id="reminder-notifications" highlighted={highlightedSettingId === 'reminder-notifications'} label="Turn on reminder notifications">
             <Toggle label="Turn on reminder notifications" checked={settings.reminderNotifications} onChange={(v) => onUpdateSettings({ reminderNotifications: v })} />
             {settings.reminderNotifications && isIosNonStandalone() && (
               <div style={{ fontSize: '0.78rem', color: 'var(--color-text-2)', marginTop: '6px' }}>
@@ -198,7 +261,7 @@ export function SettingsModal({
               </div>
             )}
           </SettingBlock>
-          <SettingBlock label="Theme">
+          <SettingBlock id="theme" highlighted={highlightedSettingId === 'theme'} label="Theme">
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '220px' }}>
               <AppSelect
                 ariaLabel="App Theme"
@@ -216,27 +279,31 @@ export function SettingsModal({
           </SettingBlock>
         </section>
 
-        <section style={{ display: 'flex', flexDirection: 'column' }}>
+        <section
+          data-setting-id="smart-lists"
+          className={highlightedSettingId === 'smart-lists' ? 'command-highlight' : undefined}
+          style={{ display: 'flex', flexDirection: 'column' }}
+        >
           <h3 style={{ margin: '1rem 0 0', fontSize: '1.25rem', fontWeight: 700 }}>Smart lists</h3>
-          <SettingBlock label="Important">
+          <SettingBlock id="smart-important" highlighted={highlightedSettingId === 'smart-important'} label="Important">
             <Toggle label="Important" checked={settings.smartImportant} onChange={(v) => onUpdateSettings({ smartImportant: v })} />
           </SettingBlock>
-          <SettingBlock label="Planned">
+          <SettingBlock id="smart-planned" highlighted={highlightedSettingId === 'smart-planned'} label="Planned">
             <Toggle label="Planned" checked={settings.smartPlanned} onChange={(v) => onUpdateSettings({ smartPlanned: v })} />
           </SettingBlock>
-          <SettingBlock label="All">
+          <SettingBlock id="smart-all" highlighted={highlightedSettingId === 'smart-all'} label="All">
             <Toggle label="All" checked={settings.smartAll} onChange={(v) => onUpdateSettings({ smartAll: v })} />
           </SettingBlock>
-          <SettingBlock label="Completed">
+          <SettingBlock id="smart-completed" highlighted={highlightedSettingId === 'smart-completed'} label="Completed">
             <Toggle label="Completed" checked={settings.smartCompleted} onChange={(v) => onUpdateSettings({ smartCompleted: v })} />
           </SettingBlock>
-          <SettingBlock label="Assigned to me">
+          <SettingBlock id="smart-assigned" highlighted={highlightedSettingId === 'smart-assigned'} label="Assigned to me">
             <Toggle label="Assigned to me" checked={settings.smartAssignedToMe} onChange={(v) => onUpdateSettings({ smartAssignedToMe: v })} />
           </SettingBlock>
-          <SettingBlock label="Auto-hide empty smart lists">
+          <SettingBlock id="auto-hide-smart" highlighted={highlightedSettingId === 'auto-hide-smart'} label="Auto-hide empty smart lists">
             <Toggle label="Auto-hide empty smart lists" checked={settings.autoHideEmptySmartLists} onChange={(v) => onUpdateSettings({ autoHideEmptySmartLists: v })} />
           </SettingBlock>
-          <SettingBlock label="Show 'Due Today' tasks in My Day">
+          <SettingBlock id="due-today-my-day" highlighted={highlightedSettingId === 'due-today-my-day'} label="Show 'Due Today' tasks in My Day">
             <Toggle label="Show Due Today in My Day" checked={settings.showDueTodayInMyDay} onChange={(v) => onUpdateSettings({ showDueTodayInMyDay: v })} />
           </SettingBlock>
         </section>
@@ -283,7 +350,7 @@ export function SettingsModal({
           )}
 
           {/* Local Backup Card */}
-          <div className="settings-card">
+          <div data-setting-id="local-backup" className={`settings-card ${highlightedSettingId === 'local-backup' ? 'command-highlight' : ''}`}>
             <div className="settings-card-header">
               <div className="settings-card-icon-wrap">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -497,7 +564,7 @@ export function SettingsModal({
 
           {/* Google Drive Cloud Card */}
           {onConnectGoogleDrive && (
-            <div className="settings-card">
+            <div data-setting-id="google-drive" className={`settings-card ${highlightedSettingId === 'google-drive' ? 'command-highlight' : ''}`}>
               <div className="settings-card-header">
                 <div className="settings-card-icon-wrap drive">
                   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -747,7 +814,7 @@ export function SettingsModal({
               <h3>Calendar &amp; Live Feed</h3>
             </div>
             <div className="settings-card settings-card-stacked">
-              <div className="settings-card-row">
+              <div data-setting-id="ics-export" className={`settings-card-row ${highlightedSettingId === 'ics-export' ? 'command-highlight' : ''}`}>
                 <div className="settings-card-header">
                   <div className="settings-card-icon-wrap calendar">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -787,7 +854,7 @@ export function SettingsModal({
               </div>
 
               {onGenerateIcalFeed && (
-                <div className="settings-card-row">
+                <div data-setting-id="live-feed" className={`settings-card-row ${highlightedSettingId === 'live-feed' ? 'command-highlight' : ''}`}>
                   <div className="settings-card-header">
                     <div className="settings-card-icon-wrap feed">
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

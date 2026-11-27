@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ListTemplate, TodoList } from '../types/todo';
 import { EmojiText } from '../lib/emoji';
 import { AppSelect } from './AppSelect';
@@ -58,6 +58,8 @@ export const BUILTIN_TEMPLATES: ListTemplate[] = [
 interface TemplatesModalProps {
   customTemplates: ListTemplate[];
   lists: TodoList[];
+  focusTemplateId?: string | null;
+  focusToken?: number;
   onInstantiateTemplate: (template: ListTemplate) => Promise<void> | void;
   onSaveListAsTemplate: (listId: string) => Promise<void> | void;
   onDeleteTemplate: (templateId: string) => void;
@@ -67,13 +69,17 @@ interface TemplatesModalProps {
 export function TemplatesModal({
   customTemplates,
   lists,
+  focusTemplateId = null,
+  focusToken = 0,
   onInstantiateTemplate,
   onSaveListAsTemplate,
   onDeleteTemplate,
   onClose,
 }: TemplatesModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
   const [selectedListId, setSelectedListId] = useState<string>(lists[0]?.id ?? '');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [highlightedTemplateId, setHighlightedTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -82,6 +88,42 @@ export function TemplatesModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  useEffect(() => {
+    if (!focusTemplateId) return;
+    setHighlightedTemplateId(focusTemplateId);
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const behavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
+
+    const scrollTargetIntoModal = () => {
+      const modal = modalRef.current;
+      const root = modal ?? document;
+      const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(focusTemplateId)
+        : focusTemplateId.replace(/["\\]/g, '\\$&');
+      const el = root.querySelector<HTMLElement>(`[data-template-id="${escaped}"]`);
+      if (!el) return;
+      if (modal) {
+        const modalRect = modal.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const desiredTop = modal.scrollTop + (elRect.top - modalRect.top) - Math.max(20, (modal.clientHeight - elRect.height) / 2);
+        modal.scrollTo({ top: Math.max(0, desiredTop), behavior });
+      } else {
+        el.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+      }
+    };
+
+    const rafId = window.requestAnimationFrame(scrollTargetIntoModal);
+    const settleTimer = window.setTimeout(scrollTargetIntoModal, 240);
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedTemplateId(null);
+    }, 1800);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(settleTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [focusTemplateId, focusToken]);
 
   const handleUse = async (tpl: ListTemplate) => {
     setBusyId(tpl.id);
@@ -96,6 +138,7 @@ export function TemplatesModal({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
+        ref={modalRef}
         className="modal-card templates-modal"
         role="dialog"
         aria-modal="true"
@@ -113,7 +156,10 @@ export function TemplatesModal({
         </div>
 
         {lists.length > 0 && (
-          <div className="templates-save-bar">
+          <div
+            data-template-id="save-bar"
+            className={`templates-save-bar ${highlightedTemplateId === 'save-bar' ? 'command-highlight' : ''}`}
+          >
             <AppSelect
               ariaLabel="Choose list to save as template"
               placeholder="Choose a list…"
@@ -142,7 +188,11 @@ export function TemplatesModal({
             <h3>Your Templates</h3>
             <div className="templates-grid">
               {customTemplates.map((tpl) => (
-                <div key={tpl.id} className="template-card">
+                <div
+                  key={tpl.id}
+                  data-template-id={tpl.id}
+                  className={`template-card ${highlightedTemplateId === tpl.id ? 'command-highlight' : ''}`}
+                >
                   <div className="template-card-head">
                     <span className="template-card-title">
                       {tpl.icon ? `${tpl.icon} ` : ''}
@@ -184,7 +234,11 @@ export function TemplatesModal({
           <h3>Starter Templates</h3>
           <div className="templates-grid">
             {BUILTIN_TEMPLATES.map((tpl) => (
-              <div key={tpl.id} className="template-card">
+              <div
+                key={tpl.id}
+                data-template-id={tpl.id}
+                className={`template-card ${highlightedTemplateId === tpl.id ? 'command-highlight' : ''}`}
+              >
                 <div className="template-card-head">
                   <span className="template-card-title">
                     {tpl.icon ? `${tpl.icon} ` : ''}

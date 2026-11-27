@@ -25,6 +25,7 @@ interface KanbanBoardViewProps {
   incompleteItemIds: Set<string>;
   listNamesById: Record<string, string>;
   selectedItemId: string | null;
+  highlightedItemId?: string | null;
   groupBy: BoardGroupBy;
   onChangeGroupBy: (next: BoardGroupBy) => void;
   onSelectItem: (item: TodoItem) => void;
@@ -46,6 +47,7 @@ export function KanbanBoardView({
   incompleteItemIds,
   listNamesById,
   selectedItemId,
+  highlightedItemId = null,
   groupBy,
   onChangeGroupBy,
   onSelectItem,
@@ -239,6 +241,7 @@ export function KanbanBoardView({
                     return (
                       <div
                         key={item.id}
+                        data-task-id={item.id}
                         draggable
                         onDragStart={(e) => {
                           setDraggingId(item.id);
@@ -250,7 +253,7 @@ export function KanbanBoardView({
                           setDragOverColId(null);
                         }}
                         onClick={() => onSelectItem(item)}
-                        className={`kanban-card ${item.done ? 'is-done' : ''} ${selectedItemId === item.id ? 'is-selected' : ''} ${draggingId === item.id ? 'is-dragging' : ''}`}
+                        className={`kanban-card ${item.done ? 'is-done' : ''} ${selectedItemId === item.id ? 'is-selected' : ''} ${highlightedItemId === item.id ? 'command-highlight' : ''} ${draggingId === item.id ? 'is-dragging' : ''}`}
                       >
                         <div className="kanban-card-top">
                           <button

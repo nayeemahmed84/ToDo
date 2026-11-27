@@ -57,6 +57,7 @@ interface SidebarProps {
   onOpenWhatsNew: () => void;
   onMoveTasksToSmart?: (itemIds: string[], smartId: SmartListId) => Promise<void> | void;
   savedFilters?: SavedFilter[];
+  highlightedNavKey?: string | null;
   onOpenNewFilter?: () => void;
   onEditFilter?: (filter: SavedFilter) => void;
   onSignOut: () => void;
@@ -129,6 +130,7 @@ export function Sidebar({
   onMoveTasksToList,
   onMoveTasksToSmart,
   savedFilters = [],
+  highlightedNavKey = null,
   onOpenNewFilter,
   onEditFilter,
   onSignOut,
@@ -389,7 +391,8 @@ export function Sidebar({
     return (
       <div
         key={list.id}
-        className={`nav-item-row ${list.groupId ? 'nested' : ''} ${active ? 'active' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${draggedItem?.type === 'list' && draggedItem.ids.includes(list.id) ? 'dragging' : ''} ${dropTarget?.type === 'list' && dropTarget.id === list.id ? `drop-${dropTarget.position}` : ''} ${isTaskDropTarget ? 'drop-into' : ''}`}
+        data-nav-key={`list:${list.id}`}
+        className={`nav-item-row ${list.groupId ? 'nested' : ''} ${active ? 'active' : ''} ${highlightedNavKey === `list:${list.id}` ? 'command-highlight' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${draggedItem?.type === 'list' && draggedItem.ids.includes(list.id) ? 'dragging' : ''} ${dropTarget?.type === 'list' && dropTarget.id === list.id ? `drop-${dropTarget.position}` : ''} ${isTaskDropTarget ? 'drop-into' : ''}`}
         draggable={list.ownerUid === userId && !list.isDefaultTasksList}
         onDragStart={(event) => {
           if (list.ownerUid !== userId || list.isDefaultTasksList) {
@@ -648,8 +651,9 @@ export function Sidebar({
                 role="option"
                 aria-selected={active}
                 data-nav-item="true"
+                data-nav-key={`smart:${item.id}`}
                 title={collapsed ? item.label : undefined}
-                className={`nav-item nav-item-${item.id} ${active ? 'active' : ''}`}
+                className={`nav-item nav-item-${item.id} ${active ? 'active' : ''} ${highlightedNavKey === `smart:${item.id}` ? 'command-highlight' : ''}`}
                 onDragOver={(event) => {
                   if (event.dataTransfer.types.includes('application/x-todo-items')) {
                     event.preventDefault();
@@ -714,7 +718,8 @@ export function Sidebar({
                     key={flt.id}
                     type="button"
                     data-nav-item="true"
-                    className={`nav-item ${isActive ? 'active' : ''}`}
+                    data-nav-key={`filter:${flt.id}`}
+                    className={`nav-item ${isActive ? 'active' : ''} ${highlightedNavKey === `filter:${flt.id}` ? 'command-highlight' : ''}`}
                     onClick={() => {
                       onSelect({ type: 'filter', id: flt.id });
                       onClose();

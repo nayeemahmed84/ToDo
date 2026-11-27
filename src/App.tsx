@@ -418,6 +418,12 @@ export function App() {
   const [addInputFocused, setAddInputFocused] = useState(false);
   const [suggestionsLimit, setSuggestionsLimit] = useState(10);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [highlightedTask, setHighlightedTask] = useState<{ id: string; token: number; isDone?: boolean } | null>(null);
+  const [highlightedNavKey, setHighlightedNavKey] = useState<{ key: string; token: number } | null>(null);
+  const [settingsFocus, setSettingsFocus] = useState<{ sectionId: string; token: number } | null>(null);
+  const [insightsFocus, setInsightsFocus] = useState<{ sectionId: string; token: number } | null>(null);
+  const [templatesFocus, setTemplatesFocus] = useState<{ templateId: string; token: number } | null>(null);
+  const highlightedTaskId = highlightedTask?.id ?? null;
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
@@ -456,7 +462,13 @@ export function App() {
     const onGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setCommandPaletteOpen((v) => !v);
+        setCommandPaletteOpen((v) => {
+          if (!v) {
+            setHighlightedTask(null);
+            setHighlightedNavKey(null);
+          }
+          return !v;
+        });
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
@@ -468,6 +480,77 @@ export function App() {
     window.addEventListener('keydown', onGlobalKeyDown);
     return () => window.removeEventListener('keydown', onGlobalKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!highlightedTask) return;
+    const { id, isDone } = highlightedTask;
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const scrollBehavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
+    let rafId: number | null = null;
+    let settleTimer: number | null = null;
+    let attempts = 0;
+
+    const findTaskElement = (): HTMLElement | null => {
+      const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(id)
+        : id.replace(/["\\]/g, '\\$&');
+      return document.querySelector<HTMLElement>(`[data-task-id="${escaped}"]`);
+    };
+
+    const scrollToElement = (el: HTMLElement) => {
+      el.scrollIntoView({ behavior: scrollBehavior, block: 'center', inline: 'nearest' });
+    };
+
+    const tryScroll = () => {
+      const el = findTaskElement();
+      if (el) {
+        scrollToElement(el);
+        if (isDone) {
+          settleTimer = window.setTimeout(() => {
+            const settled = findTaskElement();
+            if (settled) scrollToElement(settled);
+          }, 260);
+        }
+        return;
+      }
+      if (attempts < 15) {
+        attempts += 1;
+        rafId = window.requestAnimationFrame(tryScroll);
+      }
+    };
+
+    rafId = window.requestAnimationFrame(tryScroll);
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedTask(null);
+    }, 1800);
+
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [highlightedTask]);
+
+  useEffect(() => {
+    if (!highlightedNavKey) return;
+    const { key } = highlightedNavKey;
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const scrollBehavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
+    const rafId = window.requestAnimationFrame(() => {
+      const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(key)
+        : key.replace(/["\\]/g, '\\$&');
+      const el = document.querySelector<HTMLElement>(`[data-nav-key="${escaped}"]`);
+      el?.scrollIntoView({ behavior: scrollBehavior, block: 'nearest', inline: 'nearest' });
+    });
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedNavKey(null);
+    }, 1800);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(clearTimer);
+    };
+  }, [highlightedNavKey]);
 
   useEffect(() => {
     if (!addRowExpanded) return;
@@ -2236,6 +2319,7 @@ const [gridEditText, setGridEditText] = useState('');
       createdAt: serverTimestamp(),
     });
     setSelection({ type: 'list', id: ref.id });
+    return ref.id;
   };
 
   const handleDeleteList = async (listId: string) => {
@@ -4092,7 +4176,7 @@ const [gridEditText, setGridEditText] = useState('');
     const parsed = parseTaskInput(rawText);
     const addedText = parsed.hasMatch ? parsed.title : rawText.trim();
     const dueDate = overrideDueDate ?? parsed.dueDate ?? null;
-    await addDoc(collection(db, 'lists', targetListId, 'items'), {
+    const ref = await addDoc(collection(db, 'lists', targetListId, 'items'), {
       listId: targetListId,
       ownerUid: user.uid,
       createdByName: user.displayName?.trim() || user.email?.trim() || null,
@@ -4113,6 +4197,7 @@ const [gridEditText, setGridEditText] = useState('');
       createdAtMs: Date.now(),
       completedAtMs: null,
     });
+    return { id: ref.id, listId: targetListId };
   };
 
   const handleLogFocusMinutes = async (task: TodoItem, minutes: number) => {
@@ -4235,7 +4320,11 @@ const [gridEditText, setGridEditText] = useState('');
         syncStatus={syncStatus}
         canInstall={canInstallPwa}
         onInstallClick={() => installPwaTriggerRef.current?.()}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onOpenCommandPalette={() => {
+          setHighlightedTask(null);
+          setHighlightedNavKey(null);
+          setCommandPaletteOpen(true);
+        }}
         onOpenInsights={() => setInsightsOpen(true)}
         onOpenTemplates={() => setTemplatesOpen(true)}
         onToggleSidebar={() => {
@@ -4279,6 +4368,7 @@ const [gridEditText, setGridEditText] = useState('');
           counts={counts}
           settings={appSettings}
           savedFilters={appSettings.savedFilters ?? []}
+          highlightedNavKey={highlightedNavKey?.key ?? null}
           onOpenNewFilter={() => setFilterModalState({ open: true, editing: null })}
           onEditFilter={(flt) => setFilterModalState({ open: true, editing: flt })}
           isOpen={sidebarOpen}
@@ -4302,7 +4392,9 @@ const [gridEditText, setGridEditText] = useState('');
             setTimeout(() => mobileSearchInputRef.current?.focus(), 60);
           }}
           onSearchChange={setSearchQuery}
-          onCreateList={handleCreateList}
+          onCreateList={async (title) => {
+            await handleCreateList(title);
+          }}
           onCreateGroup={handleCreateGroup}
           onToggleGroup={handleToggleGroup}
           onUpdateGroupIcon={handleUpdateGroupIcon}
@@ -6035,7 +6127,9 @@ const [gridEditText, setGridEditText] = useState('');
               }}
               onToggleDone={handleToggleDone}
               onRescheduleTask={(item, newDueDate) => handleUpdateItem(item, { dueDate: newDueDate })}
-              onQuickAddForDate={(dateYmd, title) => handleQuickAddTaskText(title, dateYmd)}
+              onQuickAddForDate={async (dateYmd, title) => {
+                await handleQuickAddTaskText(title, dateYmd);
+              }}
             />
           </Suspense>
         ) : viewMode === 'board' ? (
@@ -6046,6 +6140,7 @@ const [gridEditText, setGridEditText] = useState('');
               incompleteItemIds={incompleteItemIds}
               listNamesById={Object.fromEntries(listTitleById.entries())}
               selectedItemId={selectedItemId}
+              highlightedItemId={highlightedTaskId}
               groupBy={boardGroupBy}
               onChangeGroupBy={setBoardGroupBy}
               onSelectItem={(item) => {
@@ -6068,6 +6163,7 @@ const [gridEditText, setGridEditText] = useState('');
                     item={item}
                     lists={allLists}
                     selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                    highlighted={highlightedTaskId === item.id}
                   selectedIds={selectedIds}
                     todayStr={todayStr}
                     tomorrowStr={tomorrowStr}
@@ -6110,7 +6206,11 @@ const [gridEditText, setGridEditText] = useState('');
               </thead>
               <tbody>
                 {activeItems.map((item) => (
-                  <tr key={item.id}>
+                  <tr
+                    key={item.id}
+                    data-task-id={item.id}
+                    className={highlightedTaskId === item.id ? 'command-highlight' : undefined}
+                  >
                     <td>
                       <input
                         type="checkbox"
@@ -6215,6 +6315,7 @@ const [gridEditText, setGridEditText] = useState('');
                         item={item}
                         lists={allLists}
                         selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                    highlighted={highlightedTaskId === item.id}
                   selectedIds={selectedIds}
                         todayStr={todayStr}
                         tomorrowStr={tomorrowStr}
@@ -6252,6 +6353,7 @@ const [gridEditText, setGridEditText] = useState('');
                 item={item}
                 lists={allLists}
                 selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                highlighted={highlightedTaskId === item.id}
                   selectedIds={selectedIds}
                 todayStr={todayStr}
                 tomorrowStr={tomorrowStr}
@@ -6325,6 +6427,7 @@ const [gridEditText, setGridEditText] = useState('');
                       item={item}
                       lists={allLists}
                       selected={selectedItemId === item.id || selectedIds.has(item.id)}
+                      highlighted={highlightedTaskId === item.id}
                       selectedIds={selectedIds}
                       todayStr={todayStr}
                       tomorrowStr={tomorrowStr}
@@ -7534,7 +7637,12 @@ const [gridEditText, setGridEditText] = useState('');
             onBackupToGoogleDrive={handleBackupToGoogleDrive}
             onListGoogleDriveBackups={handleListGoogleDriveBackups}
             onInspectGoogleDriveBackup={handleInspectGoogleDriveBackup}
-            onClose={() => setSettingsOpen(false)}
+            focusSectionId={settingsFocus?.sectionId ?? null}
+            focusToken={settingsFocus?.token ?? 0}
+            onClose={() => {
+              setSettingsOpen(false);
+              setSettingsFocus(null);
+            }}
           />
         )}
         {filterModalState.open && (
@@ -7581,22 +7689,63 @@ const [gridEditText, setGridEditText] = useState('');
           <CommandPalette
             lists={allLists}
             items={allItems}
+            savedFilters={appSettings.savedFilters ?? []}
+            customTemplates={appSettings.listTemplates ?? []}
             onSelectView={(sel) => {
-              setSelection(sel);
+              const normalizedSel: ViewSelection =
+                sel.type === 'list' && defaultTasksList && sel.id === defaultTasksList.id
+                  ? { type: 'smart', id: 'tasks' }
+                  : sel;
+              setSearchQuery('');
+              setActiveTagFilter(null);
+              setSelection(normalizedSel);
               setMobileView('list');
+              setHighlightedNavKey({ key: `${normalizedSel.type}:${normalizedSel.id}`, token: Date.now() });
             }}
             onSelectTask={(item) => {
-              setSelection({ type: 'list', id: item.listId });
+              const nextSelection: ViewSelection =
+                defaultTasksList && item.listId === defaultTasksList.id
+                  ? { type: 'smart', id: 'tasks' }
+                  : { type: 'list', id: item.listId };
+              const targetViewKey = `${nextSelection.type}:${nextSelection.id}`;
+              setSearchQuery('');
+              setActiveTagFilter(null);
+              if (item.done) {
+                setCompletedExpandedByView((prev) =>
+                  prev[targetViewKey] ? prev : { ...prev, [targetViewKey]: true }
+                );
+              }
+              setSelection(nextSelection);
               setSelectedItemId(item.id);
               setMobileView('list');
+              setHighlightedTask({ id: item.id, token: Date.now(), isDone: item.done });
             }}
-            onQuickAddTask={(text) => handleQuickAddTaskText(text)}
+            onQuickAddTask={async (text) => {
+              const created = await handleQuickAddTaskText(text);
+              if (created) {
+                setHighlightedTask({ id: created.id, token: Date.now(), isDone: false });
+              }
+            }}
             onCycleTheme={handleCycleTheme}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onOpenInsights={() => setInsightsOpen(true)}
-            onOpenTemplates={() => setTemplatesOpen(true)}
+            onOpenSettings={(sectionId) => {
+              setSettingsFocus(sectionId ? { sectionId, token: Date.now() } : null);
+              setSettingsOpen(true);
+            }}
+            onOpenInsights={(sectionId) => {
+              setInsightsFocus(sectionId ? { sectionId, token: Date.now() } : null);
+              setInsightsOpen(true);
+            }}
+            onOpenTemplates={(templateId) => {
+              setTemplatesFocus(templateId ? { templateId, token: Date.now() } : null);
+              setTemplatesOpen(true);
+            }}
             onExportIcs={() => downloadIcsFile(allItems, allLists)}
-            onCreateList={handleCreateList}
+            onCreateList={async (title) => {
+              const newId = await handleCreateList(title);
+              if (newId) {
+                setHighlightedNavKey({ key: `list:${newId}`, token: Date.now() });
+              }
+            }}
             onClose={() => setCommandPaletteOpen(false)}
           />
         )}
@@ -7605,6 +7754,8 @@ const [gridEditText, setGridEditText] = useState('');
             items={allItems}
             todayStr={todayStr}
             tomorrowStr={tomorrowStr}
+            focusSectionId={insightsFocus?.sectionId ?? null}
+            focusToken={insightsFocus?.token ?? 0}
             onRolloverToTomorrow={async (ids) => {
               const targets = allItems.filter((i) => ids.includes(i.id));
               await Promise.all(
@@ -7621,17 +7772,25 @@ const [gridEditText, setGridEditText] = useState('');
                 )
               );
             }}
-            onClose={() => setInsightsOpen(false)}
+            onClose={() => {
+              setInsightsOpen(false);
+              setInsightsFocus(null);
+            }}
           />
         )}
         {templatesOpen && (
           <TemplatesModal
             customTemplates={appSettings.listTemplates ?? []}
             lists={allLists.filter((l) => !l.isDefaultTasksList)}
+            focusTemplateId={templatesFocus?.templateId ?? null}
+            focusToken={templatesFocus?.token ?? 0}
             onInstantiateTemplate={handleInstantiateTemplate}
             onSaveListAsTemplate={handleSaveListAsTemplate}
             onDeleteTemplate={handleDeleteTemplate}
-            onClose={() => setTemplatesOpen(false)}
+            onClose={() => {
+              setTemplatesOpen(false);
+              setTemplatesFocus(null);
+            }}
           />
         )}
         {shareListId && (() => {

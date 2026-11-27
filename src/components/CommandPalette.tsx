@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SmartListId, TodoItem, TodoList, ViewSelection } from '../types/todo';
+import { ListTemplate, SavedFilter, SmartListId, TodoItem, TodoList, ViewSelection } from '../types/todo';
 import { scoreTextMatch, scoreTodoItemMatch } from '../lib/search';
 import { EmojiText } from '../lib/emoji';
+import { BUILTIN_TEMPLATES } from './TemplatesModal';
 
 interface CommandPaletteProps {
   lists: TodoList[];
   items: TodoItem[];
+  savedFilters?: SavedFilter[];
+  customTemplates?: ListTemplate[];
   onSelectView: (sel: ViewSelection) => void;
   onSelectTask: (item: TodoItem) => void;
   onQuickAddTask: (text: string) => Promise<void> | void;
   onCycleTheme: () => void;
-  onOpenSettings: () => void;
-  onOpenInsights: () => void;
-  onOpenTemplates: () => void;
+  onOpenSettings: (sectionId?: string) => void;
+  onOpenInsights: (sectionId?: string) => void;
+  onOpenTemplates: (templateId?: string) => void;
   onExportIcs: () => void;
   onCreateList: (title: string) => Promise<void> | void;
   onClose: () => void;
@@ -20,12 +23,28 @@ interface CommandPaletteProps {
 
 interface PaletteEntry {
   id: string;
-  section: 'Actions' | 'Lists' | 'Tasks';
+  section: 'Actions' | 'Settings' | 'Lists' | 'Templates' | 'Tasks';
   label: string;
   subtitle?: string;
   badge?: string;
   onRun: () => void;
 }
+
+const SETTINGS_ENTRIES: { id: string; label: string; subtitle: string; keywords: string }[] = [
+  { id: 'confirm-delete', label: 'Confirm before deleting', subtitle: 'Settings · General', keywords: 'settings general delete prompt confirmation' },
+  { id: 'add-on-top', label: 'Add new tasks on top', subtitle: 'Settings · General', keywords: 'settings general order top new task' },
+  { id: 'move-starred', label: 'Move starred tasks to top', subtitle: 'Settings · General', keywords: 'settings general important star sort top' },
+  { id: 'completion-sound', label: 'Play completion sound', subtitle: 'Settings · General', keywords: 'settings general audio chime mute sound' },
+  { id: 'reminder-notifications', label: 'Turn on reminder notifications', subtitle: 'Settings · General', keywords: 'settings general push alerts reminders notifications' },
+  { id: 'theme', label: 'Theme', subtitle: 'Settings · General · Light, Dark, iOS Glass, System', keywords: 'settings general appearance dark light glass system theme' },
+  { id: 'smart-lists', label: 'Smart lists visibility', subtitle: 'Settings · Smart lists', keywords: 'settings smart lists important planned all completed assigned' },
+  { id: 'auto-hide-smart', label: 'Auto-hide empty smart lists', subtitle: 'Settings · Smart lists', keywords: 'settings smart lists hide empty sidebar' },
+  { id: 'due-today-my-day', label: "Show 'Due Today' tasks in My Day", subtitle: 'Settings · Smart lists', keywords: 'settings smart lists my day due today' },
+  { id: 'local-backup', label: 'Local Backup', subtitle: 'Settings · Data & Backups · Export / Import .zip / .json', keywords: 'settings data backup restore export import zip json' },
+  { id: 'google-drive', label: 'Google Drive Sync', subtitle: 'Settings · Data & Backups · Cloud backups & attachments', keywords: 'settings data google drive cloud sync backup restore' },
+  { id: 'ics-export', label: 'One-time .ics Export', subtitle: 'Settings · Calendar & Live Feed', keywords: 'settings calendar ics ical export download' },
+  { id: 'live-feed', label: 'Live Subscription (webcal)', subtitle: 'Settings · Calendar & Live Feed', keywords: 'settings calendar webcal ical live feed subscription sync' },
+];
 
 const SMART_ENTRIES: { id: SmartListId; label: string }[] = [
   { id: 'my-day', label: 'My Day' },
@@ -41,6 +60,8 @@ const SMART_ENTRIES: { id: SmartListId; label: string }[] = [
 export function CommandPalette({
   lists,
   items,
+  savedFilters = [],
+  customTemplates = [],
   onSelectView,
   onSelectTask,
   onQuickAddTask,
@@ -78,6 +99,18 @@ export function CommandPalette({
       });
     }
 
+    // Settings items (compute first so generic "Open Settings" never hijacks specific setting searches like "backup")
+    const matchingSettingsData = q
+      ? SETTINGS_ENTRIES
+          .map((s) => ({
+            s,
+            score: scoreTextMatch(`${s.label} ${s.subtitle} ${s.keywords}`, q),
+          }))
+          .filter((x) => x.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 6)
+      : [];
+
     const actions: PaletteEntry[] = [
       {
         id: 'act-insights',
@@ -86,7 +119,7 @@ export function CommandPalette({
         subtitle: 'Streaks, 7-day chart & My Day rollover',
         onRun: () => {
           onClose();
-          onOpenInsights();
+          onOpenInsights('overview');
         },
       },
       {
@@ -96,7 +129,7 @@ export function CommandPalette({
         subtitle: 'Create a list from a reusable template',
         onRun: () => {
           onClose();
-          onOpenTemplates();
+          onOpenTemplates('save-bar');
         },
       },
       {
@@ -123,24 +156,56 @@ export function CommandPalette({
         id: 'act-settings',
         section: 'Actions',
         label: 'Open Settings',
-        subtitle: 'Preferences, notifications, backup & restore',
+        subtitle: 'App preferences & configuration',
         onRun: () => {
           onClose();
-          onOpenSettings();
+          onOpenSettings(matchingSettingsData[0]?.s.id ?? 'general');
         },
       },
     ];
 
     if (q) {
-      actions.push({
-        id: 'act-new-list',
-        section: 'Actions',
-        label: `Create new list "${q}"`,
-        onRun: () => {
-          void onCreateList(q);
-          onClose();
+      actions.push(
+        {
+          id: 'act-insights-7d',
+          section: 'Actions',
+          label: 'Last 7 Days Completion Chart',
+          subtitle: 'Insights · Weekly productivity trend',
+          onRun: () => {
+            onClose();
+            onOpenInsights('last-7-days');
+          },
         },
-      });
+        {
+          id: 'act-insights-rollover',
+          section: 'Actions',
+          label: 'Unfinished My Day & Rollover',
+          subtitle: 'Insights · Roll unfinished tasks to tomorrow',
+          onRun: () => {
+            onClose();
+            onOpenInsights('unfinished-my-day');
+          },
+        },
+        {
+          id: 'act-insights-overdue',
+          section: 'Actions',
+          label: 'Overdue Tasks Review',
+          subtitle: 'Insights · Pull overdue tasks into My Day',
+          onRun: () => {
+            onClose();
+            onOpenInsights('overdue');
+          },
+        },
+        {
+          id: 'act-new-list',
+          section: 'Actions',
+          label: `Create new list "${q}"`,
+          onRun: () => {
+            void onCreateList(q);
+            onClose();
+          },
+        }
+      );
     }
 
     const filteredActions = q
@@ -148,7 +213,23 @@ export function CommandPalette({
       : actions;
     result.push(...filteredActions);
 
-    // Lists
+    // Settings items (jump directly to setting, scroll & highlight)
+    if (matchingSettingsData.length > 0) {
+      const matchingSettings: PaletteEntry[] = matchingSettingsData.map(({ s }) => ({
+        id: `setting-${s.id}`,
+        section: 'Settings' as const,
+        label: s.label,
+        subtitle: s.subtitle,
+        badge: 'Setting',
+        onRun: () => {
+          onClose();
+          onOpenSettings(s.id);
+        },
+      }));
+      result.push(...matchingSettings);
+    }
+
+    // Lists & Saved Filters
     const listEntries: PaletteEntry[] = [
       ...SMART_ENTRIES.map((s) => ({
         id: `smart-${s.id}`,
@@ -157,6 +238,16 @@ export function CommandPalette({
         subtitle: 'Smart list',
         onRun: () => {
           onSelectView({ type: 'smart', id: s.id });
+          onClose();
+        },
+      })),
+      ...savedFilters.map((f) => ({
+        id: `filter-${f.id}`,
+        section: 'Lists' as const,
+        label: `${f.icon ? `${f.icon} ` : '🔎 '}${f.title}`,
+        subtitle: 'Saved filter',
+        onRun: () => {
+          onSelectView({ type: 'filter', id: f.id });
           onClose();
         },
       })),
@@ -174,13 +265,38 @@ export function CommandPalette({
 
     const filteredLists = q
       ? listEntries
-          .map((e) => ({ e, score: scoreTextMatch(e.label, q) }))
+          .map((e) => ({ e, score: scoreTextMatch(`${e.label} ${e.subtitle ?? ''}`, q) }))
           .filter((x) => x.score > 0)
           .sort((a, b) => b.score - a.score)
           .slice(0, 6)
           .map((x) => x.e)
       : listEntries.slice(0, 6);
     result.push(...filteredLists);
+
+    // Templates
+    if (q) {
+      const allTemplates = [...customTemplates, ...BUILTIN_TEMPLATES];
+      const matchingTemplates: PaletteEntry[] = allTemplates
+        .map((tpl) => ({
+          tpl,
+          score: scoreTextMatch(`${tpl.title} template checklist ${tpl.tasks.map((t) => t.text).join(' ')}`, q),
+        }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4)
+        .map(({ tpl }) => ({
+          id: `template-${tpl.id}`,
+          section: 'Templates' as const,
+          label: `${tpl.icon ? `${tpl.icon} ` : ''}${tpl.title}`,
+          subtitle: `Template · ${tpl.tasks.length} task${tpl.tasks.length === 1 ? '' : 's'}`,
+          badge: 'Template',
+          onRun: () => {
+            onClose();
+            onOpenTemplates(tpl.id);
+          },
+        }));
+      result.push(...matchingTemplates);
+    }
 
     // Tasks
     if (q) {
@@ -213,6 +329,8 @@ export function CommandPalette({
     query,
     lists,
     items,
+    savedFilters,
+    customTemplates,
     onSelectView,
     onSelectTask,
     onQuickAddTask,

@@ -1290,6 +1290,93 @@
   color: var(--color-text-2);
 }
 
+@keyframes command-jump-highlight {
+  0% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--color-accent) 65%, transparent),
+      inset 0 0 0 2px var(--color-accent);
+    background-color: color-mix(in srgb, var(--color-accent) 24%, var(--color-task-row-bg, var(--color-surface)));
+  }
+  18% {
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--color-accent) 32%, transparent),
+      inset 0 0 0 2px var(--color-accent);
+    background-color: color-mix(in srgb, var(--color-accent) 20%, var(--color-task-row-bg, var(--color-surface)));
+  }
+  72% {
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent),
+      inset 0 0 0 1.5px color-mix(in srgb, var(--color-accent) 75%, transparent);
+    background-color: color-mix(in srgb, var(--color-accent) 13%, var(--color-task-row-bg, var(--color-surface)));
+  }
+  100% {
+    box-shadow:
+      0 0 0 0 transparent,
+      inset 0 0 0 0 transparent;
+  }
+}
+
+.task-row.command-highlight,
+.kanban-card.command-highlight,
+.nav-item.command-highlight,
+.nav-item-row.command-highlight,
+.setting-block.command-highlight,
+.settings-card.command-highlight,
+.settings-card-row.command-highlight,
+.settings-panel section.command-highlight,
+.insights-kpi-grid.command-highlight,
+.insights-section.command-highlight,
+.templates-save-bar.command-highlight,
+.template-card.command-highlight {
+  position: relative;
+  z-index: 2;
+  border-radius: 10px;
+  animation: command-jump-highlight 1.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.setting-block.command-highlight,
+.settings-panel section.command-highlight {
+  padding-inline: 10px !important;
+  margin-inline: -10px;
+}
+
+.settings-card-row.command-highlight {
+  padding: 8px 10px;
+  margin: -8px -10px;
+}
+
+.insights-kpi-grid.command-highlight,
+.insights-section.command-highlight,
+.templates-save-bar.command-highlight {
+  padding: 8px;
+  margin: -8px;
+}
+
+.grid-table tr.command-highlight td {
+  animation: command-jump-highlight 1.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-row.command-highlight,
+  .kanban-card.command-highlight,
+  .nav-item.command-highlight,
+  .nav-item-row.command-highlight,
+  .setting-block.command-highlight,
+  .settings-card.command-highlight,
+  .settings-card-row.command-highlight,
+  .settings-panel section.command-highlight,
+  .insights-kpi-grid.command-highlight,
+  .insights-section.command-highlight,
+  .templates-save-bar.command-highlight,
+  .template-card.command-highlight,
+  .grid-table tr.command-highlight td {
+    animation: none;
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+    background-color: color-mix(in srgb, var(--color-accent) 16%, var(--color-task-row-bg, var(--color-surface)));
+  }
+}
+
 /* Insights & Templates Modals */
 .insights-modal,
 .templates-modal {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { TodoItem } from '../types/todo';
 import { EmojiText } from '../lib/emoji';
 
@@ -6,6 +6,8 @@ interface InsightsModalProps {
   items: TodoItem[];
   todayStr: string;
   tomorrowStr: string;
+  focusSectionId?: string | null;
+  focusToken?: number;
   onRolloverToTomorrow: (itemIds: string[]) => Promise<void> | void;
   onMoveToMyDay: (itemIds: string[]) => Promise<void> | void;
   onClose: () => void;
@@ -19,10 +21,15 @@ export function InsightsModal({
   items,
   todayStr,
   tomorrowStr,
+  focusSectionId = null,
+  focusToken = 0,
   onRolloverToTomorrow,
   onMoveToMyDay,
   onClose,
 }: InsightsModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  const [highlightedSection, setHighlightedSection] = useState<string | null>(null);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -30,6 +37,42 @@ export function InsightsModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  useEffect(() => {
+    if (!focusSectionId) return;
+    setHighlightedSection(focusSectionId);
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const behavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
+
+    const scrollTargetIntoModal = () => {
+      const modal = modalRef.current;
+      const root = modal ?? document;
+      const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(focusSectionId)
+        : focusSectionId.replace(/["\\]/g, '\\$&');
+      const el = root.querySelector<HTMLElement>(`[data-insights-section="${escaped}"]`);
+      if (!el) return;
+      if (modal) {
+        const modalRect = modal.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const desiredTop = modal.scrollTop + (elRect.top - modalRect.top) - Math.max(20, (modal.clientHeight - elRect.height) / 2);
+        modal.scrollTo({ top: Math.max(0, desiredTop), behavior });
+      } else {
+        el.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+      }
+    };
+
+    const rafId = window.requestAnimationFrame(scrollTargetIntoModal);
+    const settleTimer = window.setTimeout(scrollTargetIntoModal, 240);
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedSection(null);
+    }, 1800);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(settleTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [focusSectionId, focusToken]);
 
   const stats = useMemo(() => {
     const active = items.filter((i) => !i.deletedAtMs);
@@ -95,6 +138,7 @@ export function InsightsModal({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
+        ref={modalRef}
         className="modal-card insights-modal"
         role="dialog"
         aria-modal="true"
@@ -111,7 +155,10 @@ export function InsightsModal({
           </button>
         </div>
 
-        <div className="insights-kpi-grid">
+        <div
+          data-insights-section="overview"
+          className={`insights-kpi-grid ${highlightedSection === 'overview' ? 'command-highlight' : ''}`}
+        >
           <div className="insights-kpi-card">
             <span className="insights-kpi-value">{stats.currentStreak}d</span>
             <span className="insights-kpi-label">Current Streak</span>
@@ -132,7 +179,10 @@ export function InsightsModal({
           </div>
         </div>
 
-        <div className="insights-section">
+        <div
+          data-insights-section="last-7-days"
+          className={`insights-section ${highlightedSection === 'last-7-days' ? 'command-highlight' : ''}`}
+        >
           <div className="insights-section-head">
             <h3>Last 7 Days</h3>
             <span>{stats.completedThisWeek} completed</span>
@@ -154,7 +204,10 @@ export function InsightsModal({
           </div>
         </div>
 
-        <div className="insights-section">
+        <div
+          data-insights-section="unfinished-my-day"
+          className={`insights-section ${highlightedSection === 'unfinished-my-day' ? 'command-highlight' : ''}`}
+        >
           <div className="insights-section-head">
             <h3>Unfinished My Day ({stats.myDayUnfinished.length})</h3>
             {stats.myDayUnfinished.length > 0 && (
@@ -188,7 +241,10 @@ export function InsightsModal({
         </div>
 
         {stats.overdue.length > 0 && (
-          <div className="insights-section">
+          <div
+            data-insights-section="overdue"
+            className={`insights-section ${highlightedSection === 'overdue' ? 'command-highlight' : ''}`}
+          >
             <div className="insights-section-head">
               <h3>Overdue Tasks ({stats.overdue.length})</h3>
               <button
