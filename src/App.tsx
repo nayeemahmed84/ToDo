@@ -1095,6 +1095,10 @@ const [gridEditText, setGridEditText] = useState('');
   }, [sortMenuOpen, groupMenuOpen, listMenuOpen, listOptionsSortOpen]);
 
   useEffect(() => {
+    if (!isFirebaseConfigured) {
+      setAuthReady(true);
+      return;
+    }
     return onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setAuthReady(true);

@@ -12,7 +12,7 @@ import {
   persistentMultipleTabManager,
 } from 'firebase/firestore';
 
-const firebaseConfig = {
+const rawConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
@@ -22,11 +22,22 @@ const firebaseConfig = {
 };
 
 export const isFirebaseConfigured = Boolean(
-  firebaseConfig.apiKey &&
-    !firebaseConfig.apiKey.includes('PASTE_YOUR') &&
-    firebaseConfig.appId &&
-    !firebaseConfig.appId.includes('PASTE_YOUR')
+  rawConfig.apiKey &&
+    !rawConfig.apiKey.includes('PASTE_YOUR') &&
+    rawConfig.appId &&
+    !rawConfig.appId.includes('PASTE_YOUR')
 );
+
+const firebaseConfig = isFirebaseConfigured
+  ? rawConfig
+  : {
+      apiKey: rawConfig.apiKey || 'demo-api-key',
+      authDomain: rawConfig.authDomain || 'demo-project.firebaseapp.com',
+      projectId: rawConfig.projectId || 'demo-project',
+      storageBucket: rawConfig.storageBucket || 'demo-project.firebasestorage.app',
+      messagingSenderId: rawConfig.messagingSenderId || '000000000000',
+      appId: rawConfig.appId || '1:000000000000:web:0000000000000000',
+    };
 
 const app = initializeApp(firebaseConfig);
 export { app };

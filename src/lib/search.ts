@@ -6,7 +6,8 @@ export function normalizeSearchText(input: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .normalize('NFC')
     .toLowerCase()
-    .replace(/['’`\uFE0F]/g, '')
+    .replace(/['’`]/g, '')
+    .replace(/\uFE0F/g, '')
     .replace(/[^\p{L}\p{N}\p{M}\p{Extended_Pictographic}]+/gu, ' ')
     .trim();
 }
