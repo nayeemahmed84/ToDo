@@ -1273,7 +1273,7 @@ select {
 }
 
 .task-title {
-  font-size: var(--text-base);
+  font-size: 14px;
   font-weight: 400;
   letter-spacing: var(--tracking-snug);
   color: var(--color-text);
@@ -4674,7 +4674,7 @@ button.primary.small {
 
 .task-title {
   color: #f5f5f5;
-  font-size: var(--text-base);
+  font-size: 14px;
 }
 
 .task-meta {
