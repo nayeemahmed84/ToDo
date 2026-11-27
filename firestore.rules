@@ -88,6 +88,17 @@ service cloud.firestore {
       match /fcmTokens/{tokenId} {
         allow read, write, delete: if isSignedIn() && request.auth.uid == userId;
       }
+
+      match /private/{docId} {
+        allow read, write, delete: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+
+    match /icalFeeds/{tokenId} {
+      allow get: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow list: if false;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
     match /lists/{listId} {

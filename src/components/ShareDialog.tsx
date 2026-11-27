@@ -13,6 +13,8 @@ interface UserProfile {
 interface ShareDialogProps {
   list: TodoList;
   user: User;
+  driveAttachmentCount?: number;
+  onSyncDrivePermissions?: () => Promise<{ totalFiles: number; filesShared: number; collaboratorCount: number }>;
   onInviteEmail: (email: string) => Promise<void>;
   onRemoveMember: (uid: string) => Promise<void>;
   onClose: () => void;
@@ -21,6 +23,8 @@ interface ShareDialogProps {
 export function ShareDialog({
   list,
   user,
+  driveAttachmentCount = 0,
+  onSyncDrivePermissions,
   onInviteEmail,
   onRemoveMember,
   onClose,
@@ -30,6 +34,8 @@ export function ShareDialog({
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
+  const [driveSyncing, setDriveSyncing] = useState(false);
+  const [driveSyncMsg, setDriveSyncMsg] = useState<string | null>(null);
 
   const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
@@ -233,6 +239,58 @@ export function ShareDialog({
             )}
             {statusMsg && <div style={{ fontSize: '0.8rem', color: 'var(--color-text-2)' }}>{statusMsg}</div>}
           </form>
+        )}
+
+        {driveAttachmentCount > 0 && onSyncDrivePermissions && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-bg)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <div style={{ fontSize: '0.82rem' }}>
+                <strong>Google Drive attachments ({driveAttachmentCount})</strong>
+                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-2)' }}>
+                  Silently grant read access to all list members (no email notifications).
+                </div>
+              </div>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={driveSyncing}
+                style={{ flexShrink: 0 }}
+                onClick={async () => {
+                  setDriveSyncing(true);
+                  setDriveSyncMsg(null);
+                  try {
+                    const res = await onSyncDrivePermissions();
+                    if (res.collaboratorCount === 0) {
+                      setDriveSyncMsg('No other members on this list yet.');
+                    } else {
+                      setDriveSyncMsg(
+                        `Synced silent Drive access for ${res.filesShared}/${res.totalFiles} file(s) with ${res.collaboratorCount} member(s).`
+                      );
+                    }
+                  } catch (err) {
+                    setDriveSyncMsg(err instanceof Error ? err.message : 'Failed to sync Drive permissions.');
+                  } finally {
+                    setDriveSyncing(false);
+                  }
+                }}
+              >
+                {driveSyncing ? 'Syncing…' : 'Sync Drive access'}
+              </button>
+            </div>
+            {driveSyncMsg && (
+              <div style={{ fontSize: '0.76rem', color: 'var(--color-text-2)' }}>{driveSyncMsg}</div>
+            )}
+          </div>
         )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>

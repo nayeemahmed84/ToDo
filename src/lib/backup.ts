@@ -68,52 +68,75 @@ export async function buildBackupArchive(params: {
   lists: TodoList[];
   items: TodoItem[]; // Includes BOTH active and trashed items
   readAttachmentBlob: (id: string) => Promise<Blob | null>;
+  onProgress?: (info: {
+    phase: 'attachments' | 'zip';
+    current?: number;
+    total?: number;
+    detail: string;
+  }) => void;
 }): Promise<{
   zipBytes: Uint8Array;
   manifest: BackupManifestV2;
   missingAttachmentWarnings: string[];
 }> {
-  const { account, settings, uiState, groups, lists, items, readAttachmentBlob } = params;
+  const { account, settings, uiState, groups, lists, items, readAttachmentBlob, onProgress } = params;
   const attachmentEntries: BackupAttachmentManifestEntry[] = [];
   const zipEntries: Array<{ name: string; data: Uint8Array }> = [];
   const seenAttachmentIds = new Set<string>();
   const missingAttachmentWarnings: string[] = [];
 
+  const uniqueAttachments: Array<{ att: NonNullable<TodoItem['attachments']>[number]; itemText: string }> = [];
   for (const item of items) {
     for (const att of item.attachments ?? []) {
       if (!att?.id || seenAttachmentIds.has(att.id)) continue;
       seenAttachmentIds.add(att.id);
-      let blob: Blob | null = null;
-      try {
-        blob = await readAttachmentBlob(att.id);
-      } catch {
-        blob = null;
-      }
-      if (blob) {
-        const archivePath = `attachments/${att.id}`;
-        const buf = new Uint8Array(await blob.arrayBuffer());
-        zipEntries.push({ name: archivePath, data: buf });
-        attachmentEntries.push({
-          id: att.id,
-          name: att.name,
-          size: att.size ?? buf.byteLength,
-          type: att.type || blob.type || undefined,
-          archivePath,
-          missing: false,
-        });
-      } else {
-        attachmentEntries.push({
-          id: att.id,
-          name: att.name,
-          size: att.size ?? 0,
-          type: att.type,
-          archivePath: null,
-          missing: true,
-        });
-        missingAttachmentWarnings.push(`Missing local file for "${att.name}" (task "${item.text}")`);
-      }
+      uniqueAttachments.push({ att, itemText: item.text });
     }
   }
+
+  for (let idx = 0; idx < uniqueAttachments.length; idx++) {
+    const { att, itemText } = uniqueAttachments[idx];
+    onProgress?.({
+      phase: 'attachments',
+      current: idx + 1,
+      total: uniqueAttachments.length,
+      detail: `Packaging attachment ${idx + 1}/${uniqueAttachments.length} (${att.name})…`,
+    });
+    let blob: Blob | null = null;
+    try {
+      blob = await readAttachmentBlob(att.id);
+    } catch {
+      blob = null;
+    }
+    if (blob) {
+      const archivePath = `attachments/${att.id}`;
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      zipEntries.push({ name: archivePath, data: buf });
+      attachmentEntries.push({
+        id: att.id,
+        name: att.name,
+        size: att.size ?? buf.byteLength,
+        type: att.type || blob.type || undefined,
+        archivePath,
+        missing: false,
+      });
+    } else {
+      attachmentEntries.push({
+        id: att.id,
+        name: att.name,
+        size: att.size ?? 0,
+        type: att.type,
+        archivePath: null,
+        missing: true,
+      });
+      missingAttachmentWarnings.push(`Missing local file for "${att.name}" (task "${itemText}")`);
+    }
+  }
+
+  onProgress?.({
+    phase: 'zip',
+    detail: `Building ZIP archive (${items.length} tasks, ${zipEntries.length} file${zipEntries.length === 1 ? '' : 's'})…`,
+  });
 
   const manifest: BackupManifestV2 = {
     schemaVersion: BACKUP_SCHEMA_VERSION,

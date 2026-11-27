@@ -44,9 +44,9 @@ Throughout this guide, you will paste a few short commands into a terminal:
 
 ---
 
-## Part 2: Set Up Firebase (Your Database, Login & Storage)
+## Part 2: Set Up Firebase (Free Spark Tier — Database & Login)
 
-Firebase stores your tasks, handles Google Sign-In, and hosts your website for free.
+Firebase stores your tasks, handles Google Sign-In, and hosts your website on the **free Spark tier** (no Blaze/billing upgrade required).
 
 ### 2.1 Create a Firebase Project
 1. Go to [console.firebase.google.com](https://console.firebase.google.com/) and sign in with Google.
@@ -75,8 +75,12 @@ Firebase stores your tasks, handles Google Sign-In, and hosts your website for f
 1. In the left sidebar, click **Build → Firestore Database**, then click **Create database**.
 2. Choose **Start in production mode** → **Next** → pick a location close to you → **Enable**.
 
-### 2.5 Turn On Storage (Optional — for custom list background photos)
-1. In the left sidebar, click **Build → Storage** → **Get started** → **Next** → **Done**.
+### 2.5 Enable Google Drive & Photos Picker APIs (Optional — Free Cloud Attachments, Backups & Backgrounds)
+Want task attachments and full `.zip` backups stored privately in your own free 15 GB Google Drive (without upgrading Firebase to a paid plan), or want to pick list background wallpapers directly from **Google Photos**?
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and select your Firebase project from the top project picker.
+2. Go to **APIs & Services → Library**, search for **Google Drive API**, and click **Enable**.
+3. *(Optional, for Google Photos backgrounds)* In the same Library, search for **Google Photos Picker API** and click **Enable**.
+4. In the ToDo app, open **Settings → Google Drive** (or click **Connect Drive** in any task's attachment section) to authorize access to the app's own `ToDo PWA/` folder (`drive.file` scope only).
 
 ### 2.6 Turn On Push Notification Key (Optional — for reminders)
 1. Click the **Gear icon ⚙** next to *Project Overview* (top left) → **Project settings**.
@@ -181,12 +185,11 @@ Hold `Ctrl` (or `Cmd` on Mac) and click the link shown in the terminal (usually 
 Choose **either** Firebase Hosting (easiest) or Cloudflare Pages:
 
 ### Option A: Deploy to Firebase Hosting (Recommended & Easiest)
-Run these two commands in the main `ToDo` folder:
+Run this single command in the main `ToDo` folder:
 ```bash
-npm run build
-firebase deploy --only hosting
+npm run deploy
 ```
-*(Or `npx firebase-tools deploy --only hosting` if `firebase` is not recognized.)*
+*(Or `npx firebase-tools deploy` — `firebase.json` automatically runs `scripts/enable-apis.mjs` to activate required free-tier Firebase & Google Cloud APIs via `gcloud` if installed, builds the production bundle, and deploys Firestore rules + Hosting.)*
 When it finishes, it will print your live website URL (like `https://your-project-id.web.app`). Open it on your phone or computer, sign in, and even install it as an app (**Add to Home Screen** on mobile, or the **Install** icon in Chrome/Edge address bar)!
 
 ### Option B: Deploy to Cloudflare Pages
@@ -222,6 +225,19 @@ When it finishes, it will print your live website URL (like `https://your-projec
 
 ---
 
+## Productivity Suite & Power Features
+
+- **Command Palette (`Ctrl+K` / `Cmd+K`)**: Jump to any list, smart view, or task, quick-add tasks, switch themes, open Insights or Templates, and export `.ics`.
+- **Natural-Language Quick Add**: Type inline metadata right in the task input — dates (`tomorrow`, `next friday`), tags (`#work`), priorities (`!p1`–`!p4`), and effort estimates (`~30m`, `~1.5h`) — or use **Voice Capture** dictation.
+- **Views (List, Grid, Board, & Planned Calendar)**: Switch between List, Grid, and **Kanban Board** (grouped by Priority, Due Date, or Status with drag-and-drop), plus a week/month **Planned Calendar** view with drag-and-drop rescheduling.
+- **Saved Smart Filters**: Create custom filtered views in the sidebar combining `#tags`, `P1`–`P4` priorities, effort caps (`≤15m`, `≤30m`), due windows, blocked tasks, and keywords — synced across devices.
+- **Focus / Pomodoro Timer & Daily Insights**: Launch a customizable Focus timer per task with session tracking, and review streaks, 7-day completion charts, and My Day rollover in **Daily Review & Insights**.
+- **WYSIWYG Rich Notes, Dependencies & Collaboration**: Format task notes with bold, italic, code, checklists, and links (Markdown-compatible), set "Waiting On" task blockers, add comments/activity logs, and attach files cached in IndexedDB and optionally synced to your own **Google Drive** (`ToDo PWA/Attachments/`, 100% free tier).
+- **Live Calendar Subscription (`webcal`) & `.ics` Export**: Download one-time `.ics` snapshots or generate a private token-authenticated live calendar feed URL from **Settings → Calendar Export & Live Feed** (powered by the Cloudflare Worker).
+- **Cross-Device Sync & Google Drive Backups**: Settings, list templates, and saved smart filters sync automatically in Firestore (`users/{uid}/private/settings`), and full ZIP backups can be downloaded locally or saved/restored directly from **Google Drive** (`ToDo PWA/Backups/`).
+
+---
+
 ## Mobile Features & Gestures
 
 - **Predictive Back Gesture & Step-by-Step Back**: Swipe right from the left edge (or use the system Back button / top-left back arrow) to step back one level at a time (calendar picker → context menu → selection → task details → list → home).
@@ -237,7 +253,10 @@ When it finishes, it will print your live website URL (like `https://your-projec
 Run the automated test suite and type checks locally (no Firebase production credentials required):
 
 ```bash
-# Unit tests (recurrence, natural-language parsing, search, backup/restore, reminder worker)
+# Lint TypeScript, React, worker, and tests
+npm run lint
+
+# Unit tests (recurrence, natural-language parsing, search, backup/restore, filters, reminder worker & iCal feed)
 npm test
 
 # Type-check the Cloudflare reminder worker
@@ -245,6 +264,9 @@ npm run typecheck:worker
 
 # Production type-check and build
 npm run build
+
+# Playwright E2E smoke tests (requires Chromium: npx playwright install chromium)
+npm run test:e2e
 
 # Firestore security rules tests (requires Java 21+ for Firebase Emulator)
 npm run test:rules

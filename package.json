@@ -8,12 +8,15 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit",
-    "test": "vitest run --exclude tests/firestore.rules.test.ts",
-    "test:rules": "npx firebase-tools emulators:exec --only firestore \"npx vitest run tests/firestore.rules.test.ts\""
+    "lint": "eslint src tests workers e2e",
+    "test": "vitest run --exclude tests/firestore.rules.test.ts --exclude e2e/**",
+    "test:rules": "npx firebase-tools emulators:exec --only firestore \"npx vitest run tests/firestore.rules.test.ts\"",
+    "test:e2e": "playwright test",
+    "setup:apis": "node scripts/enable-apis.mjs",
+    "deploy": "npx firebase-tools deploy"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",
-    "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/noto-sans": "^5.3.0",
     "emoji-mart": "^5.6.0",
     "firebase": "^11.4.0",
@@ -22,11 +25,16 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@firebase/rules-unit-testing": "^4.0.1",
+    "@playwright/test": "^1.65.1",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^10.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "~5.7.2",
+    "typescript-eslint": "^8.74.0",
     "vite": "^6.2.0",
     "vite-plugin-pwa": "^0.21.1",
     "vitest": "^5.1.2"

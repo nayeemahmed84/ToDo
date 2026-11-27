@@ -10,7 +10,27 @@ export type SmartListId =
 
 export type ViewSelection =
   | { type: 'smart'; id: SmartListId }
-  | { type: 'list'; id: string };
+  | { type: 'list'; id: string }
+  | { type: 'filter'; id: string };
+
+export type SavedFilterDueBucket = 'any' | 'overdue' | 'today' | 'week' | 'no-date';
+
+export interface SavedFilter {
+  id: string;
+  title: string;
+  icon?: string | null;
+  color?: string;
+  query?: string;
+  tags?: string[];
+  priorities?: TaskPriority[];
+  maxEstimateMinutes?: number | null;
+  dueBucket?: SavedFilterDueBucket;
+  onlyBlocked?: boolean;
+  onlyImportant?: boolean;
+  onlyMyDay?: boolean;
+  includeCompleted?: boolean;
+  createdAtMs: number;
+}
 
 export interface TodoGroup {
   id: string;
@@ -114,7 +134,15 @@ export interface TodoItem {
   repeatCustom?: { interval: number; unit: 'days' | 'weeks' | 'months' | 'years'; days: number[] } | null;
   recurrenceSpawned?: boolean;
   assignedTo?: string | null;
-  attachments?: { id: string; name: string; size: number; type?: string; missing?: boolean }[];
+  attachments?: {
+    id: string;
+    name: string;
+    size: number;
+    type?: string;
+    missing?: boolean;
+    driveFileId?: string;
+    uploadedByUid?: string;
+  }[];
   category: CategoryColor | null;
   notes: string;
   steps: TodoStep[];

@@ -19,13 +19,21 @@ import { RepeatRule, TaskPriority, TodoItem, TodoStep } from '../types/todo';
 import { RichNotesEditor } from './RichNotesEditor';
 import { AppSelect } from './AppSelect';
 import {
-  deleteAttachmentBlob,
-  getAttachmentBlob,
+  deleteAttachmentWithDrive,
+  fetchListCollaboratorEmails,
+  getAttachmentBlobWithDrive,
   getPreviewableBlob,
   isImageFile,
   sanitizeFileName,
   saveAttachmentBlob,
+  uploadAttachmentToDrive,
 } from '../lib/attachmentStorage';
+import {
+  connectGoogleDrive,
+  getDriveFileDownloadUrl,
+  getDriveFileViewUrl,
+  isDriveSessionActive,
+} from '../lib/googleDrive';
 
 function addDaysStr(baseYmd: string, days: number): string {
   const [y, m, d] = baseYmd.split('-').map(Number);
@@ -41,6 +49,7 @@ interface TaskDetailProps {
   allItems?: TodoItem[];
   listTitle?: string;
   listIcon?: string | null;
+  parentList?: { id: string; ownerUid: string; memberUids?: string[] } | null;
   exiting?: boolean;
   onStartFocus?: (item: TodoItem, minutes?: number) => void;
   onClose: () => void;
@@ -56,6 +65,7 @@ export function TaskDetail({
   allItems = [],
   listTitle,
   listIcon,
+  parentList,
   exiting = false,
   onStartFocus,
   onClose,
@@ -105,6 +115,13 @@ export function TaskDetail({
   const [repeatDays, setRepeatDays] = useState<number[]>(item.repeatCustom?.days ?? []);
   const [assignNoteOpen, setAssignNoteOpen] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [driveConnectedNow, setDriveConnectedNow] = useState<boolean>(() => isDriveSessionActive());
+  const [driveBusy, setDriveBusy] = useState(false);
+  const [fileUploadProgress, setFileUploadProgress] = useState<{
+    name: string;
+    stage: 'saving' | 'uploading' | 'done';
+    percent: number;
+  } | null>(null);
   const [attachmentThumbs, setAttachmentThumbs] = useState<Record<string, string>>({});
   const [previewModal, setPreviewModal] = useState<{
     attId: string;
@@ -149,7 +166,7 @@ export function TaskDetail({
       for (const att of atts) {
         if (!isImageFile(att.name, att.type)) continue;
         try {
-          const blob = await getAttachmentBlob(att.id);
+          const blob = await getAttachmentBlobWithDrive(att, { interactive: false });
           if (!blob || cancelled) continue;
           const previewBlob = await getPreviewableBlob(blob, att.name, att.type);
           if (cancelled) continue;
@@ -173,10 +190,16 @@ export function TaskDetail({
     };
   }, [item.id, item.attachments]);
 
-  const handleDownloadAttachment = async (att: { id: string; name: string }) => {
+  const handleDownloadAttachment = async (att: { id: string; name: string; driveFileId?: string; uploadedByUid?: string }) => {
     setFileError(null);
-    const blob = await getAttachmentBlob(att.id);
+    const isSharedFromOther = Boolean(att.driveFileId && att.uploadedByUid && currentUserId && att.uploadedByUid !== currentUserId);
+    const blob = isSharedFromOther ? null : await getAttachmentBlobWithDrive(att, { interactive: true });
+    if (isDriveSessionActive()) setDriveConnectedNow(true);
     if (!blob) {
+      if (att.driveFileId) {
+        window.open(getDriveFileDownloadUrl(att.driveFileId), '_blank', 'noopener,noreferrer');
+        return;
+      }
       setFileError('File data not found locally. Please re-add the file.');
       return;
     }
@@ -190,10 +213,16 @@ export function TaskDetail({
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const handlePreviewAttachment = async (att: { id: string; name: string; type?: string }) => {
+  const handlePreviewAttachment = async (att: { id: string; name: string; type?: string; driveFileId?: string; uploadedByUid?: string }) => {
     setFileError(null);
-    const blob = await getAttachmentBlob(att.id);
+    const isSharedFromOther = Boolean(att.driveFileId && att.uploadedByUid && currentUserId && att.uploadedByUid !== currentUserId);
+    const blob = isSharedFromOther ? null : await getAttachmentBlobWithDrive(att, { interactive: true });
+    if (isDriveSessionActive()) setDriveConnectedNow(true);
     if (!blob) {
+      if (att.driveFileId) {
+        window.open(getDriveFileViewUrl(att.driveFileId), '_blank', 'noopener,noreferrer');
+        return;
+      }
       setFileError('File data not found locally. Please re-add the file.');
       return;
     }
@@ -805,11 +834,45 @@ export function TaskDetail({
         )}
       </div>
 
-      <div className="detail-card detail-action-card">
-        <button type="button" className="detail-action detail-action-inline" onClick={() => fileInputRef.current?.click()}>
-          <PaperclipIcon size={20} />
-          <span>Add file</span>
-        </button>
+      <div className="detail-card detail-action-card detail-attachments-card">
+        <div className="detail-attachments-header">
+          <button
+            type="button"
+            className="detail-action detail-action-inline detail-attachments-add-btn"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <PaperclipIcon size={20} />
+            <span>Add file</span>
+          </button>
+          <button
+            type="button"
+            className={`detail-drive-pill ${driveConnectedNow ? 'connected' : ''}`}
+            disabled={driveBusy}
+            title={
+              driveConnectedNow
+                ? 'Synced to ToDo PWA/Attachments in Google Drive · Click to refresh session'
+                : 'Connect your Google Drive to sync attachments across devices'
+            }
+            onClick={async () => {
+              setFileError(null);
+              setDriveBusy(true);
+              try {
+                await connectGoogleDrive();
+                setDriveConnectedNow(true);
+              } catch (err) {
+                setFileError(err instanceof Error ? err.message : 'Failed to connect Google Drive.');
+              } finally {
+                setDriveBusy(false);
+              }
+            }}
+          >
+            {driveConnectedNow && <span className="detail-drive-pill-dot" aria-hidden="true" />}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+            </svg>
+            <span>{driveBusy ? 'Connecting…' : driveConnectedNow ? 'Drive' : 'Connect Drive'}</span>
+          </button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -836,99 +899,145 @@ export function TaskDetail({
               return;
             }
             const attId = String(Date.now());
+            const originalName = f.name;
+            setFileUploadProgress({ name: originalName, stage: 'saving', percent: 15 });
             try {
               await saveAttachmentBlob(attId, f);
             } catch {
+              setFileUploadProgress(null);
               setFileError('Failed to save file locally.');
               e.target.value = '';
               return;
             }
             const safeName = sanitizeFileName(f.name);
+            let driveFileId: string | null = null;
+            if (isDriveSessionActive()) {
+              setFileUploadProgress({ name: originalName, stage: 'uploading', percent: 25 });
+              const shareWithEmails = parentList
+                ? await fetchListCollaboratorEmails(parentList, currentUserId)
+                : [];
+              driveFileId = await uploadAttachmentToDrive({
+                blob: f,
+                fileName: `${attId}-${safeName}`,
+                contentType: f.type,
+                interactive: false,
+                shareWithEmails,
+                onProgress: (pct) => {
+                  const mapped = Math.min(98, 25 + Math.round(pct * 0.73));
+                  setFileUploadProgress({ name: originalName, stage: 'uploading', percent: mapped });
+                },
+              });
+            }
             onUpdate(item, {
-              attachments: [...existing, { id: attId, name: safeName, size: f.size, type: f.type }],
+              attachments: [
+                ...existing,
+                {
+                  id: attId,
+                  name: safeName,
+                  size: f.size,
+                  type: f.type,
+                  ...(driveFileId ? { driveFileId, uploadedByUid: currentUserId || undefined } : {}),
+                },
+              ],
             });
+            setFileUploadProgress({ name: originalName, stage: 'done', percent: 100 });
+            window.setTimeout(() => {
+              setFileUploadProgress((prev) => (prev?.stage === 'done' ? null : prev));
+            }, 1400);
             e.target.value = '';
           }}
         />
-        {fileError && <div style={{ fontSize: '0.78rem', color: 'var(--color-danger)', marginTop: '4px' }}>{fileError}</div>}
-        {(item.attachments ?? []).map((att) => (
-          <div
-            key={att.id}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '0.8rem',
-              marginTop: '6px',
-              padding: '4px 6px',
-              borderRadius: '6px',
-              background: 'var(--color-surface-2, rgba(255,255,255,0.04))',
-            }}
-          >
-            <button
-              type="button"
-              disabled={Boolean(att.missing)}
-              onClick={() => {
-                if (att.missing) return;
-                void handlePreviewAttachment(att);
-              }}
-              title={att.missing ? 'File data was not included in backup' : 'Click to preview'}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: 'none',
-                border: 'none',
-                color: att.missing ? 'var(--color-text-2)' : 'inherit',
-                padding: 0,
-                cursor: att.missing ? 'not-allowed' : 'pointer',
-                opacity: att.missing ? 0.75 : 1,
-                textAlign: 'left',
-                minWidth: 0,
-                flex: 1,
-              }}
-            >
-              {attachmentThumbs[att.id] && !att.missing ? (
-                <img
-                  src={attachmentThumbs[att.id]}
-                  alt={att.name}
-                  style={{ width: '32px', height: '32px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }}
-                />
-              ) : (
-                <PaperclipIcon size={14} />
-              )}
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {att.name} ({Math.max(1, Math.round(att.size / 1024))} KB){att.missing ? ' — file unavailable' : ''}
+        {fileUploadProgress && (
+          <div className={`detail-upload-progress stage-${fileUploadProgress.stage}`} role="status" aria-live="polite">
+            <div className="detail-upload-progress-row">
+              <span className="detail-upload-progress-label">
+                {fileUploadProgress.stage === 'saving'
+                  ? `Saving ${fileUploadProgress.name}…`
+                  : fileUploadProgress.stage === 'uploading'
+                    ? `Uploading ${fileUploadProgress.name} to Drive…`
+                    : `Uploaded ${fileUploadProgress.name}`}
               </span>
-            </button>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-              {!att.missing && (
-                <button
-                  type="button"
-                  className="clear-btn"
-                  title="Download"
-                  aria-label={`Download ${att.name}`}
-                  onClick={() => void handleDownloadAttachment(att)}
-                >
-                  ↓
-                </button>
-              )}
-              <button
-                type="button"
-                className="clear-btn"
-                title="Remove"
-                aria-label={`Remove ${att.name}`}
-                onClick={() => {
-                  void deleteAttachmentBlob(att.id);
-                  onUpdate(item, { attachments: (item.attachments ?? []).filter((a) => a.id !== att.id) });
-                }}
-              >
-                ×
-              </button>
+              <span className="detail-upload-progress-pct">{fileUploadProgress.percent}%</span>
+            </div>
+            <div className="detail-upload-progress-track">
+              <div
+                className="detail-upload-progress-fill"
+                style={{ width: `${fileUploadProgress.percent}%` }}
+              />
             </div>
           </div>
-        ))}
+        )}
+        {fileError && (
+          <div className="detail-attachments-error">{fileError}</div>
+        )}
+        {(item.attachments ?? []).length > 0 && (
+          <div className="detail-attachments-list">
+            {(item.attachments ?? []).map((att) => (
+              <div key={att.id} className="detail-attachment-row">
+                <button
+                  type="button"
+                  disabled={Boolean(att.missing)}
+                  onClick={() => {
+                    if (att.missing) return;
+                    void handlePreviewAttachment(att);
+                  }}
+                  title={att.missing ? 'File data was not included in backup' : 'Click to preview'}
+                  className="detail-attachment-preview-btn"
+                  style={{
+                    color: att.missing ? 'var(--color-text-2)' : 'inherit',
+                    cursor: att.missing ? 'not-allowed' : 'pointer',
+                    opacity: att.missing ? 0.75 : 1,
+                  }}
+                >
+                  {attachmentThumbs[att.id] && !att.missing ? (
+                    <img
+                      src={attachmentThumbs[att.id]}
+                      alt={att.name}
+                      style={{ width: '32px', height: '32px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }}
+                    />
+                  ) : (
+                    <PaperclipIcon size={14} />
+                  )}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {att.name} ({Math.max(1, Math.round(att.size / 1024))} KB)
+                    {att.driveFileId ? ' · Drive' : ''}
+                    {att.missing ? ' — file unavailable' : ''}
+                  </span>
+                </button>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                  {!att.missing && (
+                    <button
+                      type="button"
+                      className="clear-btn"
+                      title="Download"
+                      aria-label={`Download ${att.name}`}
+                      onClick={() => void handleDownloadAttachment(att)}
+                    >
+                      ↓
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="clear-btn"
+                    title="Remove"
+                    aria-label={`Remove ${att.name}`}
+                    onClick={async () => {
+                      setFileError(null);
+                      onUpdate(item, { attachments: (item.attachments ?? []).filter((a) => a.id !== att.id) });
+                      const result = await deleteAttachmentWithDrive(att, { interactive: true });
+                      if (isDriveSessionActive()) setDriveConnectedNow(true);
+                      if (result.driveError) {
+                        setFileError(`Removed from task, but ${result.driveError}`);
+                      }
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         {previewModal && (
           <div
             className="modal-backdrop"

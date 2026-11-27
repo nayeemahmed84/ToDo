@@ -1,7 +1,7 @@
 import { DragEvent as ReactDragEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { User } from 'firebase/auth';
-import { SmartListId, TodoGroup, TodoList, ViewSelection } from '../types/todo';
+import { SavedFilter, SmartListId, TodoGroup, TodoList, ViewSelection } from '../types/todo';
 import { EmojiPicker } from './EmojiPicker';
 import { AppSettings } from './SettingsModal';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from '../lib/contextMenu';
@@ -56,6 +56,9 @@ interface SidebarProps {
   onOpenShortcuts?: () => void;
   onOpenWhatsNew: () => void;
   onMoveTasksToSmart?: (itemIds: string[], smartId: SmartListId) => Promise<void> | void;
+  savedFilters?: SavedFilter[];
+  onOpenNewFilter?: () => void;
+  onEditFilter?: (filter: SavedFilter) => void;
   onSignOut: () => void;
 }
 
@@ -125,6 +128,9 @@ export function Sidebar({
   onOpenShortcuts,
   onMoveTasksToList,
   onMoveTasksToSmart,
+  savedFilters = [],
+  onOpenNewFilter,
+  onEditFilter,
   onSignOut,
 }: SidebarProps) {
   const [newListTitle, setNewListTitle] = useState('');
@@ -683,6 +689,69 @@ export function Sidebar({
               </button>
             );
           })}
+
+          {!collapsed && (savedFilters.length > 0 || onOpenNewFilter) && (
+            <div className="sidebar-filters-section">
+              <div className="sidebar-filters-header">
+                <span>Smart Filters</span>
+                {onOpenNewFilter && (
+                  <button
+                    type="button"
+                    className="sidebar-filters-add-btn"
+                    onClick={onOpenNewFilter}
+                    title="Create smart filter"
+                    aria-label="Create smart filter"
+                  >
+                    +
+                  </button>
+                )}
+              </div>
+              {savedFilters.map((flt) => {
+                const isActive = selection.type === 'filter' && selection.id === flt.id;
+                const fltCount = counts[`filter:${flt.id}`] ?? 0;
+                return (
+                  <button
+                    key={flt.id}
+                    type="button"
+                    data-nav-item="true"
+                    className={`nav-item ${isActive ? 'active' : ''}`}
+                    onClick={() => {
+                      onSelect({ type: 'filter', id: flt.id });
+                      onClose();
+                    }}
+                  >
+                    <span className="nav-icon" aria-hidden="true">
+                      <EmojiText text={flt.icon || '🔎'} />
+                    </span>
+                    <span className="nav-label">{flt.title}</span>
+                    {onEditFilter && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="sidebar-filter-edit-btn"
+                        title={`Edit ${flt.title}`}
+                        aria-label={`Edit ${flt.title}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditFilter(flt);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onEditFilter(flt);
+                          }
+                        }}
+                      >
+                        ✎
+                      </span>
+                    )}
+                    {fltCount > 0 && <span className="nav-count">{fltCount}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <div className="nav-divider" />
 

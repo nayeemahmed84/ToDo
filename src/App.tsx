@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import {
   addDoc,
   arrayRemove,
@@ -24,7 +23,6 @@ import {
 import {
   auth,
   db,
-  getFirebaseStorage,
   isFirebaseConfigured,
   signInWithGoogle,
   signInWithGoogleRedirect,
@@ -37,7 +35,7 @@ import { TaskDetail } from './components/TaskDetail';
 import { SyncStatus, TopBar } from './components/TopBar';
 import { PwaManager } from './components/PwaManager';
 import { PwaSharePayload, updateAppBadge } from './lib/pwa';
-import { AppSettings, DEFAULT_SETTINGS, SettingsModal } from './components/SettingsModal';
+import { AppSettings, SettingsModal } from './components/SettingsModal';
 import { ShareDialog } from './components/ShareDialog';
 import { CustomCalendarPicker } from './components/CustomCalendarPicker';
 import { AppDialogModal } from './components/AppDialogModal';
@@ -53,9 +51,13 @@ import { PlannedCalendarView } from './components/PlannedCalendarView';
 import { InsightsModal } from './components/InsightsModal';
 import { CommandPalette } from './components/CommandPalette';
 import { TemplatesModal } from './components/TemplatesModal';
+import { KanbanBoardView, type BoardGroupBy } from './components/KanbanBoardView';
+import { SavedFilterModal } from './components/SavedFilterModal';
 import { downloadIcsFile } from './lib/ical';
+import { createOrRotateIcalFeed, revokeIcalFeed } from './lib/icalFeed';
+import { matchesSavedFilter, summarizeSavedFilter } from './lib/savedFilters';
 import { isVoiceCaptureSupported, startVoiceCapture, type VoiceCaptureHandle } from './lib/voiceCapture';
-import type { ListTemplate, TaskActivity } from './types/todo';
+import type { ListTemplate, SavedFilter, TaskActivity } from './types/todo';
 import {
   buildNextRecurringItemPayload,
   getNextRepeatDate,
@@ -68,11 +70,24 @@ import {
   type ParsedBackupPackage,
   type PartialImportRecord,
 } from './lib/backup';
+import { buildRestoredItemPayload } from './lib/backupRestore';
+import { useUserSettingsSync } from './hooks/useUserSettingsSync';
 import {
   deleteAttachmentBlob,
-  getAttachmentBlob,
+  deleteAttachmentWithDrive,
+  getAttachmentBlobWithDrive,
   saveAttachmentBlob,
+  syncListDrivePermissions,
 } from './lib/attachmentStorage';
+import {
+  clearDriveSession,
+  connectGoogleDrive,
+  downloadFileFromDrive,
+  ensureDriveAccessToken,
+  listDriveBackups,
+  uploadFileToDrive,
+} from './lib/googleDrive';
+import { pickPhotoFromGooglePhotos } from './lib/googlePhotosPicker';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
 import { runViewTransition, useAnimatedPresence, useFlipList, useRetainedValue } from './lib/motion';
 import { blobToDataUrl, compressBackgroundImage, isSupportedImageFile } from './lib/imageCompression';
@@ -560,55 +575,28 @@ export function App() {
     localStorage.setItem('todo-print-options', JSON.stringify(printOptions));
   }, [printOptions]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [appSettings, setAppSettings] = useState<AppSettings>(() => {
-    try {
-      const raw = localStorage.getItem("todo-settings");
-      if (raw) {
-        const stored = JSON.parse(raw) as Partial<AppSettings>;
-        const merged = { ...DEFAULT_SETTINGS, ...stored };
-        // The old default was "system"; use the screenshot-matched dark theme
-        // unless someone explicitly selected light in the appearance settings.
-        if (merged.themeMode === 'system' && !merged.themeModeExplicit) merged.themeMode = 'dark';
-        return merged;
-      }
-      const legacyDark = localStorage.getItem('todo-dark');
-      return legacyDark === null
-        ? DEFAULT_SETTINGS
-        : { ...DEFAULT_SETTINGS, themeMode: legacyDark === '1' ? 'dark' : 'light' };
-    } catch {
-      return DEFAULT_SETTINGS;
-    }
-  });
+  const { appSettings, updateAppSettings: syncUpdateAppSettings } = useUserSettingsSync(user);
   const updateAppSettings = (patch: Partial<AppSettings>) => {
-    setAppSettings((prev) => {
-      const next = {
-        ...prev,
-        ...patch,
-        ...(patch.themeMode !== undefined ? { themeModeExplicit: true } : {}),
-      };
-      try {
-        localStorage.setItem("todo-settings", JSON.stringify(next));
-      } catch {
-        // Ignore storage quota errors so state updates still succeed
+    syncUpdateAppSettings(patch);
+    if (patch.themeMode !== undefined) {
+      const isDark =
+        patch.themeMode === 'dark' ||
+        patch.themeMode === 'glass-dark' ||
+        (patch.themeMode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      setDarkMode(isDark);
+      localStorage.setItem('todo-dark', isDark ? '1' : '0');
+    }
+    if (patch.playCompletionSound !== undefined) {
+      setSoundEnabled(patch.playCompletionSound);
+      localStorage.setItem('todo-sound', patch.playCompletionSound ? '1' : '0');
+    }
+    if (patch.reminderNotifications !== undefined && user) {
+      if (patch.reminderNotifications) {
+        void requestAndEnableNotifications(user.uid);
+      } else {
+        void unregisterDevicePushToken(user.uid);
       }
-      if (patch.themeMode !== undefined) {
-        const isDark = patch.themeMode === "dark" || patch.themeMode === "glass-dark" || (patch.themeMode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-        setDarkMode(isDark);
-        localStorage.setItem("todo-dark", isDark ? "1" : "0");
-      }
-      if (patch.playCompletionSound !== undefined) {
-        setSoundEnabled(patch.playCompletionSound);
-        localStorage.setItem("todo-sound", patch.playCompletionSound ? "1" : "0");
-      }
-      if (patch.reminderNotifications !== undefined && user) {
-        if (patch.reminderNotifications) {
-          void requestAndEnableNotifications(user.uid);
-        } else {
-          void unregisterDevicePushToken(user.uid);
-        }
-      }
-      return next;
-    });
+    }
   };
   const mutedListIdsRef = useRef<string[]>(appSettings.mutedListIds ?? []);
   mutedListIdsRef.current = appSettings.mutedListIds ?? [];
@@ -644,6 +632,7 @@ export function App() {
     path?: string | null;
   } | null>(null);
   const [backgroundUploadInProgress, setBackgroundUploadInProgress] = useState(false);
+  const [bgSourceChooserOpen, setBgSourceChooserOpen] = useState(false);
   const [backgroundUploadStatus, setBackgroundUploadStatus] = useState<{
     stage: 'preparing' | 'uploading' | 'saving' | 'done' | 'error';
     progress: number;
@@ -1020,7 +1009,12 @@ export function App() {
     }, 2400);
   };
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+const [viewMode, setViewMode] = useState<'list' | 'grid' | 'board'>('list');
+const [boardGroupBy, setBoardGroupBy] = useState<BoardGroupBy>('priority');
+const [filterModalState, setFilterModalState] = useState<{ open: boolean; editing: SavedFilter | null }>({
+  open: false,
+  editing: null,
+});
 const [gridEditId, setGridEditId] = useState<string | null>(null);
 const [gridEditText, setGridEditText] = useState('');
   const [collapsedLists, setCollapsedLists] = useState<Record<string, boolean>>(() => {
@@ -1486,8 +1480,41 @@ const [gridEditText, setGridEditText] = useState('');
       if (item.dueDate) result.planned += 1;
       result[item.listId] = (result[item.listId] ?? 0) + 1;
     }
+    const savedFilters = appSettings.savedFilters ?? [];
+    if (savedFilters.length > 0) {
+      const incompleteIds = new Set(allItems.filter((i) => !i.done && !i.deletedAtMs).map((i) => i.id));
+      for (const flt of savedFilters) {
+        let matched = 0;
+        for (const item of allItems) {
+          if (matchesSavedFilter(item, flt, { todayStr, incompleteItemIds: incompleteIds })) {
+            matched += 1;
+          }
+        }
+        result[`filter:${flt.id}`] = matched;
+      }
+    }
     return result as Record<SmartListId, number> & Record<string, number>;
-  }, [allItems, trashedItems.length, todayStr]);
+  }, [allItems, trashedItems.length, todayStr, appSettings.savedFilters, defaultTasksList]);
+
+  const prevListMembersRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!user) return;
+    const prevMap = prevListMembersRef.current;
+    for (const list of [...lists, ...sharedLists]) {
+      const membersKey = [...(list.memberUids ?? [])].sort().join(',');
+      const prevKey = prevMap.get(list.id);
+      prevMap.set(list.id, membersKey);
+      if (prevKey !== undefined && prevKey !== membersKey && (list.memberUids?.length ?? 0) > 0) {
+        // Silently sync Drive permissions for newly joined collaborators when Drive session is active
+        void syncListDrivePermissions({
+          list,
+          items: allItems,
+          currentUid: user.uid,
+          interactive: false,
+        }).catch(() => {});
+      }
+    }
+  }, [lists, sharedLists, allItems, user]);
 
   useEffect(() => {
     updateAppBadge(user ? counts['my-day'] : 0);
@@ -1521,6 +1548,12 @@ const [gridEditText, setGridEditText] = useState('');
     if (selection.type === 'list') {
       return allItems.filter((i) => i.listId === selection.id);
     }
+    if (selection.type === 'filter') {
+      const flt = (appSettings.savedFilters ?? []).find((f) => f.id === selection.id);
+      if (!flt) return [];
+      const incompleteIds = new Set(allItems.filter((i) => !i.done && !i.deletedAtMs).map((i) => i.id));
+      return allItems.filter((i) => matchesSavedFilter(i, flt, { todayStr, incompleteItemIds: incompleteIds }));
+    }
     switch (selection.id) {
       case 'my-day':
         return allItems.filter((i) => i.myDayDate === todayStr || (appSettings.showDueTodayInMyDay && i.dueDate === todayStr));
@@ -1543,7 +1576,7 @@ const [gridEditText, setGridEditText] = useState('');
       default:
         return allItems;
     }
-  }, [allItems, searchQuery, searchScores, selection, todayStr, defaultTasksList, mobileView]);
+  }, [allItems, searchQuery, searchScores, selection, todayStr, defaultTasksList, mobileView, appSettings.savedFilters, appSettings.showDueTodayInMyDay]);
 
   const sortedVisible = useMemo(() => {
     const arr = [...visibleItems];
@@ -1989,94 +2022,20 @@ const [gridEditText, setGridEditText] = useState('');
       progress: 12,
       message: 'Preparing & compressing image…',
     });
-    let backgroundStorage: ReturnType<typeof getFirebaseStorage> | null = null;
-    let uploadedPath: string | null = null;
-    let uploadCompleted = false;
-    let listUpdated = false;
     try {
-      const { blob, contentType } = await compressBackgroundImage(file);
+      const { blob } = await compressBackgroundImage(file);
       const sizeKb = Math.max(1, Math.round(blob.size / 1024));
-      let backgroundImageUrl: string;
-      let nextImagePath: string | null = null;
-
-      try {
-        backgroundStorage = getFirebaseStorage();
-        const folderId = selection.type === 'list' ? selection.id : `smart-${selection.id}`;
-        uploadedPath = `list-backgrounds/${user.uid}/${folderId}/${crypto.randomUUID()}`;
-        const imageRef = ref(backgroundStorage, uploadedPath);
-
-        setBackgroundUploadStatus({
-          stage: 'uploading',
-          progress: 20,
-          message: `Uploading (${sizeKb} KB)… 0%`,
-        });
-
-        await new Promise<void>((resolve, reject) => {
-          const task = uploadBytesResumable(imageRef, blob, { contentType });
-          let settled = false;
-          const stallTimer = window.setTimeout(() => {
-            if (!settled) {
-              settled = true;
-              task.cancel();
-              reject(new Error('Storage upload timed out at 0%'));
-            }
-          }, 6000);
-
-          task.on(
-            'state_changed',
-            (snapshot) => {
-              if (snapshot.bytesTransferred > 0) {
-                window.clearTimeout(stallTimer);
-              }
-              const ratio = snapshot.totalBytes > 0 ? snapshot.bytesTransferred / snapshot.totalBytes : 0;
-              const pct = Math.round(ratio * 100);
-              setBackgroundUploadStatus({
-                stage: 'uploading',
-                progress: Math.max(20, Math.min(92, 20 + Math.round(ratio * 72))),
-                message: `Uploading (${sizeKb} KB)… ${pct}%`,
-              });
-            },
-            (uploadErr) => {
-              window.clearTimeout(stallTimer);
-              if (!settled) {
-                settled = true;
-                reject(uploadErr);
-              }
-            },
-            () => {
-              window.clearTimeout(stallTimer);
-              if (!settled) {
-                settled = true;
-                resolve();
-              }
-            }
-          );
-        });
-
-        uploadCompleted = true;
-        setBackgroundUploadStatus({
-          stage: 'saving',
-          progress: 96,
-          message: 'Applying background…',
-        });
-        backgroundImageUrl = await getDownloadURL(imageRef);
-        nextImagePath = uploadedPath;
-      } catch {
-        // Fallback when Firebase Storage isn't enabled/reachable: store compressed image directly in Firestore.
-        setBackgroundUploadStatus({
-          stage: 'saving',
-          progress: 85,
-          message: `Saving compressed image (${sizeKb} KB)…`,
-        });
-        const dataUrl = await blobToDataUrl(blob);
-        if (dataUrl.length > 750_000) {
-          throw new Error('Compressed image is too large to save without Firebase Storage.');
-        }
-        backgroundImageUrl = dataUrl;
-        nextImagePath = null;
-        uploadedPath = null;
-        uploadCompleted = false;
+      setBackgroundUploadStatus({
+        stage: 'saving',
+        progress: 75,
+        message: `Saving compressed image (${sizeKb} KB)…`,
+      });
+      const dataUrl = await blobToDataUrl(blob);
+      if (dataUrl.length > 750_000) {
+        throw new Error('Compressed image is too large to save (max ~750 KB). Try a smaller photo.');
       }
+      const backgroundImageUrl = dataUrl;
+      const nextImagePath: string | null = null;
 
       const newBgEntry = {
         id: crypto.randomUUID(),
@@ -2121,7 +2080,6 @@ const [gridEditText, setGridEditText] = useState('');
           },
         });
       }
-      listUpdated = true;
       setBackgroundUploadStatus({
         stage: 'done',
         progress: 100,
@@ -2132,14 +2090,7 @@ const [gridEditText, setGridEditText] = useState('');
       }, 2600);
       setListMenuOpen(false);
     } catch (err) {
-      let message = err instanceof Error ? err.message : 'Failed to upload background image';
-      if (backgroundStorage && uploadedPath && uploadCompleted && !listUpdated) {
-        try {
-          await deleteObject(ref(backgroundStorage, uploadedPath));
-        } catch (cleanupErr) {
-          message += ` The uploaded file could not be cleaned up: ${cleanupErr instanceof Error ? cleanupErr.message : 'Unknown error'}`;
-        }
-      }
+      const message = err instanceof Error ? err.message : 'Failed to upload background image';
       setError(message);
       setBackgroundUploadStatus({
         stage: 'error',
@@ -2147,6 +2098,50 @@ const [gridEditText, setGridEditText] = useState('');
         message,
       });
     } finally {
+      setBackgroundUploadInProgress(false);
+    }
+  };
+  const handlePickGooglePhotoBackground = async () => {
+    if (!user || backgroundUploadInProgress) return;
+    if (selection.type === 'list' && (!currentList || currentList.ownerUid !== user.uid)) return;
+    if (!navigator.onLine) {
+      setError('You are offline. Reconnect to pick a photo from Google Photos.');
+      return;
+    }
+    setBgSourceChooserOpen(false);
+    setError(null);
+    setBackgroundUploadInProgress(true);
+    setBackgroundUploadStatus({
+      stage: 'preparing',
+      progress: 15,
+      message: 'Connecting to Google Photos…',
+    });
+    try {
+      const pickedFile = await pickPhotoFromGooglePhotos({
+        user,
+        onStatus: (message) => {
+          setBackgroundUploadStatus({
+            stage: 'uploading',
+            progress: message.includes('Downloading') ? 55 : 25,
+            message,
+          });
+        },
+      });
+      if (!pickedFile) {
+        setBackgroundUploadStatus(null);
+        setBackgroundUploadInProgress(false);
+        return;
+      }
+      setBackgroundUploadInProgress(false);
+      await handleUploadListBackground(pickedFile);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to pick photo from Google Photos';
+      setError(message);
+      setBackgroundUploadStatus({
+        stage: 'error',
+        progress: 0,
+        message,
+      });
       setBackgroundUploadInProgress(false);
     }
   };
@@ -2185,24 +2180,22 @@ const [gridEditText, setGridEditText] = useState('');
       setError(err instanceof Error ? err.message : 'Failed to remove uploaded background');
       return;
     }
-
-    const storagePath = bg.path ?? listsUsingBg.find((l) => l.backgroundImagePath)?.backgroundImagePath ?? null;
-    if (storagePath) {
-      try {
-        await deleteObject(ref(getFirebaseStorage(), storagePath));
-      } catch (err) {
-        setError(`Background removed, but the uploaded file could not be deleted: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      }
-    }
   };
+  const activeSavedFilter =
+    selection.type === 'filter'
+      ? (appSettings.savedFilters ?? []).find((f) => f.id === selection.id) ?? null
+      : null;
   const currentTitle = searchQuery.trim()
     ? `Search: "${searchQuery.trim()}"`
     : selection.type === 'smart'
       ? SMART_TITLES[selection.id]
-      : currentList?.title ?? 'List';
-  const smartTheme = selection.type === 'smart'
-    ? appSettings.smartThemes?.[selection.id]
-    : undefined;
+      : selection.type === 'filter'
+        ? activeSavedFilter?.title ?? 'Smart Filter'
+        : currentList?.title ?? 'List';
+  const smartTheme =
+    selection.type === 'smart' || selection.type === 'filter'
+      ? appSettings.smartThemes?.[selection.id]
+      : undefined;
   const searchTheme = appSettings.smartThemes?.['search'];
   const customBackgroundUrl = mobileView === 'search'
     ? (searchTheme?.background === 'custom' ? searchTheme.customBackgroundUrl ?? null : null)
@@ -2302,18 +2295,16 @@ const [gridEditText, setGridEditText] = useState('');
     try {
       const listItems = allItems.filter((i) => i.listId === listId);
       await Promise.all(
+        listItems.flatMap((i) =>
+          (i.attachments ?? []).map((att) => deleteAttachmentWithDrive(att))
+        )
+      );
+      await Promise.all(
         listItems.map((i) =>
           deleteDoc(doc(db, 'lists', listId, 'items', i.id))
         )
       );
       await deleteDoc(doc(db, 'lists', listId));
-      if (targetList?.backgroundImagePath) {
-        try {
-          await deleteObject(ref(getFirebaseStorage(), targetList.backgroundImagePath));
-        } catch {
-          // Best-effort cleanup of deleted list's Storage background
-        }
-      }
       if (selection.type === 'list' && selection.id === listId) {
         setSelection({ type: 'smart', id: 'my-day' });
       }
@@ -3004,6 +2995,9 @@ const [gridEditText, setGridEditText] = useState('');
   const handlePermanentDeleteItem = async (item: TodoItem) => {
     setError(null);
     try {
+      await Promise.all(
+        (item.attachments ?? []).map((att) => deleteAttachmentWithDrive(att, { interactive: true }))
+      );
       await deleteDoc(doc(db, 'lists', item.listId, 'items', item.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to permanently delete task');
@@ -3023,6 +3017,11 @@ const [gridEditText, setGridEditText] = useState('');
     }
     setError(null);
     try {
+      await Promise.all(
+        trashedItems.flatMap((item) =>
+          (item.attachments ?? []).map((att) => deleteAttachmentWithDrive(att))
+        )
+      );
       await Promise.all(
         trashedItems.map((item) => deleteDoc(doc(db, 'lists', item.listId, 'items', item.id)))
       );
@@ -3254,9 +3253,21 @@ const [gridEditText, setGridEditText] = useState('');
         data: Record<string, unknown>;
       }> = [];
 
-      for (const item of itemsToImport) {
+      // Pass 1: allocate refs and build oldItemId -> newItemId map so blockedByIds can be remapped
+      const preparedItems = itemsToImport.map((item) => {
         const targetListId = (item.listId && listIdMap.get(item.listId)) || fallbackListId!;
         const ref = doc(collection(db, 'lists', targetListId, 'items'));
+        return { item, targetListId, ref };
+      });
+      const itemIdMap = new Map<string, string>();
+      for (const entry of preparedItems) {
+        if (entry.item.id) {
+          itemIdMap.set(entry.item.id, entry.ref.id);
+        }
+      }
+
+      // Pass 2: restore attachments and build full item payloads including new fields
+      for (const { item, targetListId, ref } of preparedItems) {
         const remappedAttachments = [];
         for (const att of item.attachments ?? []) {
           if (!att?.id) continue;
@@ -3292,34 +3303,14 @@ const [gridEditText, setGridEditText] = useState('');
           listId: targetListId,
           itemId: ref.id,
           ref,
-          data: {
-            listId: targetListId,
+          data: buildRestoredItemPayload({
+            item,
+            targetListId,
             ownerUid: user.uid,
-            text: item.text || 'Untitled task',
-            done: Boolean(item.done),
-            important: Boolean(item.important),
-            myDayDate: item.myDayDate ?? null,
-            dueDate: item.dueDate ?? null,
-            reminderAtMs: item.reminderAtMs ?? null,
-            reminderNotified:
-              typeof item.reminderNotified === 'boolean' ? item.reminderNotified : false,
-            reminderStatus: item.reminderAtMs
-              ? (item.reminderNotified ? 'delivered' : 'pending')
-              : null,
-            repeat: item.repeat ?? 'none',
-            repeatCustom: item.repeatCustom ?? null,
-            recurrenceSpawned: Boolean(item.recurrenceSpawned),
-            assignedTo: null,
-            category: item.category ?? null,
-            notes: item.notes ?? '',
-            steps: Array.isArray(item.steps) ? item.steps : [],
-            attachments: remappedAttachments,
-            sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : Date.now(),
-            createdAtMs: item.createdAtMs ?? Date.now(),
-            completedAtMs: item.completedAtMs ?? null,
-            deletedAtMs: item.deletedAtMs ?? null,
-            importBatchId: batchId,
-          },
+            batchId,
+            remappedAttachments,
+            itemIdMap,
+          }),
         });
       }
 
@@ -3386,12 +3377,18 @@ const [gridEditText, setGridEditText] = useState('');
     }
   };
 
-  const handleExportJson = async (): Promise<{
-    items: number;
-    trashedItems: number;
-    warnings: string[];
-  }> => {
-    const { zipBytes, missingAttachmentWarnings } = await buildBackupArchive({
+  const buildCurrentBackupPackage = async (
+    onArchiveProgress?: (info: { phase: 'attachments' | 'zip'; current?: number; total?: number; detail: string }) => void
+  ) => {
+    const driveIdByAttId = new Map<string, string>();
+    for (const item of rawItems) {
+      for (const att of item.attachments ?? []) {
+        if (att.id && att.driveFileId) {
+          driveIdByAttId.set(att.id, att.driveFileId);
+        }
+      }
+    }
+    return buildBackupArchive({
       account: user
         ? {
             uid: user.uid,
@@ -3408,8 +3405,29 @@ const [gridEditText, setGridEditText] = useState('');
       groups,
       lists: allLists,
       items: rawItems,
-      readAttachmentBlob: getAttachmentBlob,
+      readAttachmentBlob: (id) =>
+        getAttachmentBlobWithDrive({ id, driveFileId: driveIdByAttId.get(id) }, { interactive: false }),
+      onProgress: onArchiveProgress,
     });
+  };
+
+  const handleExportJson = async (
+    onProgress?: (status: { percent: number; detail: string }) => void
+  ): Promise<{
+    items: number;
+    trashedItems: number;
+    warnings: string[];
+  }> => {
+    onProgress?.({ percent: 10, detail: `Collecting ${rawItems.length} tasks across ${allLists.length} lists…` });
+    const { zipBytes, missingAttachmentWarnings } = await buildCurrentBackupPackage((info) => {
+      if (info.phase === 'attachments' && info.total) {
+        const pct = 15 + Math.round(((info.current ?? 0) / info.total) * 60);
+        onProgress?.({ percent: pct, detail: info.detail });
+      } else if (info.phase === 'zip') {
+        onProgress?.({ percent: 85, detail: info.detail });
+      }
+    });
+    onProgress?.({ percent: 95, detail: 'Preparing download…' });
     const zipCopy = new Uint8Array(zipBytes.byteLength);
     zipCopy.set(zipBytes);
     const blob = new Blob([zipCopy], { type: 'application/zip' });
@@ -3422,11 +3440,83 @@ const [gridEditText, setGridEditText] = useState('');
     } finally {
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
+    onProgress?.({ percent: 100, detail: 'Backup downloaded' });
     return {
       items: rawItems.length,
       trashedItems: trashedItems.length,
       warnings: missingAttachmentWarnings,
     };
+  };
+
+  const handleConnectGoogleDrive = async () => {
+    await connectGoogleDrive(user);
+    updateAppSettings({ googleDriveConnected: true });
+  };
+
+  const handleDisconnectGoogleDrive = () => {
+    clearDriveSession();
+    updateAppSettings({ googleDriveConnected: false });
+  };
+
+  const handleBackupToGoogleDrive = async (
+    onProgress?: (status: { percent: number; detail: string }) => void
+  ) => {
+    onProgress?.({ percent: 5, detail: 'Verifying Google Drive connection…' });
+    const token = await ensureDriveAccessToken(user);
+    updateAppSettings({ googleDriveConnected: true });
+    onProgress?.({ percent: 12, detail: `Collecting ${rawItems.length} tasks across ${allLists.length} lists…` });
+    const { zipBytes, missingAttachmentWarnings } = await buildCurrentBackupPackage((info) => {
+      if (info.phase === 'attachments' && info.total) {
+        const pct = 15 + Math.round(((info.current ?? 0) / info.total) * 35);
+        onProgress?.({ percent: pct, detail: info.detail });
+      } else if (info.phase === 'zip') {
+        onProgress?.({ percent: 54, detail: info.detail });
+      }
+    });
+    const zipCopy = new Uint8Array(zipBytes.byteLength);
+    zipCopy.set(zipBytes);
+    const blob = new Blob([zipCopy], { type: 'application/zip' });
+    const sizeLabel =
+      blob.size >= 1024 * 1024
+        ? `${(blob.size / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.max(1, Math.round(blob.size / 1024))} KB`;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const fileName = `todo-backup-${stamp}.zip`;
+    onProgress?.({ percent: 58, detail: `Uploading ${fileName} (${sizeLabel}) to Google Drive…` });
+    await uploadFileToDrive({
+      token,
+      blob,
+      fileName,
+      mimeType: 'application/zip',
+      folder: 'Backups',
+      onProgress: (uploadPct) => {
+        const mapped = Math.min(99, 58 + Math.round(uploadPct * 0.41));
+        onProgress?.({
+          percent: mapped,
+          detail: `Uploading ${fileName} (${sizeLabel}) to Google Drive…`,
+        });
+      },
+    });
+    onProgress?.({ percent: 100, detail: 'Backup saved to Google Drive' });
+    return {
+      fileName,
+      items: rawItems.length,
+      trashedItems: trashedItems.length,
+      warnings: missingAttachmentWarnings,
+    };
+  };
+
+  const handleListGoogleDriveBackups = async () => {
+    const token = await ensureDriveAccessToken(user);
+    updateAppSettings({ googleDriveConnected: true });
+    return listDriveBackups(token);
+  };
+
+  const handleInspectGoogleDriveBackup = async (fileId: string): Promise<ParsedBackupPackage> => {
+    const token = await ensureDriveAccessToken(user);
+    const blob = await downloadFileFromDrive(token, fileId);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    return parseBackupBytes(bytes);
   };
 
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -4255,6 +4345,9 @@ const [gridEditText, setGridEditText] = useState('');
           searchQuery={searchQuery}
           counts={counts}
           settings={appSettings}
+          savedFilters={appSettings.savedFilters ?? []}
+          onOpenNewFilter={() => setFilterModalState({ open: true, editing: null })}
+          onEditFilter={(flt) => setFilterModalState({ open: true, editing: flt })}
           isOpen={sidebarOpen}
           collapsed={sidebarCollapsed}
           onClose={() => setSidebarOpen(false)}
@@ -4525,16 +4618,51 @@ const [gridEditText, setGridEditText] = useState('');
                         type="button"
                         role="menuitem"
                         className="list-theme-tile list-theme-upload-tile"
-                        aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
-                        title={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                        aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Add background photo'}
+                        title={backgroundUploadInProgress ? 'Uploading background image' : 'Add background photo (Device or Google Photos)'}
+                        aria-expanded={bgSourceChooserOpen}
                         disabled={backgroundUploadInProgress}
-                        onClick={() => backgroundImageInputRef.current?.click()}
+                        onClick={() => setBgSourceChooserOpen((open) => !open)}
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5h14v-5" />
                         </svg>
                       </button>
                     </div>
+                    {bgSourceChooserOpen && (
+                      <div className="bg-source-chooser" role="group" aria-label="Choose background photo source">
+                        <button
+                          type="button"
+                          className="bg-source-btn"
+                          disabled={backgroundUploadInProgress}
+                          onClick={() => {
+                            setBgSourceChooserOpen(false);
+                            backgroundImageInputRef.current?.click();
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                          </svg>
+                          <span>From device</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="bg-source-btn"
+                          disabled={backgroundUploadInProgress}
+                          onClick={() => void handlePickGooglePhotoBackground()}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                            <path fill="#EA4335" d="M12 12V3.5A4.5 4.5 0 0 1 16.5 8c0 2.2-1.8 4-4.5 4Z" />
+                            <path fill="#FBBC04" d="M12 12H3.5A4.5 4.5 0 0 1 8 7.5c2.2 0 4 1.8 4 4.5Z" />
+                            <path fill="#34A853" d="M12 12v8.5A4.5 4.5 0 0 1 7.5 16c0-2.2 1.8-4 4.5-4Z" />
+                            <path fill="#4285F4" d="M12 12h8.5a4.5 4.5 0 0 1-4.5 4.5c-2.2 0-4-1.8-4-4.5Z" />
+                          </svg>
+                          <span>Google Photos</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -4715,6 +4843,19 @@ const [gridEditText, setGridEditText] = useState('');
                   )}
                 </p>
               )}
+            {activeSavedFilter && !searchQuery && (
+              <p className="subtitle" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span>{summarizeSavedFilter(activeSavedFilter)}</span>
+                <button
+                  type="button"
+                  className="chip-btn"
+                  style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+                  onClick={() => setFilterModalState({ open: true, editing: activeSavedFilter })}
+                >
+                  Edit filter
+                </button>
+              </p>
+            )}
           </div>
           <div className="header-toolbar">
             {selection.type === 'smart' && selection.id === 'planned' && !searchQuery && (
@@ -4757,6 +4898,14 @@ const [gridEditText, setGridEditText] = useState('');
                 onClick={() => runViewTransition(() => { setViewMode('grid'); setViewAnnouncement('Grid view opened'); })}
               >
                 Grid
+              </button>
+              <button
+                role="tab"
+                aria-selected={viewMode === 'board'}
+                className={`view-tab ${viewMode === 'board' ? 'active' : ''}`}
+                onClick={() => runViewTransition(() => { setViewMode('board'); setViewAnnouncement('Board view opened'); })}
+              >
+                Board
               </button>
             </div>
             <span className="sr-only" aria-live="polite">{viewAnnouncement}</span>
@@ -5039,7 +5188,7 @@ const [gridEditText, setGridEditText] = useState('');
                           />
                         );
                       })}
-                      {(selection.type === 'smart' || (selection.type === 'list' && currentList?.ownerUid === user.uid)) && (
+                      {(selection.type === 'smart' || selection.type === 'filter' || (selection.type === 'list' && currentList?.ownerUid === user.uid)) && (
                         <>
                           <input
                             ref={backgroundImageInputRef}
@@ -5056,10 +5205,11 @@ const [gridEditText, setGridEditText] = useState('');
                             type="button"
                             role="menuitem"
                             className="list-theme-tile list-theme-upload-tile"
-                            aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
-                            title={backgroundUploadInProgress ? 'Uploading background image' : 'Upload background image'}
+                            aria-label={backgroundUploadInProgress ? 'Uploading background image' : 'Add background photo'}
+                            title={backgroundUploadInProgress ? 'Uploading background image' : 'Add background photo (Device or Google Photos)'}
+                            aria-expanded={bgSourceChooserOpen}
                             disabled={backgroundUploadInProgress}
-                            onClick={() => backgroundImageInputRef.current?.click()}
+                            onClick={() => setBgSourceChooserOpen((open) => !open)}
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5h14v-5" />
@@ -5068,6 +5218,40 @@ const [gridEditText, setGridEditText] = useState('');
                         </>
                       )}
                     </div>
+                    {bgSourceChooserOpen && (selection.type === 'smart' || selection.type === 'filter' || (selection.type === 'list' && currentList?.ownerUid === user.uid)) && (
+                      <div className="bg-source-chooser" role="group" aria-label="Choose background photo source">
+                        <button
+                          type="button"
+                          className="bg-source-btn"
+                          disabled={backgroundUploadInProgress}
+                          onClick={() => {
+                            setBgSourceChooserOpen(false);
+                            backgroundImageInputRef.current?.click();
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                          </svg>
+                          <span>From device</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="bg-source-btn"
+                          disabled={backgroundUploadInProgress}
+                          onClick={() => void handlePickGooglePhotoBackground()}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                            <path fill="#EA4335" d="M12 12V3.5A4.5 4.5 0 0 1 16.5 8c0 2.2-1.8 4-4.5 4Z" />
+                            <path fill="#FBBC04" d="M12 12H3.5A4.5 4.5 0 0 1 8 7.5c2.2 0 4 1.8 4 4.5Z" />
+                            <path fill="#34A853" d="M12 12v8.5A4.5 4.5 0 0 1 7.5 16c0-2.2 1.8-4 4.5-4Z" />
+                            <path fill="#4285F4" d="M12 12h8.5a4.5 4.5 0 0 1-4.5 4.5c-2.2 0-4-1.8-4-4.5Z" />
+                          </svg>
+                          <span>Google Photos</span>
+                        </button>
+                      </div>
+                    )}
                     {backgroundUploadStatus && (
                       <div className={`theme-upload-status stage-${backgroundUploadStatus.stage}`} role="status" aria-live="polite">
                         <div className="theme-upload-status-row">
@@ -5917,6 +6101,23 @@ const [gridEditText, setGridEditText] = useState('');
             onToggleDone={handleToggleDone}
             onRescheduleTask={(item, newDueDate) => handleUpdateItem(item, { dueDate: newDueDate })}
             onQuickAddForDate={(dateYmd, title) => handleQuickAddTaskText(title, dateYmd)}
+          />
+        ) : viewMode === 'board' ? (
+          <KanbanBoardView
+            items={tagFilteredVisible}
+            todayStr={todayStr}
+            incompleteItemIds={incompleteItemIds}
+            listNamesById={Object.fromEntries(listTitleById.entries())}
+            selectedItemId={selectedItemId}
+            groupBy={boardGroupBy}
+            onChangeGroupBy={setBoardGroupBy}
+            onSelectItem={(item) => {
+              setSelectedItemId(item.id);
+              setMobileView('list');
+            }}
+            onToggleDone={handleToggleDone}
+            onToggleImportant={handleToggleImportant}
+            onUpdateItem={handleUpdateItem}
           />
         ) : (plannedGroups ?? categoryGroups) ? (
           (plannedGroups ?? categoryGroups)!.map((group) => (
@@ -7269,6 +7470,7 @@ const [gridEditText, setGridEditText] = useState('');
             allItems={allItems}
             listTitle={itemParentList?.title}
             listIcon={itemParentList?.icon}
+            parentList={itemParentList}
             exiting={detailPresence.isExiting}
             onStartFocus={(t, minutes) => {
               setFocusInitialMinutes(minutes);
@@ -7366,7 +7568,50 @@ const [gridEditText, setGridEditText] = useState('');
           onRollbackPartialImport={handleRollbackPartialImport}
           hasPartialImport={hasPartialImport}
           onExportIcs={() => downloadIcsFile(allItems, allLists)}
+          onGenerateIcalFeed={async () => {
+            const newToken = await createOrRotateIcalFeed(user.uid, appSettings.icalFeedToken);
+            updateAppSettings({ icalFeedToken: newToken });
+            return newToken;
+          }}
+          onRevokeIcalFeed={async () => {
+            if (appSettings.icalFeedToken) {
+              await revokeIcalFeed(appSettings.icalFeedToken);
+            }
+            updateAppSettings({ icalFeedToken: null });
+          }}
+          onConnectGoogleDrive={handleConnectGoogleDrive}
+          onDisconnectGoogleDrive={handleDisconnectGoogleDrive}
+          onBackupToGoogleDrive={handleBackupToGoogleDrive}
+          onListGoogleDriveBackups={handleListGoogleDriveBackups}
+          onInspectGoogleDriveBackup={handleInspectGoogleDriveBackup}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {filterModalState.open && (
+        <SavedFilterModal
+          existingFilter={filterModalState.editing}
+          availableTags={Array.from(
+            new Set(allItems.flatMap((i) => i.tags ?? []))
+          ).sort((a, b) => a.localeCompare(b))}
+          onSave={(saved) => {
+            const existing = appSettings.savedFilters ?? [];
+            const idx = existing.findIndex((f) => f.id === saved.id);
+            const next =
+              idx >= 0
+                ? existing.map((f) => (f.id === saved.id ? saved : f))
+                : [...existing, saved];
+            updateAppSettings({ savedFilters: next });
+            setSelection({ type: 'filter', id: saved.id });
+            setMobileView('list');
+          }}
+          onDelete={(filterId) => {
+            const next = (appSettings.savedFilters ?? []).filter((f) => f.id !== filterId);
+            updateAppSettings({ savedFilters: next });
+            if (selection.type === 'filter' && selection.id === filterId) {
+              setSelection({ type: 'smart', id: 'my-day' });
+            }
+          }}
+          onClose={() => setFilterModalState({ open: false, editing: null })}
         />
       )}
       {focusTask && (
@@ -7442,14 +7687,35 @@ const [gridEditText, setGridEditText] = useState('');
       {shareListId && (() => {
         const targetList = allLists.find((l) => l.id === shareListId);
         if (!targetList) return null;
+        const driveAttCount = allItems
+          .filter((i) => i.listId === targetList.id && !i.deletedAtMs)
+          .flatMap((i) => i.attachments ?? [])
+          .filter((att) => Boolean(att.driveFileId) && (!att.uploadedByUid || att.uploadedByUid === user.uid)).length;
         return (
           <ShareDialog
             list={targetList}
             user={user}
+            driveAttachmentCount={driveAttCount}
+            onSyncDrivePermissions={() =>
+              syncListDrivePermissions({
+                list: targetList,
+                items: allItems,
+                currentUid: user.uid,
+                interactive: true,
+              })
+            }
             onInviteEmail={async (email) => {
               await addDoc(collection(db, "lists", targetList.id, "shares"), {
                 email, role: "member", status: "invited", createdAt: serverTimestamp(),
               });
+              // Silently grant Drive read access for existing attachments if Drive session is active
+              void syncListDrivePermissions({
+                list: targetList,
+                items: allItems,
+                currentUid: user.uid,
+                extraEmails: [email],
+                interactive: false,
+              }).catch(() => {});
             }}
             onRemoveMember={async (uid) => {
               await updateDoc(doc(db, 'lists', targetList.id), {

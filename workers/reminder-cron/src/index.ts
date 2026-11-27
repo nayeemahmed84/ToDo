@@ -773,6 +773,175 @@ async function notifyShareActivity(
   return { sent };
 }
 
+export interface WorkerIcalTask {
+  id: string;
+  text: string;
+  dueDate: string;
+  notes?: string;
+  priority?: string | null;
+  important?: boolean;
+  reminderAtMs?: number | null;
+}
+
+function escapeIcsText(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/\r\n|\r|\n/g, '\\n')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,');
+}
+
+function formatUtcTimestamp(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
+    `T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`
+  );
+}
+
+function nextYmdDay(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + 1));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${dt.getUTCFullYear()}${pad(dt.getUTCMonth() + 1)}${pad(dt.getUTCDate())}`;
+}
+
+export function buildWorkerIcsCalendar(tasks: WorkerIcalTask[], nowMs = Date.now()): string {
+  const dtStamp = formatUtcTimestamp(nowMs);
+  const lines: string[] = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//ToDo PWA//Live Feed//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:To Do Tasks',
+  ];
+
+  for (const task of tasks) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(task.dueDate)) continue;
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${escapeIcsText(task.id)}@todo-pwa`);
+    lines.push(`DTSTAMP:${dtStamp}`);
+    if (typeof task.reminderAtMs === 'number' && Number.isFinite(task.reminderAtMs)) {
+      lines.push(`DTSTART:${formatUtcTimestamp(task.reminderAtMs)}`);
+      lines.push(`DTEND:${formatUtcTimestamp(task.reminderAtMs + 30 * 60 * 1000)}`);
+    } else {
+      const compact = task.dueDate.replace(/-/g, '');
+      lines.push(`DTSTART;VALUE=DATE:${compact}`);
+      lines.push(`DTEND;VALUE=DATE:${nextYmdDay(task.dueDate)}`);
+    }
+    lines.push(`SUMMARY:${escapeIcsText(task.text || 'Untitled task')}`);
+    if (task.notes) {
+      lines.push(`DESCRIPTION:${escapeIcsText(task.notes)}`);
+    }
+    const prio =
+      task.priority === 'p1'
+        ? 1
+        : task.priority === 'p2'
+          ? 3
+          : task.priority === 'p3'
+            ? 5
+            : task.important
+              ? 2
+              : 0;
+    if (prio > 0) {
+      lines.push(`PRIORITY:${prio}`);
+    }
+    lines.push('END:VEVENT');
+  }
+
+  lines.push('END:VCALENDAR');
+  return `${lines.join('\r\n')}\r\n`;
+}
+
+export async function handleIcalFeedRequest(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const token = (url.searchParams.get('token') || '').trim();
+  if (!/^[a-zA-Z0-9_-]{16,128}$/.test(token)) {
+    return new Response('Invalid feed token', { status: 400, headers: CORS_HEADERS });
+  }
+
+  const accessToken = await getGoogleAccessToken(env);
+  const projectId = env.FIREBASE_PROJECT_ID;
+
+  // 1. Resolve token -> ownerUid
+  const feedDocUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/icalFeeds/${encodeURIComponent(token)}`;
+  const feedRes = await fetch(feedDocUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (feedRes.status === 404) {
+    return new Response('Calendar feed not found', { status: 404, headers: CORS_HEADERS });
+  }
+  if (!feedRes.ok) {
+    return new Response('Failed to resolve calendar feed', { status: 502, headers: CORS_HEADERS });
+  }
+  const feedDoc = (await feedRes.json()) as FirestoreDocument;
+  const ownerUid = feedDoc.fields?.ownerUid?.stringValue;
+  if (!ownerUid) {
+    return new Response('Calendar feed not found', { status: 404, headers: CORS_HEADERS });
+  }
+
+  // 2. Query owner's tasks via collectionGroup 'items'
+  const queryUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`;
+  const queryRes = await fetch(queryUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: 'items', allDescendants: true }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: 'ownerUid' },
+            op: 'EQUAL',
+            value: { stringValue: ownerUid },
+          },
+        },
+        limit: 500,
+      },
+    }),
+  });
+  if (!queryRes.ok) {
+    return new Response('Failed to load tasks for calendar feed', { status: 502, headers: CORS_HEADERS });
+  }
+
+  const rows = (await queryRes.json()) as FirestoreRunQueryRow[];
+  const tasks: WorkerIcalTask[] = [];
+  for (const row of rows) {
+    const doc = row.document;
+    if (!doc?.fields) continue;
+    const f = doc.fields;
+    if (f.done?.booleanValue === true) continue;
+    if (getNumericField(f, 'deletedAtMs') !== null) continue;
+    const dueDate = f.dueDate?.stringValue;
+    if (!dueDate) continue;
+    const id = doc.name.split('/').pop() || `${tasks.length}`;
+    tasks.push({
+      id,
+      text: f.text?.stringValue || 'Untitled task',
+      dueDate,
+      notes: f.notes?.stringValue || undefined,
+      priority: f.priority?.stringValue || null,
+      important: f.important?.booleanValue === true,
+      reminderAtMs: getNumericField(f, 'reminderAtMs'),
+    });
+  }
+
+  const ics = buildWorkerIcsCalendar(tasks);
+  return new Response(ics, {
+    status: 200,
+    headers: {
+      ...CORS_HEADERS,
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': 'inline; filename="todo-tasks.ics"',
+      'Cache-Control': 'no-cache, max-age=300',
+    },
+  });
+}
+
 export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(processDueReminders(env));
@@ -825,6 +994,17 @@ export default {
         const msg = err instanceof Error ? err.message : String(err);
         const status = msg.startsWith('Forbidden') ? 403 : 400;
         return Response.json({ error: msg }, { status, headers: CORS_HEADERS });
+      }
+    }
+    if (url.pathname === '/ical' && (request.method === 'GET' || request.method === 'HEAD')) {
+      try {
+        const res = await handleIcalFeedRequest(request, env);
+        if (request.method === 'HEAD') {
+          return new Response(null, { status: res.status, headers: res.headers });
+        }
+        return res;
+      } catch {
+        return new Response('Failed to generate calendar feed', { status: 500, headers: CORS_HEADERS });
       }
     }
     return new Response('todo-reminder-cron worker is running', { headers: CORS_HEADERS });
