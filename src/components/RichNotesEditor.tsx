@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { editorElementToMarkdown, markdownToEditorHtml } from '../lib/richNotes';
+import { InsertLinkModal } from './InsertLinkModal';
 
 interface RichNotesEditorProps {
   value: string;
@@ -21,6 +22,14 @@ export function RichNotesEditor({
 }: RichNotesEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const lastSyncedRef = useRef<string>(value);
+  const lastItemIdRef = useRef<string>(itemId);
+  const savedRangeRef = useRef<Range | null>(null);
+  const editingLinkRef = useRef<HTMLAnchorElement | null>(null);
+  const [linkModal, setLinkModal] = useState<{
+    initialUrl: string;
+    initialText: string;
+    isEditing: boolean;
+  } | null>(null);
   const [editorHeight, setEditorHeight] = useState<number>(() => {
     try {
       const saved = Number(localStorage.getItem(NOTES_HEIGHT_KEY));
@@ -39,6 +48,7 @@ export function RichNotesEditor({
     strike: false,
     ul: false,
     code: false,
+    link: false,
   });
   const [isEmpty, setIsEmpty] = useState(() => !value.trim());
 
@@ -86,22 +96,28 @@ export function RichNotesEditor({
   useEffect(() => {
     const el = editorRef.current;
     if (!el) return;
-    if (document.activeElement === el && value === lastSyncedRef.current) return;
+    if (itemId === lastItemIdRef.current && value === lastSyncedRef.current) return;
     el.innerHTML = markdownToEditorHtml(value);
+    lastItemIdRef.current = itemId;
     lastSyncedRef.current = value;
     setIsEmpty(!value.trim());
+    setLinkModal(null);
+    savedRangeRef.current = null;
+    editingLinkRef.current = null;
   }, [itemId, value]);
 
   const refreshActiveFormats = useCallback(() => {
     try {
       const sel = window.getSelection();
       let inCode = false;
+      let inLink = false;
       if (sel && sel.anchorNode) {
         const anchorEl =
           sel.anchorNode.nodeType === Node.ELEMENT_NODE
             ? (sel.anchorNode as HTMLElement)
             : sel.anchorNode.parentElement;
         inCode = Boolean(anchorEl?.closest('code'));
+        inLink = Boolean(anchorEl?.closest('a'));
       }
       setActiveFormats({
         bold: document.queryCommandState('bold'),
@@ -109,6 +125,7 @@ export function RichNotesEditor({
         strike: document.queryCommandState('strikeThrough'),
         ul: document.queryCommandState('insertUnorderedList'),
         code: inCode,
+        link: inLink,
       });
     } catch {
       // Ignore queryCommandState errors on unsupported browsers
@@ -226,25 +243,149 @@ export function RichNotesEditor({
     syncFromDom(false);
   };
 
-  const insertLink = () => {
+  const openLinkModal = () => {
     const el = editorRef.current;
     if (!el) return;
-    const url = window.prompt('Enter URL (https://…)', 'https://');
-    if (!url || !url.trim()) return;
-    const trimmed = url.trim();
-    const safeUrl = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-    el.focus();
     const sel = window.getSelection();
-    if (sel && !sel.isCollapsed) {
-      document.execCommand('createLink', false, safeUrl);
+    savedRangeRef.current = null;
+    editingLinkRef.current = null;
+
+    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      savedRangeRef.current = range.cloneRange();
+      const anchorEl =
+        sel.anchorNode?.nodeType === Node.ELEMENT_NODE
+          ? (sel.anchorNode as HTMLElement)
+          : sel.anchorNode?.parentElement;
+      const existingLink = anchorEl?.closest('a');
+      if (existingLink && el.contains(existingLink)) {
+        editingLinkRef.current = existingLink;
+        setLinkModal({
+          initialUrl: existingLink.getAttribute('href') ?? '',
+          initialText: existingLink.textContent ?? '',
+          isEditing: true,
+        });
+        return;
+      }
+      setLinkModal({
+        initialUrl: '',
+        initialText: sel.isCollapsed ? '' : sel.toString(),
+        isEditing: false,
+      });
+      return;
+    }
+
+    setLinkModal({
+      initialUrl: '',
+      initialText: '',
+      isEditing: false,
+    });
+  };
+
+  const restoreEditorSelection = (range?: Range | null) => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    if (range && el.contains(range.commonAncestorContainer)) {
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+  };
+
+  const handleLinkClose = () => {
+    const savedRange = savedRangeRef.current;
+    setLinkModal(null);
+    savedRangeRef.current = null;
+    editingLinkRef.current = null;
+    requestAnimationFrame(() => restoreEditorSelection(savedRange));
+  };
+
+  const handleLinkSubmit = (safeUrl: string, customText: string) => {
+    const el = editorRef.current;
+    const existingLink = editingLinkRef.current;
+    const savedRange = savedRangeRef.current;
+    setLinkModal(null);
+    savedRangeRef.current = null;
+    editingLinkRef.current = null;
+    if (!el) return;
+
+    const label = customText || safeUrl;
+    el.focus();
+
+    if (existingLink && el.contains(existingLink)) {
+      existingLink.href = safeUrl;
+      existingLink.target = '_blank';
+      existingLink.rel = 'noopener noreferrer';
+      existingLink.textContent = label;
+      const sel = window.getSelection();
+      if (sel) {
+        const afterRange = document.createRange();
+        afterRange.setStartAfter(existingLink);
+        afterRange.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(afterRange);
+      }
     } else {
-      document.execCommand(
-        'insertHTML',
-        false,
-        `<a href="${safeUrl.replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer">${safeUrl.replace(/</g, '&lt;')}</a>&nbsp;`
-      );
+      const anchor = document.createElement('a');
+      anchor.href = safeUrl;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+      anchor.textContent = label;
+      const spacer = document.createTextNode('\u00A0');
+
+      const sel = window.getSelection();
+      if (savedRange && el.contains(savedRange.commonAncestorContainer)) {
+        savedRange.deleteContents();
+        savedRange.insertNode(anchor);
+        anchor.after(spacer);
+        if (sel) {
+          const afterRange = document.createRange();
+          afterRange.setStartAfter(spacer);
+          afterRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(afterRange);
+        }
+      } else {
+        el.appendChild(anchor);
+        el.appendChild(spacer);
+        if (sel) {
+          const afterRange = document.createRange();
+          afterRange.setStartAfter(spacer);
+          afterRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(afterRange);
+        }
+      }
+    }
+
+    syncFromDom(true);
+    refreshActiveFormats();
+  };
+
+  const handleLinkRemove = () => {
+    const el = editorRef.current;
+    const existingLink = editingLinkRef.current;
+    setLinkModal(null);
+    savedRangeRef.current = null;
+    editingLinkRef.current = null;
+    if (!el || !existingLink || !el.contains(existingLink)) return;
+
+    el.focus();
+    const textNode = document.createTextNode(existingLink.textContent ?? '');
+    existingLink.replaceWith(textNode);
+    const sel = window.getSelection();
+    if (sel) {
+      const nextRange = document.createRange();
+      nextRange.selectNodeContents(textNode);
+      nextRange.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(nextRange);
     }
     syncFromDom(true);
+    refreshActiveFormats();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -410,11 +551,12 @@ export function RichNotesEditor({
           </button>
           <button
             type="button"
-            className="rn-tool-btn"
+            className={`rn-tool-btn ${activeFormats.link ? 'active' : ''}`}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={insertLink}
-            title="Insert link"
-            aria-label="Insert link"
+            onClick={openLinkModal}
+            title={activeFormats.link ? 'Edit link' : 'Insert link'}
+            aria-label={activeFormats.link ? 'Edit link' : 'Insert link'}
+            aria-pressed={activeFormats.link}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -465,6 +607,16 @@ export function RichNotesEditor({
           </svg>
         </span>
       </div>
+      {linkModal && (
+        <InsertLinkModal
+          initialUrl={linkModal.initialUrl}
+          initialText={linkModal.initialText}
+          isEditing={linkModal.isEditing}
+          onSubmit={handleLinkSubmit}
+          onRemove={linkModal.isEditing ? handleLinkRemove : undefined}
+          onClose={handleLinkClose}
+        />
+      )}
     </div>
   );
 }

@@ -1780,6 +1780,299 @@
   }
 }
 
+/* Rich Notes Insert Link Modal */
+.rn-link-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: app-dialog-fade 0.14s ease-out;
+}
+
+.rn-link-modal-card {
+  width: min(420px, 100%);
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  overflow: hidden;
+  animation: app-dialog-pop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rn-link-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rn-link-modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.rn-link-modal-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--color-selected);
+  color: var(--color-accent-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rn-link-modal-title {
+  margin: 0;
+  font-size: 0.96rem;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.25;
+}
+
+.rn-link-modal-subtitle {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-3);
+  line-height: 1.3;
+}
+
+.rn-link-modal-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.rn-link-modal-close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.rn-link-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px 18px;
+}
+
+.rn-link-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rn-link-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rn-link-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-2);
+}
+
+.rn-link-optional {
+  font-size: 0.72rem;
+  color: var(--color-text-3);
+}
+
+.rn-link-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.rn-link-input-wrap:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.rn-link-input-wrap.has-error {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 18%, transparent);
+}
+
+.rn-link-input-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-3);
+  flex-shrink: 0;
+}
+
+.rn-link-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 38px;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.rn-link-input::placeholder {
+  color: var(--color-placeholder);
+}
+
+.rn-link-input-plain {
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.rn-link-input-plain:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.rn-link-hint {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--color-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rn-link-hint span {
+  color: var(--color-accent-text);
+}
+
+.rn-link-error {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--color-danger);
+  line-height: 1.35;
+}
+
+.rn-link-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-field-panel);
+}
+
+.rn-link-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rn-link-btn {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease, color 0.12s ease;
+}
+
+.rn-link-btn-cancel {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-2);
+}
+
+.rn-link-btn-cancel:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.rn-link-btn-primary {
+  background: var(--color-accent);
+  color: var(--color-text-inverse, #ffffff);
+  font-weight: 600;
+}
+
+.rn-link-btn-primary:hover:not(:disabled) {
+  background: var(--color-accent-hover, var(--color-accent));
+}
+
+.rn-link-btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rn-link-btn-remove {
+  background: transparent;
+  color: var(--color-danger);
+  padding: 0 10px;
+}
+
+.rn-link-btn-remove:hover {
+  background: var(--color-danger-bg);
+}
+
+:root[data-theme="light"] .rn-link-modal-card {
+  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.16), 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="glass-light"] .rn-link-modal-card,
+:root[data-theme="glass-dark"] .rn-link-modal-card {
+  background: var(--color-menu-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  box-shadow: var(--glass-specular), var(--shadow-auth);
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  backdrop-filter: var(--glass-blur-heavy);
+}
+
+:root[data-theme="glass-light"] .rn-link-modal-footer,
+:root[data-theme="glass-dark"] .rn-link-modal-footer {
+  background: transparent;
+}
+
+@media (max-width: 540px) {
+  .rn-link-modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .rn-link-modal-card {
+    width: 100%;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
 
 /* Focus Timer customizable duration controls */
 .detail-focus-presets {
