@@ -31,9 +31,11 @@ import {
 } from '../lib/attachmentStorage';
 import {
   connectGoogleDrive,
+  ensureDriveAccessToken,
   getDriveFileDownloadUrl,
   getDriveFileViewUrl,
   isDriveSessionActive,
+  subscribeDriveSession,
 } from '../lib/googleDrive';
 
 function addDaysStr(baseYmd: string, days: number): string {
@@ -55,6 +57,7 @@ interface TaskDetailProps {
   onTypingActivity?: (context: TypingContext | null, taskId?: string | null) => void;
   exiting?: boolean;
   onStartFocus?: (item: TodoItem, minutes?: number) => void;
+  onDriveConnected?: () => void;
   onClose: () => void;
   onUpdate: (item: TodoItem, patch: Partial<TodoItem>) => Promise<void>;
   onDelete: (item: TodoItem) => Promise<void>;
@@ -73,6 +76,7 @@ export function TaskDetail({
   onTypingActivity,
   exiting = false,
   onStartFocus,
+  onDriveConnected,
   onClose,
   onUpdate,
   onDelete,
@@ -124,7 +128,7 @@ export function TaskDetail({
   const [driveBusy, setDriveBusy] = useState(false);
   const [fileUploadProgress, setFileUploadProgress] = useState<{
     name: string;
-    stage: 'saving' | 'uploading' | 'done';
+    stage: 'connecting' | 'saving' | 'uploading' | 'done';
     percent: number;
   } | null>(null);
   const [attachmentThumbs, setAttachmentThumbs] = useState<Record<string, string>>({});
@@ -136,6 +140,11 @@ export function TaskDetail({
     textContent?: string;
   } | null>(null);
   const [previewZoom, setPreviewZoom] = useState(1);
+
+  useEffect(() => {
+    setDriveConnectedNow(isDriveSessionActive());
+    return subscribeDriveSession(setDriveConnectedNow);
+  }, []);
 
   useEffect(() => {
     if (!previewModal) return;
@@ -864,6 +873,7 @@ export function TaskDetail({
               try {
                 await connectGoogleDrive();
                 setDriveConnectedNow(true);
+                onDriveConnected?.();
               } catch (err) {
                 setFileError(err instanceof Error ? err.message : 'Failed to connect Google Drive.');
               } finally {
@@ -905,7 +915,26 @@ export function TaskDetail({
             }
             const attId = String(Date.now());
             const originalName = f.name;
-            setFileUploadProgress({ name: originalName, stage: 'saving', percent: 15 });
+            let driveReady = isDriveSessionActive();
+            let driveWarning: string | null = null;
+
+            if (!driveReady) {
+              setFileUploadProgress({ name: originalName, stage: 'connecting', percent: 8 });
+              setDriveBusy(true);
+              try {
+                await ensureDriveAccessToken();
+                driveReady = true;
+                setDriveConnectedNow(true);
+                onDriveConnected?.();
+              } catch (err) {
+                driveWarning =
+                  err instanceof Error ? err.message : 'Google Drive connection was cancelled.';
+              } finally {
+                setDriveBusy(false);
+              }
+            }
+
+            setFileUploadProgress({ name: originalName, stage: 'saving', percent: 18 });
             try {
               await saveAttachmentBlob(attId, f);
             } catch {
@@ -916,22 +945,32 @@ export function TaskDetail({
             }
             const safeName = sanitizeFileName(f.name);
             let driveFileId: string | null = null;
-            if (isDriveSessionActive()) {
+            if (driveReady) {
               setFileUploadProgress({ name: originalName, stage: 'uploading', percent: 25 });
-              const shareWithEmails = parentList
-                ? await fetchListCollaboratorEmails(parentList, currentUserId)
-                : [];
-              driveFileId = await uploadAttachmentToDrive({
-                blob: f,
-                fileName: `${attId}-${safeName}`,
-                contentType: f.type,
-                interactive: false,
-                shareWithEmails,
-                onProgress: (pct) => {
-                  const mapped = Math.min(98, 25 + Math.round(pct * 0.73));
-                  setFileUploadProgress({ name: originalName, stage: 'uploading', percent: mapped });
-                },
-              });
+              try {
+                const shareWithEmails = parentList
+                  ? await fetchListCollaboratorEmails(parentList, currentUserId)
+                  : [];
+                driveFileId = await uploadAttachmentToDrive({
+                  blob: f,
+                  fileName: `${attId}-${safeName}`,
+                  contentType: f.type,
+                  interactive: true,
+                  throwOnError: true,
+                  shareWithEmails,
+                  onProgress: (pct) => {
+                    const mapped = Math.min(98, 25 + Math.round(pct * 0.73));
+                    setFileUploadProgress({ name: originalName, stage: 'uploading', percent: mapped });
+                  },
+                });
+                if (driveFileId) {
+                  setDriveConnectedNow(true);
+                  onDriveConnected?.();
+                }
+              } catch (err) {
+                driveWarning =
+                  err instanceof Error ? err.message : 'Google Drive upload failed.';
+              }
             }
             onUpdate(item, {
               attachments: [
@@ -945,10 +984,15 @@ export function TaskDetail({
                 },
               ],
             });
-            setFileUploadProgress({ name: originalName, stage: 'done', percent: 100 });
-            window.setTimeout(() => {
-              setFileUploadProgress((prev) => (prev?.stage === 'done' ? null : prev));
-            }, 1400);
+            if (driveWarning) {
+              setFileError(`Saved locally, but Google Drive upload failed: ${driveWarning}`);
+              setFileUploadProgress(null);
+            } else {
+              setFileUploadProgress({ name: originalName, stage: 'done', percent: 100 });
+              window.setTimeout(() => {
+                setFileUploadProgress((prev) => (prev?.stage === 'done' ? null : prev));
+              }, 1400);
+            }
             e.target.value = '';
           }}
         />
@@ -956,11 +1000,13 @@ export function TaskDetail({
           <div className={`detail-upload-progress stage-${fileUploadProgress.stage}`} role="status" aria-live="polite">
             <div className="detail-upload-progress-row">
               <span className="detail-upload-progress-label">
-                {fileUploadProgress.stage === 'saving'
-                  ? `Saving ${fileUploadProgress.name}…`
-                  : fileUploadProgress.stage === 'uploading'
-                    ? `Uploading ${fileUploadProgress.name} to Drive…`
-                    : `Uploaded ${fileUploadProgress.name}`}
+                {fileUploadProgress.stage === 'connecting'
+                  ? 'Connecting to Google Drive…'
+                  : fileUploadProgress.stage === 'saving'
+                    ? `Saving ${fileUploadProgress.name}…`
+                    : fileUploadProgress.stage === 'uploading'
+                      ? `Uploading ${fileUploadProgress.name} to Drive…`
+                      : `Uploaded ${fileUploadProgress.name}`}
               </span>
               <span className="detail-upload-progress-pct">{fileUploadProgress.percent}%</span>
             </div>

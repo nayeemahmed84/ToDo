@@ -9,6 +9,7 @@ import {
   getDriveAccessToken,
   shareDriveFileSilently,
   uploadFileToDrive,
+  withDriveAuthRetry,
 } from './googleDrive';
 
 const DB_NAME = 'todo-attachments-db';
@@ -106,25 +107,29 @@ export async function uploadAttachmentToDrive(params: {
   interactive?: boolean;
   shareWithEmails?: string[];
   onProgress?: (percent: number) => void;
+  throwOnError?: boolean;
 }): Promise<string | null> {
+  const interactive = params.interactive ?? false;
   try {
-    const token = params.interactive
-      ? await ensureDriveAccessToken()
-      : getDriveAccessToken();
-    if (!token) return null;
-    const uploaded = await uploadFileToDrive({
-      token,
-      blob: params.blob,
-      fileName: params.fileName,
-      mimeType: params.contentType,
-      folder: 'Attachments',
-      onProgress: params.onProgress,
-    });
-    if (params.shareWithEmails && params.shareWithEmails.length > 0) {
-      await shareDriveFileSilently(token, uploaded.id, params.shareWithEmails);
-    }
-    return uploaded.id;
-  } catch {
+    return await withDriveAuthRetry(
+      async (token) => {
+        const uploaded = await uploadFileToDrive({
+          token,
+          blob: params.blob,
+          fileName: params.fileName,
+          mimeType: params.contentType,
+          folder: 'Attachments',
+          onProgress: params.onProgress,
+        });
+        if (params.shareWithEmails && params.shareWithEmails.length > 0) {
+          await shareDriveFileSilently(token, uploaded.id, params.shareWithEmails);
+        }
+        return uploaded.id;
+      },
+      { interactive }
+    );
+  } catch (err) {
+    if (params.throwOnError) throw err;
     return null;
   }
 }
@@ -205,11 +210,10 @@ export async function getAttachmentBlobWithDrive(
   if (!att.driveFileId) return null;
 
   try {
-    const token = options.interactive
-      ? await ensureDriveAccessToken()
-      : getDriveAccessToken();
-    if (!token) return null;
-    const blob = await downloadFileFromDrive(token, att.driveFileId);
+    const blob = await withDriveAuthRetry(
+      (token) => downloadFileFromDrive(token, att.driveFileId!),
+      { interactive: options.interactive ?? false }
+    );
     void saveAttachmentBlob(att.id, blob).catch(() => {});
     return blob;
   } catch {

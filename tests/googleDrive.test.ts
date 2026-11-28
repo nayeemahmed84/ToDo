@@ -11,7 +11,9 @@ import {
   listDriveBackups,
   setDriveAccessToken,
   shareDriveFileSilently,
+  subscribeDriveSession,
   uploadFileToDrive,
+  withDriveAuthRetry,
 } from '../src/lib/googleDrive';
 
 describe('googleDrive client', () => {
@@ -147,5 +149,88 @@ describe('googleDrive client', () => {
     expect(getDriveFileDownloadUrl('file-42')).toBe(
       'https://drive.google.com/uc?id=file-42&export=download'
     );
+  });
+
+  it('auto-connects when disconnected before running a Drive operation', async () => {
+    expect(isDriveSessionActive()).toBe(false);
+    const states: boolean[] = [];
+    const unsubscribe = subscribeDriveSession((active) => states.push(active));
+
+    const connectFn = vi.fn(async () => {
+      setDriveAccessToken('fresh-tok', 60_000);
+      return 'fresh-tok';
+    });
+
+    const result = await withDriveAuthRetry(
+      async (token) => {
+        expect(token).toBe('fresh-tok');
+        return 'uploaded-id';
+      },
+      { interactive: true, connectFn }
+    );
+
+    unsubscribe();
+    expect(result).toBe('uploaded-id');
+    expect(connectFn).toHaveBeenCalledTimes(1);
+    expect(isDriveSessionActive()).toBe(true);
+    expect(states).toEqual([true]);
+  });
+
+  it('automatically reconnects and retries once when a cached Drive token expires with 401', async () => {
+    setDriveAccessToken('stale-tok', 60_000);
+
+    let attempt = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const authHeader = new Headers(init?.headers).get('Authorization');
+        if (authHeader === 'Bearer stale-tok') {
+          return new Response('Unauthorized', { status: 401 });
+        }
+        if (url.includes('drive/v3/files?q=') && url.includes('ToDo%20PWA')) {
+          return new Response(JSON.stringify({ files: [{ id: 'root-folder' }] }), { status: 200 });
+        }
+        if (url.includes('drive/v3/files?q=') && url.includes('Attachments')) {
+          return new Response(JSON.stringify({ files: [{ id: 'att-folder' }] }), { status: 200 });
+        }
+        if (url.includes('upload/drive/v3/files?uploadType=multipart') && init?.method === 'POST') {
+          return new Response(
+            JSON.stringify({
+              id: 'file-retried',
+              name: 'photo.heic',
+              size: '5',
+              modifiedTime: '2026-11-27T16:00:00.000Z',
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response('Not found', { status: 404 });
+      })
+    );
+
+    const connectFn = vi.fn(async () => {
+      setDriveAccessToken('new-tok', 60_000);
+      return 'new-tok';
+    });
+
+    const uploaded = await withDriveAuthRetry(
+      (token) => {
+        attempt += 1;
+        return uploadFileToDrive({
+          token,
+          blob: new Blob(['hello'], { type: 'text/plain' }),
+          fileName: 'photo.heic',
+          mimeType: 'text/plain',
+          folder: 'Attachments',
+        });
+      },
+      { interactive: true, connectFn }
+    );
+
+    expect(attempt).toBe(2);
+    expect(connectFn).toHaveBeenCalledTimes(1);
+    expect(uploaded.id).toBe('file-retried');
+    expect(getDriveAccessToken()).toBe('new-tok');
   });
 });

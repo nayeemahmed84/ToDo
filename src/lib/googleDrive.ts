@@ -21,6 +21,38 @@ export interface DriveBackupFile {
 
 let memorySession: StoredDriveSession | null = null;
 const folderIdCache = new Map<string, string>();
+type DriveSessionListener = (active: boolean) => void;
+const sessionListeners = new Set<DriveSessionListener>();
+
+function notifyDriveSession(active: boolean): void {
+  for (const listener of sessionListeners) {
+    try {
+      listener(active);
+    } catch {
+      // ignore listener errors
+    }
+  }
+}
+
+export function subscribeDriveSession(listener: DriveSessionListener): () => void {
+  sessionListeners.add(listener);
+  return () => {
+    sessionListeners.delete(listener);
+  };
+}
+
+export class DriveAuthError extends Error {
+  readonly status = 401;
+
+  constructor(message = 'Google Drive session expired. Please reconnect Google Drive and try again.') {
+    super(message);
+    this.name = 'DriveAuthError';
+  }
+}
+
+export function isDriveAuthError(err: unknown): err is DriveAuthError {
+  return err instanceof DriveAuthError || (err instanceof Error && err.name === 'DriveAuthError');
+}
 
 function readStoredSession(): StoredDriveSession | null {
   if (memorySession && memorySession.expiresAtMs > Date.now()) {
@@ -56,6 +88,7 @@ export function setDriveAccessToken(accessToken: string, ttlMs = 50 * 60 * 1000)
   } catch {
     // ignore storage errors
   }
+  notifyDriveSession(true);
 }
 
 export function getDriveAccessToken(): string | null {
@@ -74,6 +107,7 @@ export function clearDriveSession(): void {
   } catch {
     // ignore storage errors
   }
+  notifyDriveSession(false);
 }
 
 /**
@@ -106,13 +140,47 @@ export async function ensureDriveAccessToken(currentUser?: User | null): Promise
   return connectGoogleDrive(currentUser);
 }
 
+/**
+ * Ensures a valid Google Drive access token before running `operation` (automatically
+ * initializing the Google Drive connection when disconnected if `interactive` is true),
+ * and if the operation fails with a 401 auth error (stale/revoked token), automatically
+ * reconnects once and retries the operation seamlessly.
+ */
+export async function withDriveAuthRetry<T>(
+  operation: (token: string) => Promise<T>,
+  options: {
+    currentUser?: User | null;
+    interactive?: boolean;
+    connectFn?: (currentUser?: User | null) => Promise<string>;
+  } = {}
+): Promise<T> {
+  const { currentUser, interactive = true, connectFn = connectGoogleDrive } = options;
+  let token = getDriveAccessToken();
+  if (!token) {
+    if (!interactive) {
+      throw new DriveAuthError('Google Drive is not connected.');
+    }
+    token = await connectFn(currentUser);
+  }
+  try {
+    return await operation(token);
+  } catch (err) {
+    if (interactive && isDriveAuthError(err)) {
+      clearDriveSession();
+      const freshToken = await connectFn(currentUser);
+      return operation(freshToken);
+    }
+    throw err;
+  }
+}
+
 async function driveFetch(token: string, url: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${token}`);
   const res = await fetch(url, { ...init, headers });
   if (res.status === 401) {
     clearDriveSession();
-    throw new Error('Google Drive session expired. Please reconnect Google Drive and try again.');
+    throw new DriveAuthError('Google Drive session expired. Please reconnect Google Drive and try again.');
   }
   return res;
 }
@@ -254,7 +322,7 @@ export async function uploadFileToDrive(params: {
       xhr.onload = () => {
         if (xhr.status === 401) {
           clearDriveSession();
-          reject(new Error('Google Drive session expired. Please reconnect Google Drive and try again.'));
+          reject(new DriveAuthError('Google Drive session expired. Please reconnect Google Drive and try again.'));
           return;
         }
         if (xhr.status < 200 || xhr.status >= 300) {

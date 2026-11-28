@@ -82,14 +82,17 @@ import {
   getAttachmentBlobWithDrive,
   saveAttachmentBlob,
   syncListDrivePermissions,
+  uploadAttachmentToDrive,
 } from './lib/attachmentStorage';
 import {
   clearDriveSession,
   connectGoogleDrive,
   downloadFileFromDrive,
   ensureDriveAccessToken,
+  isDriveSessionActive,
   listDriveBackups,
   uploadFileToDrive,
+  withDriveAuthRetry,
 } from './lib/googleDrive';
 import { pickPhotoFromGooglePhotos } from './lib/googlePhotosPicker';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
@@ -3510,8 +3513,13 @@ const [gridEditText, setGridEditText] = useState('');
   const handleBackupToGoogleDrive = async (
     onProgress?: (status: { percent: number; detail: string }) => void
   ) => {
-    onProgress?.({ percent: 5, detail: 'Verifying Google Drive connection…' });
-    const token = await ensureDriveAccessToken(user);
+    onProgress?.({
+      percent: 5,
+      detail: isDriveSessionActive()
+        ? 'Verifying Google Drive connection…'
+        : 'Connecting to Google Drive…',
+    });
+    await ensureDriveAccessToken(user);
     updateAppSettings({ googleDriveConnected: true });
     onProgress?.({ percent: 12, detail: `Collecting ${rawItems.length} tasks across ${allLists.length} lists…` });
     const { zipBytes, missingAttachmentWarnings } = await buildCurrentBackupPackage((info) => {
@@ -3532,20 +3540,25 @@ const [gridEditText, setGridEditText] = useState('');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const fileName = `todo-backup-${stamp}.zip`;
     onProgress?.({ percent: 58, detail: `Uploading ${fileName} (${sizeLabel}) to Google Drive…` });
-    await uploadFileToDrive({
-      token,
-      blob,
-      fileName,
-      mimeType: 'application/zip',
-      folder: 'Backups',
-      onProgress: (uploadPct) => {
-        const mapped = Math.min(99, 58 + Math.round(uploadPct * 0.41));
-        onProgress?.({
-          percent: mapped,
-          detail: `Uploading ${fileName} (${sizeLabel}) to Google Drive…`,
-        });
-      },
-    });
+    await withDriveAuthRetry(
+      (token) =>
+        uploadFileToDrive({
+          token,
+          blob,
+          fileName,
+          mimeType: 'application/zip',
+          folder: 'Backups',
+          onProgress: (uploadPct) => {
+            const mapped = Math.min(99, 58 + Math.round(uploadPct * 0.41));
+            onProgress?.({
+              percent: mapped,
+              detail: `Uploading ${fileName} (${sizeLabel}) to Google Drive…`,
+            });
+          },
+        }),
+      { currentUser: user, interactive: true }
+    );
+    updateAppSettings({ googleDriveConnected: true });
     onProgress?.({ percent: 100, detail: 'Backup saved to Google Drive' });
     return {
       fileName,
@@ -3556,14 +3569,20 @@ const [gridEditText, setGridEditText] = useState('');
   };
 
   const handleListGoogleDriveBackups = async () => {
-    const token = await ensureDriveAccessToken(user);
+    const files = await withDriveAuthRetry(
+      (token) => listDriveBackups(token),
+      { currentUser: user, interactive: true }
+    );
     updateAppSettings({ googleDriveConnected: true });
-    return listDriveBackups(token);
+    return files;
   };
 
   const handleInspectGoogleDriveBackup = async (fileId: string): Promise<ParsedBackupPackage> => {
-    const token = await ensureDriveAccessToken(user);
-    const blob = await downloadFileFromDrive(token, fileId);
+    const blob = await withDriveAuthRetry(
+      (token) => downloadFileFromDrive(token, fileId),
+      { currentUser: user, interactive: true }
+    );
+    updateAppSettings({ googleDriveConnected: true });
     const bytes = new Uint8Array(await blob.arrayBuffer());
     return parseBackupBytes(bytes);
   };
@@ -7535,6 +7554,7 @@ const [gridEditText, setGridEditText] = useState('');
               setFocusInitialMinutes(minutes);
               setFocusTaskId(t.id);
             }}
+            onDriveConnected={() => updateAppSettings({ googleDriveConnected: true })}
             onClose={() => setSelectedItemId(null)}
             onUpdate={handleUpdateItem}
             onDelete={handleDeleteItem}
@@ -7570,15 +7590,35 @@ const [gridEditText, setGridEditText] = useState('');
               const parsed = parseTaskInput(title);
               const addedText = parsed.hasMatch ? parsed.title : title;
               const attachments: NonNullable<TodoItem['attachments']> = [];
+              let driveReadyForShare = isDriveSessionActive();
+              if (files.length > 0 && !driveReadyForShare) {
+                try {
+                  await ensureDriveAccessToken(user);
+                  driveReadyForShare = true;
+                  updateAppSettings({ googleDriveConnected: true });
+                } catch {
+                  // User cancelled Drive auth; keep local-only attachments
+                }
+              }
               for (const file of files) {
                 const attId = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                 await saveAttachmentBlob(attId, file.blob);
+                let driveFileId: string | null = null;
+                if (driveReadyForShare) {
+                  driveFileId = await uploadAttachmentToDrive({
+                    blob: file.blob,
+                    fileName: `${attId}-${file.name}`,
+                    contentType: file.type,
+                    interactive: true,
+                  });
+                }
                 attachments.push({
                   id: attId,
                   name: file.name,
                   size: file.size,
                   type: file.type,
                   uploadedByUid: user.uid,
+                  ...(driveFileId ? { driveFileId } : {}),
                 });
               }
               await addDoc(collection(db, 'lists', targetListId, 'items'), {

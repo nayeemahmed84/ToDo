@@ -3,7 +3,7 @@ import { isIosNonStandalone, isNotificationApiSupported } from '../lib/notificat
 import type { BackupImportMode, ParsedBackupPackage } from '../lib/backup';
 import type { ListTemplate, SavedFilter } from '../types/todo';
 import { buildIcalFeedUrls, getIcalWorkerBaseUrl } from '../lib/icalFeed';
-import { isDriveSessionActive, type DriveBackupFile } from '../lib/googleDrive';
+import { isDriveSessionActive, subscribeDriveSession, type DriveBackupFile } from '../lib/googleDrive';
 import { AppSelect } from './AppSelect';
 
 export interface AppSettings {
@@ -157,6 +157,11 @@ export function SettingsModal({
   const [preflight, setPreflight] = useState<ParsedBackupPackage | null>(null);
   const [importMode, setImportMode] = useState<BackupImportMode>('copy');
   const [backupFeedback, setBackupFeedback] = useState<{ kind: 'success' | 'error'; text: string; warnings?: string[] } | null>(null);
+
+  useEffect(() => {
+    setDriveSessionActive(isDriveSessionActive());
+    return subscribeDriveSession(setDriveSessionActive);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -593,129 +598,104 @@ export function SettingsModal({
                 </div>
               </div>
 
-              {!driveSessionActive && !settings.googleDriveConnected ? (
-                <button
-                  type="button"
-                  className="settings-btn primary full"
-                  disabled={driveBusy}
-                  onClick={async () => {
-                    setDriveBusy(true);
-                    setBackupFeedback(null);
-                    try {
-                      await onConnectGoogleDrive();
-                      setDriveSessionActive(true);
-                      setBackupFeedback({
-                        kind: 'success',
-                        text: 'Google Drive connected. Attachments and cloud backups will save to ToDo PWA/ in your Drive.',
-                      });
-                    } catch (err) {
-                      setBackupFeedback({
-                        kind: 'error',
-                        text: err instanceof Error ? err.message : 'Failed to connect Google Drive.',
-                      });
-                    } finally {
-                      setDriveBusy(false);
-                    }
-                  }}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-                  </svg>
-                  <span>{driveBusy ? 'Connecting…' : 'Connect Google Drive'}</span>
-                </button>
-              ) : (
-                <>
-                  <div className="settings-btn-grid">
-                    {onBackupToGoogleDrive && (
-                      <button
-                        type="button"
-                        className="settings-btn primary"
-                        disabled={driveBusy || exporting || importing}
-                        onClick={async () => {
-                          setDriveBusy(true);
-                          setBackupFeedback(null);
-                          setDriveBackupProgress({ percent: 5, detail: 'Starting Google Drive backup…' });
-                          try {
-                            const res = await onBackupToGoogleDrive(setDriveBackupProgress);
-                            setDriveSessionActive(true);
+              <>
+                <div className="settings-btn-grid">
+                  {onBackupToGoogleDrive && (
+                    <button
+                      type="button"
+                      className="settings-btn primary"
+                      disabled={driveBusy || exporting || importing}
+                      onClick={async () => {
+                        setDriveBusy(true);
+                        setBackupFeedback(null);
+                        setDriveBackupProgress({
+                          percent: 5,
+                          detail: driveSessionActive
+                            ? 'Starting Google Drive backup…'
+                            : 'Connecting to Google Drive…',
+                        });
+                        try {
+                          const res = await onBackupToGoogleDrive(setDriveBackupProgress);
+                          setDriveSessionActive(true);
+                          setBackupFeedback({
+                            kind: 'success',
+                            text: `Saved "${res.fileName}" to Google Drive (${res.items} tasks, ${res.trashedItems} in Trash).`,
+                            warnings: res.warnings.length > 0 ? res.warnings : undefined,
+                          });
+                        } catch (err) {
+                          setBackupFeedback({
+                            kind: 'error',
+                            text: err instanceof Error ? err.message : 'Failed to save backup to Google Drive.',
+                          });
+                        } finally {
+                          setDriveBusy(false);
+                          setDriveBackupProgress(null);
+                        }
+                      }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+                        <path d="M12 12v9" />
+                        <path d="m16 16-4-4-4 4" />
+                      </svg>
+                      <span>{driveBackupProgress ? `Backing up (${driveBackupProgress.percent}%)` : driveBusy ? 'Working…' : 'Save backup'}</span>
+                    </button>
+                  )}
+                  {onListGoogleDriveBackups && (
+                    <button
+                      type="button"
+                      className="settings-btn"
+                      disabled={driveBusy || importing}
+                      onClick={async () => {
+                        setDriveBusy(true);
+                        setBackupFeedback(null);
+                        try {
+                          const files = await onListGoogleDriveBackups();
+                          setDriveSessionActive(true);
+                          setDriveBackups(files);
+                          if (files.length === 0) {
                             setBackupFeedback({
                               kind: 'success',
-                              text: `Saved "${res.fileName}" to Google Drive (${res.items} tasks, ${res.trashedItems} in Trash).`,
-                              warnings: res.warnings.length > 0 ? res.warnings : undefined,
+                              text: 'No backups found in ToDo PWA/Backups on Google Drive yet.',
                             });
-                          } catch (err) {
-                            setBackupFeedback({
-                              kind: 'error',
-                              text: err instanceof Error ? err.message : 'Failed to save backup to Google Drive.',
-                            });
-                          } finally {
-                            setDriveBusy(false);
-                            setDriveBackupProgress(null);
                           }
-                        }}
-                      >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
-                          <path d="M12 12v9" />
-                          <path d="m16 16-4-4-4 4" />
-                        </svg>
-                        <span>{driveBackupProgress ? `Backing up (${driveBackupProgress.percent}%)` : driveBusy ? 'Working…' : 'Save backup'}</span>
-                      </button>
-                    )}
-                    {onListGoogleDriveBackups && (
-                      <button
-                        type="button"
-                        className="settings-btn"
-                        disabled={driveBusy || importing}
-                        onClick={async () => {
-                          setDriveBusy(true);
-                          setBackupFeedback(null);
-                          try {
-                            const files = await onListGoogleDriveBackups();
-                            setDriveSessionActive(true);
-                            setDriveBackups(files);
-                            if (files.length === 0) {
-                              setBackupFeedback({
-                                kind: 'success',
-                                text: 'No backups found in ToDo PWA/Backups on Google Drive yet.',
-                              });
-                            }
-                          } catch (err) {
-                            setBackupFeedback({
-                              kind: 'error',
-                              text: err instanceof Error ? err.message : 'Failed to load Google Drive backups.',
-                            });
-                          } finally {
-                            setDriveBusy(false);
-                          }
-                        }}
-                      >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
-                          <path d="M12 12v9" />
-                          <path d="m8 17 4 4 4-4" />
-                        </svg>
-                        <span>Restore from Drive</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {driveBackupProgress && (
-                    <div className="detail-upload-progress" style={{ margin: 0 }} role="status" aria-live="polite">
-                      <div className="detail-upload-progress-row">
-                        <span className="detail-upload-progress-label">{driveBackupProgress.detail}</span>
-                        <span className="detail-upload-progress-pct">{driveBackupProgress.percent}%</span>
-                      </div>
-                      <div className="detail-upload-progress-track">
-                        <div
-                          className="detail-upload-progress-fill"
-                          style={{ width: `${driveBackupProgress.percent}%` }}
-                        />
-                      </div>
-                    </div>
+                        } catch (err) {
+                          setBackupFeedback({
+                            kind: 'error',
+                            text: err instanceof Error ? err.message : 'Failed to load Google Drive backups.',
+                          });
+                        } finally {
+                          setDriveBusy(false);
+                        }
+                      }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+                        <path d="M12 12v9" />
+                        <path d="m8 17 4 4 4-4" />
+                      </svg>
+                      <span>Restore from Drive</span>
+                    </button>
                   )}
+                </div>
 
-                  <div className="settings-card-footer-links">
+                {driveBackupProgress && (
+                  <div className="detail-upload-progress" style={{ margin: 0 }} role="status" aria-live="polite">
+                    <div className="detail-upload-progress-row">
+                      <span className="detail-upload-progress-label">{driveBackupProgress.detail}</span>
+                      <span className="detail-upload-progress-pct">{driveBackupProgress.percent}%</span>
+                    </div>
+                    <div className="detail-upload-progress-track">
+                      <div
+                        className="detail-upload-progress-fill"
+                        style={{ width: `${driveBackupProgress.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="settings-card-footer-links">
+                  {!driveSessionActive && !settings.googleDriveConnected ? (
                     <button
                       type="button"
                       className="settings-link-btn"
@@ -728,41 +708,70 @@ export function SettingsModal({
                           setDriveSessionActive(true);
                           setBackupFeedback({
                             kind: 'success',
-                            text: 'Google Drive session refreshed.',
+                            text: 'Google Drive connected. Attachments and cloud backups will save to ToDo PWA/ in your Drive.',
                           });
                         } catch (err) {
                           setBackupFeedback({
                             kind: 'error',
-                            text: err instanceof Error ? err.message : 'Failed to reconnect Google Drive.',
+                            text: err instanceof Error ? err.message : 'Failed to connect Google Drive.',
                           });
                         } finally {
                           setDriveBusy(false);
                         }
                       }}
                     >
-                      Reconnect Drive
+                      {driveBusy ? 'Connecting…' : 'Connect Google Drive'}
                     </button>
-                    {onDisconnectGoogleDrive && (
-                      <>
-                        <span className="settings-footer-dot" aria-hidden="true">·</span>
-                        <button
-                          type="button"
-                          className="settings-link-btn danger"
-                          disabled={driveBusy}
-                          onClick={() => {
-                            onDisconnectGoogleDrive();
-                            setDriveSessionActive(false);
-                            setDriveBackups(null);
-                            setBackupFeedback({ kind: 'success', text: 'Disconnected Google Drive.' });
-                          }}
-                        >
-                          Disconnect
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="settings-link-btn"
+                        disabled={driveBusy}
+                        onClick={async () => {
+                          setDriveBusy(true);
+                          setBackupFeedback(null);
+                          try {
+                            await onConnectGoogleDrive();
+                            setDriveSessionActive(true);
+                            setBackupFeedback({
+                              kind: 'success',
+                              text: 'Google Drive session refreshed.',
+                            });
+                          } catch (err) {
+                            setBackupFeedback({
+                              kind: 'error',
+                              text: err instanceof Error ? err.message : 'Failed to reconnect Google Drive.',
+                            });
+                          } finally {
+                            setDriveBusy(false);
+                          }
+                        }}
+                      >
+                        Reconnect Drive
+                      </button>
+                      {onDisconnectGoogleDrive && (
+                        <>
+                          <span className="settings-footer-dot" aria-hidden="true">·</span>
+                          <button
+                            type="button"
+                            className="settings-link-btn danger"
+                            disabled={driveBusy}
+                            onClick={() => {
+                              onDisconnectGoogleDrive();
+                              setDriveSessionActive(false);
+                              setDriveBackups(null);
+                              setBackupFeedback({ kind: 'success', text: 'Disconnected Google Drive.' });
+                            }}
+                          >
+                            Disconnect
+                          </button>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              </>
 
               {driveBackups && driveBackups.length > 0 && onInspectGoogleDriveBackup && (
                 <div className="settings-drive-list">
