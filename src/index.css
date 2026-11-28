@@ -2161,7 +2161,8 @@ button.primary.small {
   pointer-events: none;
 }
 
-.modal-backdrop.exiting {
+.modal-backdrop.exiting,
+.settings-backdrop.exiting {
   animation: backdropFadeOut 180ms var(--ease-out) forwards;
   pointer-events: none;
 }
@@ -2169,6 +2170,45 @@ button.primary.small {
 .modal-backdrop.exiting .modal-card,
 .modal-card.exiting {
   animation: modalPopOut 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.settings-backdrop.exiting .settings-panel,
+.settings-panel.exiting {
+  animation: paneSlideOut 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.settings-backdrop,
+.modal-backdrop {
+  transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-panel,
+.shortcuts-modal {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), border-radius 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+
+.settings-backdrop.predictive-back-active .settings-panel,
+.modal-backdrop.predictive-back-active .shortcuts-modal {
+  animation: none;
+}
+
+@keyframes predictiveBackExit {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(28px, 0, 0) scale(0.92);
+    border-radius: 20px;
+  }
+}
+
+@media (max-width: 767px) {
+  .settings-backdrop.exiting .settings-panel,
+  .modal-backdrop.exiting .shortcuts-modal {
+    animation: predictiveBackExit 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
 }
 
 /* ============ Task row transitions ============ */

@@ -1,12 +1,36 @@
+import {
+  getPredictiveBackBackdropStyle,
+  getPredictiveBackSurfaceStyle,
+  type PredictiveBackDirection,
+} from '../lib/predictiveBack';
+
 interface ShortcutsModalProps {
   onClose: () => void;
+  isExiting?: boolean;
+  predictiveBackProgress?: number;
+  predictiveBackDirection?: PredictiveBackDirection;
 }
 
-export function ShortcutsModal({ onClose }: ShortcutsModalProps) {
+export function ShortcutsModal({
+  onClose,
+  isExiting = false,
+  predictiveBackProgress = 0,
+  predictiveBackDirection = 1,
+}: ShortcutsModalProps) {
+  const isPredictiveSwiping = predictiveBackProgress > 0;
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className={`modal-backdrop${isExiting ? ' exiting' : ''}${isPredictiveSwiping ? ' predictive-back-active' : ''}`}
+      style={getPredictiveBackBackdropStyle(predictiveBackProgress)}
+      onClick={onClose}
+    >
       <div
         className="modal-card shortcuts-modal"
+        style={getPredictiveBackSurfaceStyle(predictiveBackProgress, predictiveBackDirection, {
+          maxTranslateX: 32,
+          minScale: 0.92,
+          maxRadiusPx: 20,
+        })}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

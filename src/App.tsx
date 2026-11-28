@@ -97,6 +97,15 @@ import {
 import { pickPhotoFromGooglePhotos } from './lib/googlePhotosPicker';
 import { getContextSubmenuPosition, ContextSubmenuPosition } from './lib/contextMenu';
 import { runViewTransition, useAnimatedPresence, useFlipList, useRetainedValue } from './lib/motion';
+import {
+  computePredictiveBackProgress,
+  detectEdgeSwipeStart,
+  resolveEdgeSwipeTarget,
+  resolveMobileBackAction,
+  shouldCommitPredictiveBack,
+  type PredictiveBackDirection,
+  type PredictiveBackTarget,
+} from './lib/predictiveBack';
 import { blobToDataUrl, compressBackgroundImage, isSupportedImageFile } from './lib/imageCompression';
 import {
   notifyListCollaborators,
@@ -772,12 +781,20 @@ export function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [pullRefreshY, setPullRefreshY] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [edgeSwipeX, setEdgeSwipeX] = useState(0);
+  const [edgeSwipe, setEdgeSwipe] = useState<{
+    target: PredictiveBackTarget;
+    progress: number;
+    direction: PredictiveBackDirection;
+  }>({ target: null, progress: 0, direction: 1 });
+  const settingsHistoryPushedRef = useRef(false);
+  const shortcutsHistoryPushedRef = useRef(false);
   const selectionHistoryPushedRef = useRef(false);
   const detailHistoryPushedRef = useRef(false);
   const mobileViewHistoryPushedRef = useRef(false);
   const suppressPopStateCountRef = useRef(0);
   const mobileNavStateRef = useRef({
+    settingsOpen: false,
+    shortcutsOpen: false,
     taskDatePickerOpen: false,
     contextMenuOpen: false,
     selectedCount: 0,
@@ -785,12 +802,44 @@ export function App() {
     mobileView: 'home' as 'home' | 'list' | 'search',
   });
   mobileNavStateRef.current = {
+    settingsOpen,
+    shortcutsOpen,
     taskDatePickerOpen,
     contextMenuOpen: Boolean(contextMenu),
     selectedCount: selectedIds.size,
     selectedItemId,
     mobileView,
   };
+
+  useEffect(() => {
+    const isMobile = window.matchMedia('(max-width: 767px)').matches;
+    if (!isMobile) return;
+    if (settingsOpen && !settingsHistoryPushedRef.current) {
+      settingsHistoryPushedRef.current = true;
+      window.history.pushState({ ...(window.history.state ?? {}), mobileSettings: true }, '');
+    } else if (!settingsOpen && settingsHistoryPushedRef.current) {
+      settingsHistoryPushedRef.current = false;
+      if (window.history.state?.mobileSettings) {
+        suppressPopStateCountRef.current += 1;
+        window.history.back();
+      }
+    }
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    const isMobile = window.matchMedia('(max-width: 767px)').matches;
+    if (!isMobile) return;
+    if (shortcutsOpen && !shortcutsHistoryPushedRef.current) {
+      shortcutsHistoryPushedRef.current = true;
+      window.history.pushState({ ...(window.history.state ?? {}), mobileShortcuts: true }, '');
+    } else if (!shortcutsOpen && shortcutsHistoryPushedRef.current) {
+      shortcutsHistoryPushedRef.current = false;
+      if (window.history.state?.mobileShortcuts) {
+        suppressPopStateCountRef.current += 1;
+        window.history.back();
+      }
+    }
+  }, [shortcutsOpen]);
 
   useEffect(() => {
     try {
@@ -852,6 +901,17 @@ export function App() {
         return;
       }
       const state = mobileNavStateRef.current;
+      if (settingsHistoryPushedRef.current || state.settingsOpen) {
+        settingsHistoryPushedRef.current = false;
+        setSettingsOpen(false);
+        setSettingsFocus(null);
+        return;
+      }
+      if (shortcutsHistoryPushedRef.current || state.shortcutsOpen) {
+        shortcutsHistoryPushedRef.current = false;
+        setShortcutsOpen(false);
+        return;
+      }
       if (state.taskDatePickerOpen) {
         setTaskDatePickerOpen(false);
         return;
@@ -886,19 +946,36 @@ export function App() {
     let startX = 0;
     let startY = 0;
     let tracking = false;
+    let swipeDirection: PredictiveBackDirection = 1;
+    let swipeTarget: PredictiveBackTarget = null;
+
+    const resetEdgeSwipe = () => {
+      setEdgeSwipe((prev) =>
+        prev.progress === 0 && prev.target === null
+          ? prev
+          : { target: null, progress: 0, direction: 1 }
+      );
+    };
 
     const onTouchStart = (e: TouchEvent) => {
       if (!window.matchMedia('(max-width: 767px)').matches || e.touches.length !== 1) {
         tracking = false;
         return;
       }
+      const state = mobileNavStateRef.current;
+      const target = resolveEdgeSwipeTarget(state);
+      const allowRightEdge = target === 'settings' || target === 'shortcuts';
       const touch = e.touches[0];
-      if (touch.clientX <= 28) {
+      const direction = detectEdgeSwipeStart(touch.clientX, window.innerWidth, allowRightEdge);
+      if (direction !== null) {
         startX = touch.clientX;
         startY = touch.clientY;
+        swipeDirection = direction;
+        swipeTarget = target;
         tracking = true;
       } else {
         tracking = false;
+        swipeTarget = null;
       }
     };
 
@@ -907,47 +984,71 @@ export function App() {
       const touch = e.touches[0];
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
-      if (dx > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-        const state = mobileNavStateRef.current;
-        if (state.selectedItemId !== null || state.mobileView !== 'home') {
-          setEdgeSwipeX(Math.min(140, dx));
-        }
+      const progress = computePredictiveBackProgress(dx, dy, swipeDirection);
+      if (progress > 0 && swipeTarget !== null) {
+        setEdgeSwipe({ target: swipeTarget, progress, direction: swipeDirection });
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
       if (!tracking || e.changedTouches.length !== 1) return;
       tracking = false;
-      setEdgeSwipeX(0);
+      const direction = swipeDirection;
+      swipeTarget = null;
+      resetEdgeSwipe();
       const touch = e.changedTouches[0];
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
-      if (dx > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-        const state = mobileNavStateRef.current;
-        if (state.taskDatePickerOpen) {
-          setTaskDatePickerOpen(false);
-        } else if (state.contextMenuOpen) {
-          setContextMenu(null);
-          setTaskSubmenu(null);
-        } else if (state.selectedItemId !== null) {
-          setSelectedItemId(null);
-        } else if (state.mobileView !== 'home') {
-          setSearchQuery('');
-          setMobileSearchMenuOpen(false);
-          setMobileView('home');
+      if (shouldCommitPredictiveBack(dx, dy, direction)) {
+        const action = resolveMobileBackAction(mobileNavStateRef.current);
+        switch (action) {
+          case 'close-settings':
+            setSettingsOpen(false);
+            setSettingsFocus(null);
+            break;
+          case 'close-shortcuts':
+            setShortcutsOpen(false);
+            break;
+          case 'close-date-picker':
+            setTaskDatePickerOpen(false);
+            break;
+          case 'close-context-menu':
+            setContextMenu(null);
+            setTaskSubmenu(null);
+            break;
+          case 'clear-selection':
+            setSelectedIds(new Set());
+            break;
+          case 'close-detail':
+            setSelectedItemId(null);
+            break;
+          case 'go-home':
+            setSearchQuery('');
+            setMobileSearchMenuOpen(false);
+            setMobileView('home');
+            break;
+          case 'none':
+            break;
         }
       }
+    };
+
+    const onTouchCancel = () => {
+      if (!tracking) return;
+      tracking = false;
+      swipeTarget = null;
+      resetEdgeSwipe();
     };
 
     window.addEventListener('touchstart', onTouchStart, { passive: true });
     window.addEventListener('touchmove', onTouchMove, { passive: true });
     window.addEventListener('touchend', onTouchEnd, { passive: true });
-    window.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', onTouchCancel, { passive: true });
     return () => {
       window.removeEventListener('touchstart', onTouchStart);
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onTouchEnd);
-      window.removeEventListener('touchcancel', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchCancel);
     };
   }, []);
 
@@ -1860,6 +1961,8 @@ const [gridEditText, setGridEditText] = useState('');
   const renderedClipboardToast = useRetainedValue(clipboardToast, clipboardToastPresence.shouldRender);
   const listPickerPresence = useAnimatedPresence(Boolean(listPickerMenu), 180);
   const renderedListPicker = useRetainedValue(listPickerMenu, listPickerPresence.shouldRender);
+  const settingsPresence = useAnimatedPresence(settingsOpen, 200);
+  const shortcutsPresence = useAnimatedPresence(shortcutsOpen, 200);
 
   const allLists = useMemo(() => {
     const map = new Map<string, TodoList>();
@@ -4504,7 +4607,9 @@ const [gridEditText, setGridEditText] = useState('');
             ...(customBackgroundUrl ? {
               backgroundImage: `linear-gradient(rgba(19, 19, 19, .10), rgba(17, 16, 15, .22)), url(${JSON.stringify(customBackgroundUrl)})`,
             } : {}),
-            ...(edgeSwipeX > 0 ? { transform: `translateX(${Math.round(edgeSwipeX * 0.35)}px)`, transition: 'none' } : {}),
+            ...(edgeSwipe.target === 'main' && edgeSwipe.progress > 0
+              ? { transform: `translateX(${Math.round(edgeSwipe.progress * 49)}px)`, transition: 'none' }
+              : {}),
           }}
         >
         {marqueeRect && (
@@ -7650,8 +7755,15 @@ const [gridEditText, setGridEditText] = useState('');
           />
         )}
         {whatsNewOpen && <WhatsNewModal onClose={() => setWhatsNewOpen(false)} />}
-        {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
-        {settingsOpen && (
+        {shortcutsPresence.shouldRender && (
+          <ShortcutsModal
+            isExiting={shortcutsPresence.isExiting}
+            predictiveBackProgress={edgeSwipe.target === 'shortcuts' ? edgeSwipe.progress : 0}
+            predictiveBackDirection={edgeSwipe.direction}
+            onClose={() => setShortcutsOpen(false)}
+          />
+        )}
+        {settingsPresence.shouldRender && (
           <SettingsModal
             settings={appSettings}
             onUpdateSettings={updateAppSettings}
@@ -7679,6 +7791,9 @@ const [gridEditText, setGridEditText] = useState('');
             onInspectGoogleDriveBackup={handleInspectGoogleDriveBackup}
             focusSectionId={settingsFocus?.sectionId ?? null}
             focusToken={settingsFocus?.token ?? 0}
+            isExiting={settingsPresence.isExiting}
+            predictiveBackProgress={edgeSwipe.target === 'settings' ? edgeSwipe.progress : 0}
+            predictiveBackDirection={edgeSwipe.direction}
             onClose={() => {
               setSettingsOpen(false);
               setSettingsFocus(null);

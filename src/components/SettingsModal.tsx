@@ -5,6 +5,11 @@ import type { ListTemplate, SavedFilter } from '../types/todo';
 import { buildIcalFeedUrls, getIcalWorkerBaseUrl } from '../lib/icalFeed';
 import { isDriveSessionActive, subscribeDriveSession, type DriveBackupFile } from '../lib/googleDrive';
 import { AppSelect } from './AppSelect';
+import {
+  getPredictiveBackBackdropStyle,
+  getPredictiveBackSurfaceStyle,
+  type PredictiveBackDirection,
+} from '../lib/predictiveBack';
 
 export interface AppSettings {
   confirmBeforeDelete: boolean;
@@ -77,6 +82,9 @@ interface SettingsModalProps {
   onInspectGoogleDriveBackup?: (fileId: string) => Promise<ParsedBackupPackage>;
   focusSectionId?: string | null;
   focusToken?: number;
+  isExiting?: boolean;
+  predictiveBackProgress?: number;
+  predictiveBackDirection?: PredictiveBackDirection;
   onClose: () => void;
 }
 
@@ -139,6 +147,9 @@ export function SettingsModal({
   onInspectGoogleDriveBackup,
   focusSectionId = null,
   focusToken = 0,
+  isExiting = false,
+  predictiveBackProgress = 0,
+  predictiveBackDirection = 1,
   onClose,
 }: SettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -209,8 +220,14 @@ export function SettingsModal({
     };
   }, [focusSectionId, focusToken]);
 
+  const isPredictiveSwiping = predictiveBackProgress > 0;
+
   return (
-    <div className="settings-backdrop" onClick={onClose}>
+    <div
+      className={`settings-backdrop${isExiting ? ' exiting' : ''}${isPredictiveSwiping ? ' predictive-back-active' : ''}`}
+      style={getPredictiveBackBackdropStyle(predictiveBackProgress)}
+      onClick={onClose}
+    >
       <aside
         ref={panelRef}
         className="settings-panel"
@@ -226,6 +243,11 @@ export function SettingsModal({
           display: 'flex',
           flexDirection: 'column',
           gap: '0.5rem',
+          ...getPredictiveBackSurfaceStyle(predictiveBackProgress, predictiveBackDirection, {
+            maxTranslateX: 36,
+            minScale: 0.92,
+            maxRadiusPx: 24,
+          }),
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
